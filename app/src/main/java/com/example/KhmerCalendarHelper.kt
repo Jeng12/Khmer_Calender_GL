@@ -32,6 +32,10 @@ object KhmerCalendarHelper {
     private val KH_DAYS = listOf("អាទិត្យ", "ចន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍")
     private val KH_DAYS_SHORT = listOf("អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស")
     private val EN_DAYS = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    private val KHMER_NUMERAL_MAP = mapOf(
+        '0' to '០', '1' to '១', '2' to '២', '3' to '៣', '4' to '៤',
+        '5' to '៥', '6' to '៦', '7' to '៧', '8' to '៨', '9' to '៩'
+    )
 
     // Serial day calculator (counts days from astronomical year 0)
     fun getSerialDay(year: Int, month: Int, day: Int): Int {
@@ -42,23 +46,6 @@ object KhmerCalendarHelper {
             m += 12
         }
         return (365 * y) + (y / 4) - (y / 100) + (y / 400) + ((153 * m + 2) / 5) + day
-    }
-
-    // Convert serial day back to Simple Gregorian Date (Year, Month, Day)
-    fun fromSerialDay(serial: Int): Triple<Int, Int, Int> {
-        val z = serial + 1
-        val alpha = ((z - 1867216.25) / 36524.25).toInt()
-        val a = z + 1 + alpha - (alpha / 4)
-        val b = a + 1524
-        val c = ((b - 122.1) / 365.25).toInt()
-        val d = (365.25 * c).toInt()
-        val e = ((b - d) / 30.6001).toInt()
-
-        val day = b - d - (30.6001 * e).toInt()
-        val month = if (e < 14) e - 1 else e - 13
-        val year = if (month > 2) c - 4716 else c - 4715
-
-        return Triple(year, month, day)
     }
 
     // 1 Kert of lunar months milestones for 2025, 2026, 2027
@@ -120,13 +107,6 @@ object KhmerCalendarHelper {
     // Convert Gregorian day to KhmerDate representation
     fun getKhmerDate(year: Int, month: Int, day: Int): KhmerDate {
         val sDay = getSerialDay(year, month, day)
-        val dayOfWeekIndex = ((sDay + 1) % 7 + 7) % 7 // Saturday=0, Sunday=1... or whatever. Let's trace:
-        // Jan 1, 1970 is Thursday. Let's calibrate dayOfWeek index.
-        // A standard and safe way is (z + 1) % 7.
-        // In our formula, (sDay % 7) or (sDay + 5) % 7 etc.
-        // Let's test: May 25, 2026 is Monday.
-        // Let's do a reliable day of week calculation via Calendar or standard Julian day of week:
-        // standard day of week index: (sDay + 4) % 7 -> Sunday = 0, Monday = 1 ... Saturday = 6.
         val dowIdx = ((sDay + 4) % 7 + 7) % 7
 
         var matchingMs = milestones.lastOrNull { it.serialDay <= sDay }
@@ -177,7 +157,7 @@ object KhmerCalendarHelper {
 
         // Auspicious Checker: Stable algorithm to make auspicious days look realistic
         // We consider days that have specific lunar alignments as auspicious
-        val isAuspicious = (lunarDayVal in listOf(3, 7, 12, 19, 26)) || (isWaxing && displayLunarDay in listOf(3, 7, 11))
+        val isAuspicious = (offset % 30) in listOf(2, 6, 10, 11, 18, 25)
         val auspiciousType = if (isAuspicious) {
             when (lunarDayVal % 4) {
                 0 -> "ពិធីមង្គលការ (Wedding)"
@@ -209,11 +189,7 @@ object KhmerCalendarHelper {
 
     // Number converter helper for Khmer Numerals
     fun toKhmerNumeral(n: Int): String {
-        val mapping = mapOf(
-            '0' to '០', '1' to '១', '2' to '២', '3' to '៣', '4' to '៤',
-            '5' to '៥', '6' to '៦', '7' to '៧', '8' to '៨', '9' to '៩'
-        )
-        return n.toString().map { mapping[it] ?: it }.joinToString("")
+        return n.toString().map { KHMER_NUMERAL_MAP[it] ?: it }.joinToString("")
     }
 
     // Return list of days in a given Gregorian Month-Year
