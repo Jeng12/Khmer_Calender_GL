@@ -1,0 +1,6 @@
+{
+  "name": "Khmer Calendar",
+  "description": "A beautiful traditional Khmer Lunar Calendar featuring moon phases, auspicious dates, holidays, and date conversion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
