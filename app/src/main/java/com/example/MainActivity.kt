@@ -1,7 +1,6 @@
 package com.example
 
 import android.os.Bundle
-import android.widget.Space
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -380,8 +379,8 @@ fun LoginScreenContent(
     onSignUp: () -> Unit,
     onForgot: () -> Unit
 ) {
-    var email by remember { mutableStateOf("jengah6@gmail.com") }
-    var password by remember { mutableStateOf("password") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -544,7 +543,7 @@ fun RegisterScreenContent(
     var fn by remember { mutableStateOf("ចន្ទ") }
     var ln by remember { mutableStateOf("ដារ៉ា") }
     var email by remember { mutableStateOf("chanda@example.com") }
-    var password by remember { mutableStateOf("secret") }
+    var password by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -965,11 +964,17 @@ fun BottomBarItem(
 // 1. HOME TAB CONTAINER
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
-    // Current live calendar values
-    val currentDay = 28
-    val currentMonth = 5
-    val currentYear = 2026
-    val currentKhmerInfo = KhmerCalendarHelper.getKhmerDate(currentYear, currentMonth, currentDay)
+    val calendar = remember { java.util.Calendar.getInstance() }
+    val currentYear = calendar.get(java.util.Calendar.YEAR)
+    val currentMonth = calendar.get(java.util.Calendar.MONTH) + 1
+    val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+    val currentKhmerInfo = remember(currentYear, currentMonth, currentDay) {
+        KhmerCalendarHelper.getKhmerDate(currentYear, currentMonth, currentDay)
+    }
+    val khmerGregorianMonths = listOf(
+        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
+        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
+    )
 
     LazyColumn(
         modifier = Modifier
@@ -1031,7 +1036,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                             Column {
                                 Text("TODAY · ថ្ងៃនេះ", fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
                                 Text(
-                                    text = "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${currentKhmerInfo.day} ឧសភា ២០២៦",
+                                    text = "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${currentKhmerInfo.day} ${khmerGregorianMonths[currentMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(currentYear)}",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MoonWheat
@@ -1071,7 +1076,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ខែពិសាខ ៣ រោច", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold)
+                                Text("ខែ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.lunarDayName}", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -1263,7 +1268,7 @@ fun CalendarTabContent(
                         color = MoonWheat
                     )
                     Text(
-                        text = "ព.ស. ${selectedKhmerDate.BE} · ឆ្នាំ${selectedKhmerDate.zodiac}",
+                        text = "ព.ស. ${selectedKhmerDate.BE} · ${selectedKhmerDate.zodiac}",
                         fontSize = 9.sp,
                         color = TraditionalGold,
                         fontWeight = FontWeight.SemiBold
@@ -1345,7 +1350,9 @@ fun CalendarTabContent(
                                         verticalArrangement = Arrangement.Center
                                     ) {
                                         // Render small indicator for major moon phase
-                                        val hasMoonIndicator = dateInfo.lunarDayVal in listOf(1, 8, 15)
+                                        val hasMoonIndicator =
+                                            (dateInfo.isWaxing && dateInfo.lunarDayVal in listOf(1, 8, 15)) ||
+                                            (!dateInfo.isWaxing && dateInfo.lunarDayVal == 8)
                                         if (hasMoonIndicator) {
                                             Text(dateInfo.moonEmoji, fontSize = 7.sp, lineHeight = 8.sp)
                                         }
@@ -1696,6 +1703,12 @@ fun DateConvertContent(
     var inMonth by remember { mutableStateOf(month) }
     var inDay by remember { mutableStateOf(day) }
 
+    LaunchedEffect(year, month, day) {
+        inYear = year
+        inMonth = month
+        inDay = day
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1815,7 +1828,7 @@ fun DateConvertContent(
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ឆ្នាំ${convertedDate.zodiac}", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                                Text(convertedDate.zodiac, fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.Bold)
                             }
                             Box(
                                 modifier = Modifier
