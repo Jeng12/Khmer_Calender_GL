@@ -93,10 +93,13 @@ fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
     var currentTab by remember { mutableStateOf(AppTab.HOME) }
 
-    // State for interactive dates
-    var calendarYear by remember { mutableStateOf(2026) }
-    var calendarMonth by remember { mutableStateOf(5) } // May 2026 as standard reference
-    var selectedDayIndex by remember { mutableStateOf(15) } // Default May 15 2026
+    // Today's real Gregorian date, used to open the calendar focused on the current day
+    val today = remember { java.util.Calendar.getInstance() }
+
+    // State for interactive dates — initialised to the current day
+    var calendarYear by remember { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
+    var calendarMonth by remember { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
+    var selectedDayIndex by remember { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
 
     // Conversion calculator state
     var convertYear by remember { mutableStateOf("2026") }
@@ -110,11 +113,11 @@ fun KhmerCalendarApp() {
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
 
-    // Splash Timer
+    // Splash Timer — go straight to the main app (login flow skipped)
     LaunchedEffect(screenState) {
         if (screenState == AppScreen.SPLASH) {
             delay(1800)
-            screenState = AppScreen.ONBOARDING
+            screenState = AppScreen.MAIN_APP
         }
     }
 
@@ -169,6 +172,12 @@ fun KhmerCalendarApp() {
                             selectedDayIndex = 1 // reset to 1st of month
                         },
                         onDaySelect = { selectedDayIndex = it },
+                        onGoToToday = {
+                            val cal = java.util.Calendar.getInstance()
+                            calendarYear = cal.get(java.util.Calendar.YEAR)
+                            calendarMonth = cal.get(java.util.Calendar.MONTH) + 1
+                            selectedDayIndex = cal.get(java.util.Calendar.DAY_OF_MONTH)
+                        },
                         convertYear = convertYear,
                         convertMonth = convertMonth,
                         convertDay = convertDay,
@@ -863,6 +872,7 @@ fun MainAppLayout(
     selectedDayIndex: Int,
     onCalendarMonthChange: (Int, Int) -> Unit,
     onDaySelect: (Int) -> Unit,
+    onGoToToday: () -> Unit = {},
     convertYear: String,
     convertMonth: String,
     convertDay: String,
@@ -893,7 +903,8 @@ fun MainAppLayout(
                         month = calendarMonth,
                         selectedDay = selectedDayIndex,
                         onMonthChange = onCalendarMonthChange,
-                        onDayChange = onDaySelect
+                        onDayChange = onDaySelect,
+                        onGoToToday = onGoToToday
                     )
                     AppTab.AUSPICIOUS -> AuspiciousTabContent(
                         calendarYear = calendarYear,
@@ -1009,17 +1020,12 @@ fun BottomBarItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(text = emoji, fontSize = 18.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
+        Text(text = emoji, fontSize = 20.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
         Text(
             text = label,
-            fontSize = 9.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = if (isSelected) TraditionalGold else GoldSubText.copy(0.6f)
-        )
-        Text(
-            text = subLabel,
-            fontSize = 7.sp,
-            color = if (isSelected) TraditionalGold.copy(0.7f) else DimColor
         )
         if (isSelected) {
             Box(
@@ -1076,7 +1082,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     Text("🌙", fontSize = 24.sp)
                 }
                 Column {
-                    Text("ប្រតិទិនចន្ទគតិខ្មែរ", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text("ប្រតិទិនចន្ទគតិខ្មែរ", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                     Text("KHMER LUNAR CALENDAR · OFFICIAL v2", fontSize = 9.sp, color = TraditionalGold, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -1112,7 +1118,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                 Text("TODAY · ថ្ងៃនេះ", fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
                                 Text(
                                     text = "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${currentKhmerInfo.day} ${khmerGregorianMonths[currentMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(currentYear)}",
-                                    fontSize = 15.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MoonWheat
                                 )
@@ -1130,7 +1136,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
                         Text(
                             text = "${currentKhmerInfo.lunarDayName} ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.zodiac}",
-                            fontSize = 13.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TraditionalGold
                         )
@@ -1277,7 +1283,7 @@ fun QuickGridCard(
         ) {
             Text(emoji, fontSize = 24.sp)
             Column {
-                Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SandText)
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SandText)
                 Text(subtitle, fontSize = 9.sp, color = DimColor)
             }
         }
@@ -1291,13 +1297,23 @@ fun CalendarTabContent(
     month: Int,
     selectedDay: Int,
     onMonthChange: (Int, Int) -> Unit,
-    onDayChange: (Int) -> Unit
+    onDayChange: (Int) -> Unit,
+    onGoToToday: () -> Unit = {}
 ) {
+    // Focus on the current day each time the Calendar tab is opened
+    LaunchedEffect(Unit) { onGoToToday() }
+
+    // The actual current Gregorian date, used to highlight "today" in the grid
+    val todayCal = remember { java.util.Calendar.getInstance() }
+    val todayYear = todayCal.get(java.util.Calendar.YEAR)
+    val todayMonth = todayCal.get(java.util.Calendar.MONTH) + 1
+    val todayDay = todayCal.get(java.util.Calendar.DAY_OF_MONTH)
     // Memoize: recompute only when year/month changes
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
-    // Starting day of week for index 1
+    // Starting day of week for index 1 (Sunday=0). Offset +2 matches getKhmerDate's
+    // weekday math so the grid columns line up with the real Gregorian weekdays.
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
-    val startOffset = ((startDayOfWeekSerial + 4) % 7 + 7) % 7 // index representing start day of week (Sunday=0, etc.)
+    val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7 // index representing start day of week (Sunday=0, etc.)
 
     val khmerMonthNames = listOf(
         "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
@@ -1338,16 +1354,26 @@ fun CalendarTabContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "ខែ${khmerMonthNames[month - 1]} $year",
-                        fontSize = 15.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = MoonWheat
                     )
                     Text(
                         text = "ព.ស. ${selectedKhmerDate.BE} · ${selectedKhmerDate.zodiac}",
-                        fontSize = 9.sp,
+                        fontSize = 11.sp,
                         color = TraditionalGold,
                         fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(TraditionalGold.copy(0.15f), RoundedCornerShape(20.dp))
+                            .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
+                            .clickable { onGoToToday() }
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("📅 ថ្ងៃនេះ", fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 IconButton(onClick = {
@@ -1402,6 +1428,7 @@ fun CalendarTabContent(
                             } else {
                                 val dateInfo = daysList[dayNumber - 1]
                                 val isSelected = dayNumber == selectedDay
+                                val isToday = year == todayYear && month == todayMonth && dayNumber == todayDay
                                 val isHoliday = dateInfo.holiday != null
                                 val isWeekend = col == 0 || col == 6
 
@@ -1410,10 +1437,20 @@ fun CalendarTabContent(
                                         .weight(1f)
                                         .aspectRatio(0.8f)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSelected) TraditionalGold.copy(0.2f) else Color.Transparent)
+                                        .background(
+                                            when {
+                                                isSelected -> TraditionalGold.copy(0.2f)
+                                                isToday -> LotusPink.copy(0.12f)
+                                                else -> Color.Transparent
+                                            }
+                                        )
                                         .border(
                                             1.5.dp,
-                                            if (isSelected) TraditionalGold else Color.Transparent,
+                                            when {
+                                                isSelected -> TraditionalGold
+                                                isToday -> LotusPink.copy(0.7f)
+                                                else -> Color.Transparent
+                                            },
                                             RoundedCornerShape(10.dp)
                                         )
                                         .clickable { onDayChange(dayNumber) }
@@ -1482,7 +1519,7 @@ fun CalendarTabContent(
                     ) {
                         Text(
                             text = "ព័ត៌មានលម្អិតថ្ងៃទី $selectedDay",
-                            fontSize = 13.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TraditionalGold
                         )
@@ -1497,7 +1534,7 @@ fun CalendarTabContent(
 
                     Text(
                         text = "ថ្ងៃចន្ទគតិ: ${selectedKhmerDate.lunarDayName} ${selectedKhmerDate.lunarMonthName}",
-                        fontSize = 12.sp,
+                        fontSize = 14.sp,
                         color = SandText,
                         fontWeight = FontWeight.Bold
                     )
@@ -1612,7 +1649,7 @@ fun AuspiciousTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("ថ្ងៃមង្គល (Auspicious Days)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text("ថ្ងៃមង្គល (Auspicious Days)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                     Text("Auspicious Days · ${KhmerCalendarHelper.toKhmerNumeral(calendarYear)}", fontSize = 9.sp, color = JadeGreen)
                 }
                 Text("🌿", fontSize = 24.sp)
@@ -1784,7 +1821,7 @@ fun HolidaysTabContent(
     ) {
         item {
             Column {
-                Text("ថ្ងៃបុណ្យ (Cambodian Holidays)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text("ថ្ងៃបុណ្យ (Cambodian Holidays)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
             }
         }
