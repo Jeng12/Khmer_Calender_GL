@@ -3,7 +3,7 @@ package com.example
 import org.junit.Assert.*
 import org.junit.Test
 
-class KhmerCalendarHelperTest {
+class ExampleUnitTest {
 
     @Test
     fun toKhmerNumeral_convertsDigitsCorrectly() {

@@ -1,6 +1,5 @@
 package com.example
 
-import android.util.LruCache
 import kotlin.math.floor
 import kotlin.math.sin
 
@@ -145,8 +144,11 @@ object KhmerCalendarHelper {
         return if (ms[lo].serialDay <= sDay) ms[lo] else fallbackMilestone
     }
 
-    // LRU cache for monthly data (12 months)
-    private val monthCache = LruCache<Long, List<KhmerDate>>(12)
+    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency
+    private val monthCache: MutableMap<Long, List<KhmerDate>> =
+        object : LinkedHashMap<Long, List<KhmerDate>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 12
+        }
 
     private fun monthCacheKey(year: Int, month: Int): Long = year.toLong() * 100 + month
 
@@ -301,7 +303,7 @@ object KhmerCalendarHelper {
             else -> 30
         }
         val result = (1..daysInMonth).map { getKhmerDate(year, month, it) }
-        monthCache.put(key, result)
+        monthCache[key] = result
         return result
     }
 
