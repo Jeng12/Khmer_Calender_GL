@@ -215,7 +215,7 @@ class KhmerCalendarHelperTest {
     fun getKhmerDate_zodiacName_isOneOf12Animals() {
         val validZodiacs = setOf(
             "ឆ្នាំជូត", "ឆ្នាំឆ្លូវ", "ឆ្នាំខាល", "ឆ្នាំថោះ",
-            "ឆ្នាំរោង", "ឆ្នាំម្សាញ់", "ឆ្នាំមមា", "ឆ្នាំមមី",
+            "ឆ្នាំរោង", "ឆ្នាំម្សាញ់", "ឆ្នាំមមី", "ឆ្នាំមមែ",
             "ឆ្នាំវក", "ឆ្នាំរកា", "ឆ្នាំច", "ឆ្នាំកុរ"
         )
         for (year in 2019..2035) {

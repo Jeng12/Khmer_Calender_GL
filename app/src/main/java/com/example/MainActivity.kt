@@ -93,6 +93,15 @@ fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
     var currentTab by remember { mutableStateOf(AppTab.HOME) }
 
+    // App-wide language, persisted across launches. Defaults to Khmer.
+    val context = LocalContext.current
+    val langPrefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
+    var appLanguage by remember {
+        mutableStateOf(
+            if (langPrefs.getString("app_lang", "km") == "en") AppLanguage.EN else AppLanguage.KM
+        )
+    }
+
     // Today's real Gregorian date, used to open the calendar focused on the current day
     val today = remember { java.util.Calendar.getInstance() }
 
@@ -127,6 +136,7 @@ fun KhmerCalendarApp() {
     }
 
     // Outer edge-to-edge container
+    CompositionLocalProvider(LocalAppLanguage provides appLanguage) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = NightBlack
@@ -198,11 +208,19 @@ fun KhmerCalendarApp() {
                         onLogOut = {
                             screenState = AppScreen.LOGIN
                             currentTab = AppTab.HOME
+                        },
+                        appLanguage = appLanguage,
+                        onLanguageChange = { lang ->
+                            appLanguage = lang
+                            langPrefs.edit()
+                                .putString("app_lang", if (lang == AppLanguage.EN) "en" else "km")
+                                .apply()
                         }
                     )
                 }
             }
         }
+    }
     }
 }
 
@@ -255,7 +273,7 @@ fun SplashScreenContent() {
             }
             Spacer(modifier = Modifier.height(18.dp))
             Text(
-                text = "ប្រតិទិនខ្មែរ",
+                text = tr("ប្រតិទិនខ្មែរ", "Khmer Calendar"),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = MoonWheat,
@@ -277,7 +295,7 @@ fun SplashScreenContent() {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "កំពុងផ្ទុក…",
+                text = tr("កំពុងផ្ទុក…", "Loading…"),
                 fontSize = 10.sp,
                 color = DimColor
             )
@@ -323,7 +341,7 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "ប្រតិទិនចន្ទគតិ",
+                text = tr("ប្រតិទិនចន្ទគតិ", "Lunar Calendar"),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = MoonWheat
@@ -374,11 +392,11 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
                     .testTag("onboarding_continue_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("បន្តទៅមុខទៀត ->", color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(tr("បន្តទៅមុខទៀត ->", "Continue ->"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             Spacer(modifier = Modifier.height(14.dp))
             Text(
-                text = "រំលង (Skip)",
+                text = tr("រំលង (Skip)", "Skip"),
                 color = DimColor,
                 fontSize = 11.sp,
                 modifier = Modifier.clickable { onContinue() }
@@ -394,6 +412,7 @@ fun LoginScreenContent(
     onSignUp: () -> Unit,
     onForgot: () -> Unit
 ) {
+    val lang = LocalAppLanguage.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf<String?>(null) }
@@ -402,13 +421,13 @@ fun LoginScreenContent(
     fun validateAndSignIn() {
         val emailRegex = Regex("^[^@]+@[^@]+\\.[^@]+")
         emailError = when {
-            email.isBlank() -> "សូមបញ្ចូលអ៊ីមែល (Email required)"
-            !emailRegex.matches(email) -> "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)"
+            email.isBlank() -> tr(lang, "សូមបញ្ចូលអ៊ីមែល (Email required)", "Email required")
+            !emailRegex.matches(email) -> tr(lang, "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)", "Invalid email")
             else -> null
         }
         passwordError = when {
-            password.isBlank() -> "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)"
-            password.length < 6 -> "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)"
+            password.isBlank() -> tr(lang, "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)", "Password required")
+            password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
         if (emailError == null && passwordError == null) onSignIn()
@@ -440,13 +459,13 @@ fun LoginScreenContent(
             ) {
                 Text("🌙", fontSize = 32.sp)
                 Column {
-                    Text("ចូលគណនី (Sign In)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text("Sign in to your traditional calendar", fontSize = 11.sp, color = DimColor)
+                    Text(tr("ចូលគណនី (Sign In)", "Sign In"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ចូលទៅកាន់ប្រតិទិនរបស់អ្នក", "Sign in to your traditional calendar"), fontSize = 11.sp, color = DimColor)
                 }
             }
 
             // Input Fields
-            Text("អ៊ីមែល / EMAIL", fontSize = 9.sp, color = DimColor, letterSpacing = 1.sp)
+            Text(tr("អ៊ីមែល / EMAIL", "EMAIL"), fontSize = 9.sp, color = DimColor, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = email,
@@ -469,7 +488,7 @@ fun LoginScreenContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("ពាក្យសម្ងាត់ / PASSWORD", fontSize = 9.sp, color = DimColor, letterSpacing = 1.sp)
+            Text(tr("ពាក្យសម្ងាត់ / PASSWORD", "PASSWORD"), fontSize = 9.sp, color = DimColor, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = password,
@@ -496,7 +515,7 @@ fun LoginScreenContent(
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Text(
-                    text = "ភ្លេចពាក្យសម្ងាត់?",
+                    text = tr("ភ្លេចពាក្យសម្ងាត់?", "Forgot password?"),
                     color = TraditionalGold,
                     fontSize = 11.sp,
                     modifier = Modifier.clickable { onForgot() }
@@ -514,7 +533,7 @@ fun LoginScreenContent(
                     .testTag("login_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("ចូលគណនី (Sign In)", color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(tr("ចូលគណនី (Sign In)", "Sign In"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -524,7 +543,7 @@ fun LoginScreenContent(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(modifier = Modifier.weight(1f).height(1.dp).background(DeepBorder))
-                Text("ឬ បន្តជាមួយ", color = DimColor, fontSize = 10.sp)
+                Text(tr("ឬ បន្តជាមួយ", "Or continue with"), color = DimColor, fontSize = 10.sp)
                 Box(modifier = Modifier.weight(1f).height(1.dp).background(DeepBorder))
             }
 
@@ -559,9 +578,9 @@ fun LoginScreenContent(
                 contentAlignment = Alignment.Center
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("មិនទាន់មានគណនី?", color = GoldSubText, fontSize = 11.sp)
+                    Text(tr("មិនទាន់មានគណនី?", "No account yet?"), color = GoldSubText, fontSize = 11.sp)
                     Text(
-                        text = "ចុះឈ្មោះនៅទីនេះ",
+                        text = tr("ចុះឈ្មោះនៅទីនេះ", "Sign up here"),
                         color = TraditionalGold,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
@@ -578,6 +597,7 @@ fun RegisterScreenContent(
     onBack: () -> Unit,
     onRegister: () -> Unit
 ) {
+    val lang = LocalAppLanguage.current
     var fn by remember { mutableStateOf("") }
     var ln by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -588,15 +608,15 @@ fun RegisterScreenContent(
 
     fun validateAndRegister() {
         val emailRegex = Regex("^[^@]+@[^@]+\\.[^@]+")
-        nameError = if (fn.isBlank() || ln.isBlank()) "សូមបញ្ចូលឈ្មោះ (Name required)" else null
+        nameError = if (fn.isBlank() || ln.isBlank()) tr(lang, "សូមបញ្ចូលឈ្មោះ (Name required)", "Name required") else null
         emailError = when {
-            email.isBlank() -> "សូមបញ្ចូលអ៊ីមែល (Email required)"
-            !emailRegex.matches(email) -> "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)"
+            email.isBlank() -> tr(lang, "សូមបញ្ចូលអ៊ីមែល (Email required)", "Email required")
+            !emailRegex.matches(email) -> tr(lang, "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)", "Invalid email")
             else -> null
         }
         passwordError = when {
-            password.isBlank() -> "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)"
-            password.length < 6 -> "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)"
+            password.isBlank() -> tr(lang, "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)", "Password required")
+            password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
         if (nameError == null && emailError == null && passwordError == null) onRegister()
@@ -615,18 +635,18 @@ fun RegisterScreenContent(
             modifier = Modifier.clickable { onBack() }
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
-            Text("ត្រឡប់ក្រោយ (Back)", color = TraditionalGold, fontSize = 11.sp)
+            Text(tr("ត្រឡប់ក្រោយ (Back)", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-        Text("ចុះឈ្មោះថ្មី", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-        Text("Create your traditional calendar profile", fontSize = 11.sp, color = DimColor)
+        Text(tr("ចុះឈ្មោះថ្មី", "Create Account"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+        Text(tr("បង្កើតប្រវត្តិរូបប្រតិទិនរបស់អ្នក", "Create your traditional calendar profile"), fontSize = 11.sp, color = DimColor)
 
         Spacer(modifier = Modifier.height(20.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("នាមត្រកូល (Last Name)", fontSize = 9.sp, color = DimColor)
+                Text(tr("នាមត្រកូល (Last Name)", "Last Name"), fontSize = 9.sp, color = DimColor)
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = ln,
@@ -639,7 +659,7 @@ fun RegisterScreenContent(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text("នាមខ្លួន (First Name)", fontSize = 9.sp, color = DimColor)
+                Text(tr("នាមខ្លួន (First Name)", "First Name"), fontSize = 9.sp, color = DimColor)
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = fn,
@@ -657,7 +677,7 @@ fun RegisterScreenContent(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        Text("អ៊ីមែល (Email)", fontSize = 9.sp, color = DimColor)
+        Text(tr("អ៊ីមែល (Email)", "Email"), fontSize = 9.sp, color = DimColor)
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedTextField(
             value = email,
@@ -674,7 +694,7 @@ fun RegisterScreenContent(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        Text("ពាក្យសម្ងាត់ (Password)", fontSize = 9.sp, color = DimColor)
+        Text(tr("ពាក្យសម្ងាត់ (Password)", "Password"), fontSize = 9.sp, color = DimColor)
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedTextField(
             value = password,
@@ -702,7 +722,7 @@ fun RegisterScreenContent(
                     .background(TraditionalGold.copy(0.2f))
             )
             Text(
-                text = "ខ្ញុំយល់ព្រមតាម លក្ខខណ្ឌ និង គោលការណ៍ របស់កម្មវិធី។",
+                text = tr("ខ្ញុំយល់ព្រមតាម លក្ខខណ្ឌ និង គោលការណ៍ របស់កម្មវិធី។", "I agree to the app's Terms & Policies."),
                 color = GoldSubText,
                 fontSize = 10.sp,
                 lineHeight = 15.sp
@@ -718,7 +738,7 @@ fun RegisterScreenContent(
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("ចុះឈ្មោះភ្លាមៗ", color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ចុះឈ្មោះភ្លាមៗ", "Register Now"), color = NightBlack, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -738,7 +758,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
             modifier = Modifier.clickable { onBack() }
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
-            Text("ត្រឡប់ក្រោយ", color = TraditionalGold, fontSize = 11.sp)
+            Text(tr("ត្រឡប់ក្រោយ", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 
         Spacer(modifier = Modifier.height(30.dp))
@@ -753,10 +773,10 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
             ) {
                 Text("🔑", fontSize = 36.sp)
                 Spacer(modifier = Modifier.height(10.dp))
-                Text("ភ្លេចពាក្យសម្ងាត់?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text(tr("ភ្លេចពាក្យសម្ងាត់?", "Forgot password?"), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "បញ្ចូលអ៊ីមែលរបស់អ្នកដើម្បីទទួលបានតំណភ្ជាប់ប្តូរលេខសម្ងាត់ថ្មី។",
+                    text = tr("បញ្ចូលអ៊ីមែលរបស់អ្នកដើម្បីទទួលបានតំណភ្ជាប់ប្តូរលេខសម្ងាត់ថ្មី។", "Enter your email to receive a password reset link."),
                     fontSize = 10.sp,
                     color = GoldSubText,
                     textAlign = TextAlign.Center,
@@ -766,7 +786,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text("អ៊ីមែលរបស់អ្នក", fontSize = 9.sp, color = DimColor)
+        Text(tr("អ៊ីមែលរបស់អ្នក", "Your Email"), fontSize = 9.sp, color = DimColor)
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedTextField(
             value = email,
@@ -785,7 +805,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("ផ្ញើតំណភ្ជាប់", color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ផ្ញើតំណភ្ជាប់", "Send Link"), color = NightBlack, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -804,12 +824,12 @@ fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
             modifier = Modifier.clickable { onBack() }
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
-            Text("ត្រឡប់ក្រោយ", color = TraditionalGold, fontSize = 11.sp)
+            Text(tr("ត្រឡប់ក្រោយ", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 
         Spacer(modifier = Modifier.height(30.dp))
-        Text("បញ្ជាក់លេខកូដសម្ងាត់ OTP", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-        Text("យើងបានផ្ញើលេខកូដសម្ងាត់ប្រាំមួយខ្ទង់ទៅសារទូរសព្ទរបស់អ្នក។", fontSize = 11.sp, color = GoldSubText)
+        Text(tr("បញ្ជាក់លេខកូដសម្ងាត់ OTP", "Verify OTP Code"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+        Text(tr("យើងបានផ្ញើលេខកូដសម្ងាត់ប្រាំមួយខ្ទង់ទៅសារទូរសព្ទរបស់អ្នក។", "We sent a 6-digit code to your phone."), fontSize = 11.sp, color = GoldSubText)
 
         Spacer(modifier = Modifier.height(28.dp))
         Row(
@@ -845,13 +865,13 @@ fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("ផ្ទៀងផ្ទាត់ និងចូល", color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ផ្ទៀងផ្ទាត់ និងចូល", "Verify & Sign In"), color = NightBlack, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(18.dp))
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
-                text = "មិនទទួលបានលេខកូដ? ផ្ញើម្តងទៀត (42s)",
+                text = tr("មិនទទួលបានលេខកូដ? ផ្ញើម្តងទៀត (42s)", "Didn't get the code? Resend (42s)"),
                 color = TraditionalGold,
                 fontSize = 11.sp
             )
@@ -882,7 +902,9 @@ fun MainAppLayout(
     onAuspiciousFilterChange: (String) -> Unit,
     selectedHolidayFilter: String,
     onHolidayFilterChange: (String) -> Unit,
-    onLogOut: () -> Unit
+    onLogOut: () -> Unit,
+    appLanguage: AppLanguage = AppLanguage.KM,
+    onLanguageChange: (AppLanguage) -> Unit = {}
 ) {
     Scaffold(
         bottomBar = {
@@ -924,7 +946,9 @@ fun MainAppLayout(
                         onConvert = onConvertClick
                     )
                     AppTab.PROFILE -> ProfileSettingsContent(
-                        onLogOut = onLogOut
+                        onLogOut = onLogOut,
+                        appLanguage = appLanguage,
+                        onLanguageChange = onLanguageChange
                     )
                 }
             }
@@ -952,7 +976,7 @@ fun CustomBottomBar(
             // Home Tab
             BottomBarItem(
                 emoji = "🏠",
-                label = "ទំព័រដើម",
+                label = tr("ទំព័រដើម", "Home"),
                 subLabel = "Home",
                 isSelected = currentTab == AppTab.HOME,
                 onClick = { onTabSelect(AppTab.HOME) }
@@ -960,23 +984,15 @@ fun CustomBottomBar(
             // Calendar Tab
             BottomBarItem(
                 emoji = "📅",
-                label = "ប្រតិទិន",
+                label = tr("ប្រតិទិន", "Calendar"),
                 subLabel = "Calendar",
                 isSelected = currentTab == AppTab.CALENDAR,
                 onClick = { onTabSelect(AppTab.CALENDAR) }
             )
-            // Auspicious Tab
-            BottomBarItem(
-                emoji = "🌿",
-                label = "មង្គល",
-                subLabel = "Auspicious",
-                isSelected = currentTab == AppTab.AUSPICIOUS,
-                onClick = { onTabSelect(AppTab.AUSPICIOUS) }
-            )
             // Holidays Tab
             BottomBarItem(
                 emoji = "🎉",
-                label = "ថ្ងៃបុណ្យ",
+                label = tr("ថ្ងៃបុណ្យ", "Holidays"),
                 subLabel = "Holidays",
                 isSelected = currentTab == AppTab.HOLIDAYS,
                 onClick = { onTabSelect(AppTab.HOLIDAYS) }
@@ -984,7 +1000,7 @@ fun CustomBottomBar(
             // Convert Tab
             BottomBarItem(
                 emoji = "🔄",
-                label = "បំលែង",
+                label = tr("បំលែង", "Convert"),
                 subLabel = "Convert",
                 isSelected = currentTab == AppTab.CONVERT,
                 onClick = { onTabSelect(AppTab.CONVERT) }
@@ -992,7 +1008,7 @@ fun CustomBottomBar(
             // Profile Tab
             BottomBarItem(
                 emoji = "👤",
-                label = "ប្រវត្តិរូប",
+                label = tr("ប្រវត្តិរូប", "Profile"),
                 subLabel = "Profile",
                 isSelected = currentTab == AppTab.PROFILE,
                 onClick = { onTabSelect(AppTab.PROFILE) }
@@ -1045,6 +1061,7 @@ fun BottomBarItem(
 // 1. HOME TAB CONTAINER
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
+    val lang = LocalAppLanguage.current
     val calendar = remember { java.util.Calendar.getInstance() }
     val currentYear = calendar.get(java.util.Calendar.YEAR)
     val currentMonth = calendar.get(java.util.Calendar.MONTH) + 1
@@ -1052,10 +1069,6 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val currentKhmerInfo = remember(currentYear, currentMonth, currentDay) {
         KhmerCalendarHelper.getKhmerDate(currentYear, currentMonth, currentDay)
     }
-    val khmerGregorianMonths = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
 
     LazyColumn(
         modifier = Modifier
@@ -1082,7 +1095,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     Text("🌙", fontSize = 24.sp)
                 }
                 Column {
-                    Text("ប្រតិទិនចន្ទគតិខ្មែរ", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                     Text("KHMER LUNAR CALENDAR · OFFICIAL v2", fontSize = 9.sp, color = TraditionalGold, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -1115,9 +1128,12 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column {
-                                Text("TODAY · ថ្ងៃនេះ", fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
+                                Text(tr("TODAY · ថ្ងៃនេះ", "TODAY"), fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
                                 Text(
-                                    text = "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${currentKhmerInfo.day} ${khmerGregorianMonths[currentMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(currentYear)}",
+                                    text = if (lang == AppLanguage.EN)
+                                        "${currentKhmerInfo.dayOfWeekEn}, ${currentKhmerInfo.day} ${gregMonth(lang, currentMonth - 1)} $currentYear"
+                                    else
+                                        "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${num(lang, currentKhmerInfo.day)} ${gregMonth(lang, currentMonth - 1)} ${num(lang, currentYear)}",
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MoonWheat
@@ -1135,7 +1151,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                         )
 
                         Text(
-                            text = "${currentKhmerInfo.lunarDayName} ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.zodiac}",
+                            text = "${lunarDayLabel(lang, currentKhmerInfo)} ${lunarMonth(lang, currentKhmerInfo.lunarMonthName)} ${zodiac(lang, currentKhmerInfo.zodiac)}",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TraditionalGold
@@ -1149,7 +1165,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                     .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ព.ស. ${currentKhmerInfo.BE}", fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold)
+                                Text(tr("ព.ស. ${num(lang, currentKhmerInfo.BE)}", "BE ${currentKhmerInfo.BE}"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold)
                             }
                             Box(
                                 modifier = Modifier
@@ -1157,7 +1173,13 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ខែ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.lunarDayName}", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (lang == AppLanguage.EN)
+                                        "${lunarMonth(lang, currentKhmerInfo.lunarMonthName)} ${lunarDayLabel(lang, currentKhmerInfo)}"
+                                    else
+                                        "ខែ${currentKhmerInfo.lunarMonthName} ${lunarDayLabel(lang, currentKhmerInfo)}",
+                                    fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -1167,7 +1189,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
         // Quick action grids
         item {
-            Text("សេវាកម្មរហ័ស (QUICK SERVICES)", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(tr("សេវាកម្មរហ័ស (QUICK SERVICES)", "QUICK SERVICES"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1176,7 +1198,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "📅",
-                    title = "ប្រតិទិន",
+                    title = tr("ប្រតិទិន", "Calendar"),
                     subtitle = "Calendar",
                     accentColor = TraditionalGold,
                     onClick = { onTabSelect(AppTab.CALENDAR) }
@@ -1184,7 +1206,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🌿",
-                    title = "ថ្ងៃមង្គល",
+                    title = tr("ថ្ងៃមង្គល", "Auspicious"),
                     subtitle = "Auspicious",
                     accentColor = JadeGreen,
                     onClick = { onTabSelect(AppTab.AUSPICIOUS) }
@@ -1198,7 +1220,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🎊",
-                    title = "ថ្ងៃបុណ្យ",
+                    title = tr("ថ្ងៃបុណ្យ", "Holidays"),
                     subtitle = "Holidays",
                     accentColor = LotusPink,
                     onClick = { onTabSelect(AppTab.HOLIDAYS) }
@@ -1206,7 +1228,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🔄",
-                    title = "បំលែង",
+                    title = tr("បំលែង", "Convert"),
                     subtitle = "Convert",
                     accentColor = SkyBlue,
                     onClick = { onTabSelect(AppTab.CONVERT) }
@@ -1216,10 +1238,14 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
         // Upcoming national events in Cambodia
         item {
-            Text("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(tr("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", "UPCOMING EVENTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            val events = listOf(
+            val events = if (lang == AppLanguage.EN) listOf(
+                Pair("Visak Bochea", "3 days left · 🌕 15 Waxing"),
+                Pair("Pchum Ben Festival", "98 days left · 🌑 15 Waning"),
+                Pair("Royal Ploughing Ceremony", "14 days left · 4 Waning")
+            ) else listOf(
                 Pair("ថ្ងៃបុណ្យវិសាខបូជា (Visak Bochea)", "៣ ថ្ងៃទៀត · 🌕 ១៥ កើត"),
                 Pair("បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben Festival)", "៩៨ ថ្ងៃទៀត · 🌑 ១៥ រោច"),
                 Pair("ព្រះរាជពិធីច្រត់ព្រះនង្គ័ល (Royal Ploughing)", "១៤ ថ្ងៃទៀត · ៤ រោច")
@@ -1253,7 +1279,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                             .background(TraditionalGold.copy(0.12f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text("រំលឹក", fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Text(tr("រំលឹក", "Remind"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1300,6 +1326,7 @@ fun CalendarTabContent(
     onDayChange: (Int) -> Unit,
     onGoToToday: () -> Unit = {}
 ) {
+    val lang = LocalAppLanguage.current
     // Focus on the current day each time the Calendar tab is opened
     LaunchedEffect(Unit) { onGoToToday() }
 
@@ -1314,11 +1341,6 @@ fun CalendarTabContent(
     // weekday math so the grid columns line up with the real Gregorian weekdays.
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
     val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7 // index representing start day of week (Sunday=0, etc.)
-
-    val khmerMonthNames = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
 
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
 
@@ -1353,13 +1375,19 @@ fun CalendarTabContent(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "ខែ${khmerMonthNames[month - 1]} $year",
+                        text = if (lang == AppLanguage.EN)
+                            "${gregMonth(lang, month - 1)} $year"
+                        else
+                            "ខែ${gregMonth(lang, month - 1)} ${num(lang, year)}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = MoonWheat
                     )
                     Text(
-                        text = "ព.ស. ${selectedKhmerDate.BE} · ${selectedKhmerDate.zodiac}",
+                        text = tr(
+                            "ព.ស. ${num(lang, selectedKhmerDate.BE)} · ${zodiac(lang, selectedKhmerDate.zodiac)}",
+                            "BE ${selectedKhmerDate.BE} · ${zodiac(lang, selectedKhmerDate.zodiac)}"
+                        ),
                         fontSize = 11.sp,
                         color = TraditionalGold,
                         fontWeight = FontWeight.SemiBold
@@ -1372,7 +1400,7 @@ fun CalendarTabContent(
                             .clickable { onGoToToday() }
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Text("📅 ថ្ងៃនេះ", fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -1393,7 +1421,7 @@ fun CalendarTabContent(
         // Days labels
         item {
             Row(modifier = Modifier.fillMaxWidth()) {
-                val weekLabels = listOf("អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស")
+                val weekLabels = weekdayLabels(lang)
                 weekLabels.forEachIndexed { idx, label ->
                     Text(
                         text = label,
@@ -1481,8 +1509,11 @@ fun CalendarTabContent(
                                             }
                                         )
                                         Text(
-                                            text = KhmerCalendarHelper.toKhmerNumeral(dateInfo.lunarDayVal),
-                                            fontSize = 11.sp,
+                                            text = lunarDayLabel(lang, dateInfo),
+                                            fontSize = 8.sp,
+                                            lineHeight = 9.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
                                             color = if (isSelected) TraditionalGold.copy(0.8f) else DimColor
                                         )
                                         // Small dot if auspicious or has custom holiday
@@ -1518,7 +1549,7 @@ fun CalendarTabContent(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "ព័ត៌មានលម្អិតថ្ងៃទី $selectedDay",
+                            text = tr("ព័ត៌មានលម្អិតថ្ងៃទី ${num(lang, selectedDay)}", "Details for Day $selectedDay"),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TraditionalGold
@@ -1527,13 +1558,13 @@ fun CalendarTabContent(
                     }
 
                     Text(
-                        text = "Gregorian Date: ${selectedKhmerDate.dayOfWeekEn}, ${selectedKhmerDate.day} ${khmerMonthNames[selectedKhmerDate.month - 1]} ${selectedKhmerDate.year}",
+                        text = "${tr("ថ្ងៃគ្រីស្ដ", "Gregorian Date")}: ${selectedKhmerDate.dayOfWeekEn}, ${selectedKhmerDate.day} ${gregMonth(AppLanguage.EN, selectedKhmerDate.month - 1)} ${selectedKhmerDate.year}",
                         fontSize = 10.sp,
                         color = GoldSubText
                     )
 
                     Text(
-                        text = "ថ្ងៃចន្ទគតិ: ${selectedKhmerDate.lunarDayName} ${selectedKhmerDate.lunarMonthName}",
+                        text = "${tr("ថ្ងៃចន្ទគតិ", "Lunar Date")}: ${lunarDayLabel(lang, selectedKhmerDate)} ${lunarMonth(lang, selectedKhmerDate.lunarMonthName)}",
                         fontSize = 14.sp,
                         color = SandText,
                         fontWeight = FontWeight.Bold
@@ -1548,7 +1579,7 @@ fun CalendarTabContent(
                                 .padding(8.dp)
                         ) {
                             Text(
-                                text = "🎉 ថ្ងៃបុណ្យជាតិ: ${selectedKhmerDate.holiday}",
+                                text = "🎉 ${tr("ថ្ងៃបុណ្យជាតិ", "Public Holiday")}: ${localizeDual(lang, selectedKhmerDate.holiday!!)}",
                                 fontSize = 10.sp,
                                 color = LotusPink,
                                 fontWeight = FontWeight.SemiBold
@@ -1564,7 +1595,10 @@ fun CalendarTabContent(
                                 .padding(8.dp)
                         ) {
                             Text(
-                                text = "🌿 ថ្ងៃមង្គល: ល្អសម្រាប់ ${selectedKhmerDate.auspiciousType ?: "ការងារទូទៅ"}",
+                                text = tr(
+                                    "🌿 ថ្ងៃមង្គល: ល្អសម្រាប់ ${selectedKhmerDate.auspiciousType ?: "ការងារទូទៅ"}",
+                                    "🌿 Auspicious: good for ${localizeDual(lang, selectedKhmerDate.auspiciousType ?: "General work")}"
+                                ),
                                 fontSize = 10.sp,
                                 color = JadeGreen,
                                 fontWeight = FontWeight.SemiBold
@@ -1578,10 +1612,10 @@ fun CalendarTabContent(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         listOf(
-                            Pair(JadeGreen, "ថ្ងៃមង្គល"),
-                            Pair(LotusPink, "ថ្ងៃបុណ្យ"),
-                            Pair(TraditionalGold, "ថ្ងៃសកម្ម"),
-                            Pair(CrimsonHoliday, "ថ្ងៃឈប់")
+                            Pair(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious")),
+                            Pair(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday")),
+                            Pair(TraditionalGold, tr("ថ្ងៃសកម្ម", "Selected")),
+                            Pair(CrimsonHoliday, tr("ថ្ងៃឈប់", "Weekend"))
                         ).forEach { legend ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1606,25 +1640,32 @@ fun AuspiciousTabContent(
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
+    val lang = LocalAppLanguage.current
+    // Stable Khmer filter keys (used for state + matching); display labels localized.
     val filters = listOf("ទាំងអស់", "ពិធីមង្គលការ", "ឡើងផ្ទះថ្មី", "បើកអាជីវកម្ម", "ធ្វើដំណើរ")
-
-    val khmerMonthNames = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
+    val filterLabel: (String) -> String = { key ->
+        when (key) {
+            "ទាំងអស់" -> tr(lang, "ទាំងអស់", "All")
+            "ពិធីមង្គលការ" -> tr(lang, "ពិធីមង្គលការ", "Wedding")
+            "ឡើងផ្ទះថ្មី" -> tr(lang, "ឡើងផ្ទះថ្មី", "Housewarming")
+            "បើកអាជីវកម្ម" -> tr(lang, "បើកអាជីវកម្ម", "Business")
+            "ធ្វើដំណើរ" -> tr(lang, "ធ្វើដំណើរ", "Travel")
+            else -> key
+        }
+    }
 
     // Pair of display labels + the raw KhmerDate (needed for Gemini)
     data class AuspiciousItem(val gregLabel: String, val lunarLabel: String, val typeLabel: String, val khmerDate: KhmerDate)
 
-    val auspiciousDaysList = remember(calendarYear, calendarMonth) {
+    val auspiciousDaysList = remember(calendarYear, calendarMonth, lang) {
         KhmerCalendarHelper.getGregorianMonthDays(calendarYear, calendarMonth)
             .filter { it.isAuspicious }
             .map { d ->
-                val monthName = khmerMonthNames[d.month - 1]
+                val dayName = if (lang == AppLanguage.EN) d.dayOfWeekEn else "ថ្ងៃ${d.dayOfWeek}"
                 AuspiciousItem(
-                    gregLabel  = "ថ្ងៃ${d.dayOfWeek} ${KhmerCalendarHelper.toKhmerNumeral(d.day)} $monthName",
-                    lunarLabel = "${d.lunarDayName} ${d.lunarMonthName}",
-                    typeLabel  = d.auspiciousType ?: "ថ្ងៃល្អ",
+                    gregLabel  = "$dayName ${num(lang, d.day)} ${gregMonth(lang, d.month - 1)}",
+                    lunarLabel = "${lunarDayLabel(lang, d)} ${lunarMonth(lang, d.lunarMonthName)}",
+                    typeLabel  = localizeDual(lang, d.auspiciousType ?: tr(lang, "ថ្ងៃល្អ", "Good day")),
                     khmerDate  = d
                 )
             }
@@ -1632,7 +1673,9 @@ fun AuspiciousTabContent(
 
     val filteredList = remember(auspiciousDaysList, selectedFilter) {
         if (selectedFilter == "ទាំងអស់") auspiciousDaysList
-        else auspiciousDaysList.filter { it.typeLabel.contains(selectedFilter.replace(" ថ្មី", "")) }
+        else auspiciousDaysList.filter {
+            it.khmerDate.auspiciousType?.contains(selectedFilter.replace(" ថ្មី", "")) == true
+        }
     }
 
     LazyColumn(
@@ -1649,8 +1692,8 @@ fun AuspiciousTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("ថ្ងៃមង្គល (Auspicious Days)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text("Auspicious Days · ${KhmerCalendarHelper.toKhmerNumeral(calendarYear)}", fontSize = 9.sp, color = JadeGreen)
+                    Text(tr("ថ្ងៃមង្គល (Auspicious Days)", "Auspicious Days"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text("Auspicious Days · ${num(lang, calendarYear)}", fontSize = 9.sp, color = JadeGreen)
                 }
                 Text("🌿", fontSize = 24.sp)
             }
@@ -1674,7 +1717,7 @@ fun AuspiciousTabContent(
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = tag,
+                            text = filterLabel(tag),
                             fontSize = 10.sp,
                             color = if (isActive) NightBlack else SandText,
                             fontWeight = FontWeight.Bold
@@ -1694,7 +1737,7 @@ fun AuspiciousTabContent(
                 ) {
                     Text("📭", fontSize = 40.sp)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("គ្មានថ្ងៃមង្គលសម្រាប់ជម្រើសនេះទេ", fontSize = 11.sp, color = DimColor)
+                    Text(tr("គ្មានថ្ងៃមង្គលសម្រាប់ជម្រើសនេះទេ", "No auspicious days for this filter"), fontSize = 11.sp, color = DimColor)
                 }
             }
         } else {
@@ -1712,6 +1755,7 @@ private fun AuspiciousDayCard(
     typeLabel: String,
     khmerDate: KhmerDate
 ) {
+    val lang = LocalAppLanguage.current
     var explanation by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -1762,8 +1806,8 @@ private fun AuspiciousDayCard(
                 if (explanation == null && !isLoading) {
                     isLoading = true
                     scope.launch {
-                        val result = GeminiRepository.explainAuspiciousDay(khmerDate)
-                        explanation = result.getOrElse { "មិនអាចភ្ជាប់ AI បានទេ (${it.message})" }
+                        val result = GeminiRepository.explainAuspiciousDay(khmerDate, lang)
+                        explanation = result.getOrElse { tr(lang, "មិនអាចភ្ជាប់ AI បានទេ", "Could not connect to AI") + " (${it.message})" }
                         isLoading = false
                     }
                 }
@@ -1775,9 +1819,9 @@ private fun AuspiciousDayCard(
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), color = JadeGreen, strokeWidth = 1.5.dp)
                 Spacer(Modifier.width(4.dp))
-                Text("AI កំពុងព្យញ្ចដ…", fontSize = 9.sp, color = JadeGreen)
+                Text(tr("AI កំពុងព្យញ្ចដ…", "AI is thinking…"), fontSize = 9.sp, color = JadeGreen)
             } else if (explanation == null) {
-                Text("✨ AI ពន្យល់", fontSize = 9.sp, color = JadeGreen)
+                Text(tr("✨ AI ពន្យល់", "✨ AI Explain"), fontSize = 9.sp, color = JadeGreen)
             }
         }
     }
@@ -1789,27 +1833,39 @@ fun HolidaysTabContent(
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
-    val filters = listOf("ទាំងអស់", "ជាតិ (National)", "ព្រះពុទ្ធ (Buddhist)")
+    val lang = LocalAppLanguage.current
+    val NATIONAL = "ជាតិ (National)"
+    val BUDDHIST = "ព្រះពុទ្ធ (Buddhist)"
+    // Stable Khmer filter keys; display labels localized.
+    val filters = listOf("ទាំងអស់", NATIONAL, BUDDHIST)
+    val typeLabel: (String) -> String = { key ->
+        when (key) {
+            "ទាំងអស់" -> tr(lang, "ទាំងអស់", "All")
+            NATIONAL -> tr(lang, "ជាតិ (National)", "National")
+            BUDDHIST -> tr(lang, "ព្រះពុទ្ធ (Buddhist)", "Buddhist")
+            else -> key
+        }
+    }
 
-    // Each holiday: Triple(date string, Khmer name, type tag)
-    // Type tag must match filter values: "ជាតិ (National)" or "ព្រះពុទ្ធ (Buddhist)"
+    // Holiday(dateKm, dateEn, nameKm, nameEn, typeKey)
+    data class Holiday(val dateKm: String, val dateEn: String, val nameKm: String, val nameEn: String, val type: String)
     val holidaysList = listOf(
-        Triple("០១ មករា", "ទិវាឆ្នាំថ្មីអន្តរជាតិ · New Year's Day", "ជាតិ (National)"),
-        Triple("០៧ មករា", "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍", "ជាតិ (National)"),
-        Triple("០៨ មីនា", "ទិវាអន្តរជាតិរបស់ស្ត្រី · International Women's Day", "ជាតិ (National)"),
-        Triple("១៤-១៦ មេសា", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ · Khmer New Year", "ជាតិ (National)"),
-        Triple("០១ ឧសភា", "ទិវាពលកម្មអន្តរជាតិ · International Labour Day", "ជាតិ (National)"),
-        Triple("ទី១៥ ពិសាខ (ច)", "បុណ្យវិសាខបូជា · Visak Bochea Day", "ព្រះពុទ្ធ (Buddhist)"),
-        Triple("០១ មិថុនា", "ទិវាកុមារអន្តរជាតិ · International Children's Day", "ជាតិ (National)"),
-        Triple("១៨ មិថុនា", "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្ដេចម៉ែ", "ជាតិ (National)"),
-        Triple("ទី១-១៥ ភទ្របទ (ច)", "បុណ្យភ្ជុំបិណ្ឌ · Pchum Ben Festival", "ព្រះពុទ្ធ (Buddhist)"),
-        Triple("២៤ កញ្ញា", "ទិវារដ្ឋធម្មនុញ្ញ · Constitution Day", "ជាតិ (National)"),
-        Triple("១៥ តុលា", "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ", "ជាតិ (National)"),
-        Triple("ទី១៥ កត្តិក (ក)", "ព្រះរាជពិធីបុណ្យអុំទូក · Water Festival", "ព្រះពុទ្ធ (Buddhist)"),
-        Triple("ទី១៥ មាឃ (ក)", "បុណ្យមាឃបូជា · Meak Bochea Day", "ព្រះពុទ្ធ (Buddhist)"),
-        Triple("២៩ តុលា", "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ", "ជាតិ (National)"),
-        Triple("០៩ វិច្ឆិកា", "ទិវាបុណ្យឯករាជ្យជាតិ · Independence Day", "ជាតិ (National)"),
-        Triple("១០ ធ្នូ", "ទិវាសិទ្ធិមនុស្ស · Human Rights Day", "ជាតិ (National)")
+        Holiday("០១ មករា", "01 Jan", "ទិវាឆ្នាំថ្មីអន្តរជាតិ · New Year's Day", "New Year's Day", NATIONAL),
+        Holiday("០៧ មករា", "07 Jan", "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍", "Victory over Genocide Day", NATIONAL),
+        Holiday("០៨ មីនា", "08 Mar", "ទិវាអន្តរជាតិរបស់ស្ត្រី · International Women's Day", "International Women's Day", NATIONAL),
+        Holiday("១៤-១៦ មេសា", "14-16 Apr", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ · Khmer New Year", "Khmer New Year", NATIONAL),
+        Holiday("០១ ឧសភា", "01 May", "ទិវាពលកម្មអន្តរជាតិ · International Labour Day", "International Labour Day", NATIONAL),
+        Holiday("ទី១៥ ពិសាខ (ច)", "15th Visakha (waxing)", "បុណ្យវិសាខបូជា · Visak Bochea Day", "Visak Bochea Day", BUDDHIST),
+        Holiday("០១ មិថុនា", "01 Jun", "ទិវាកុមារអន្តរជាតិ · International Children's Day", "International Children's Day", NATIONAL),
+        Holiday("១៨ មិថុនា", "18 Jun", "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្ដេចម៉ែ", "Queen Mother's Birthday", NATIONAL),
+        Holiday("ទី១-១៥ ភទ្របទ (ច)", "1-15 Phutrobot (waning)", "បុណ្យភ្ជុំបិណ្ឌ · Pchum Ben Festival", "Pchum Ben Festival", BUDDHIST),
+        Holiday("២៤ កញ្ញា", "24 Sep", "ទិវារដ្ឋធម្មនុញ្ញ · Constitution Day", "Constitution Day", NATIONAL),
+        Holiday("១៥ តុលា", "15 Oct", "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ", "Commemoration Day of the King Father", NATIONAL),
+        Holiday("ទី១៥ កត្តិក (ក)", "15th Kakdek (waxing)", "ព្រះរាជពិធីបុណ្យអុំទូក · Water Festival", "Water Festival", BUDDHIST),
+        Holiday("ទី១៥ មាឃ (ក)", "15th Meak (waxing)", "បុណ្យមាឃបូជា · Meak Bochea Day", "Meak Bochea Day", BUDDHIST),
+        Holiday("២៩ តុលា", "29 Oct", "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ", "King's Coronation Day", NATIONAL),
+        Holiday("០៩ វិច្ឆិកា", "09 Nov", "ទិវាបុណ្យឯករាជ្យជាតិ · Independence Day", "Independence Day", NATIONAL),
+        Holiday("១០ ធ្នូ", "10 Dec", "ទិវាសិទ្ធិមនុស្ស · Human Rights Day", "Human Rights Day", NATIONAL)
     )
 
     LazyColumn(
@@ -1821,7 +1877,7 @@ fun HolidaysTabContent(
     ) {
         item {
             Column {
-                Text("ថ្ងៃបុណ្យ (Cambodian Holidays)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
             }
         }
@@ -1839,7 +1895,7 @@ fun HolidaysTabContent(
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            text = tag,
+                            text = typeLabel(tag),
                             fontSize = 10.sp,
                             color = if (isActive) NightBlack else SandText,
                             fontWeight = FontWeight.Bold
@@ -1851,10 +1907,10 @@ fun HolidaysTabContent(
 
         // Filter and render holidays
         val filteredHolidays = if (selectedFilter == "ទាំងអស់") holidaysList
-            else holidaysList.filter { it.third == selectedFilter }
+            else holidaysList.filter { it.type == selectedFilter }
 
         items(filteredHolidays) { holiday ->
-            val isBuddhist = holiday.third == "ព្រះពុទ្ធ (Buddhist)"
+            val isBuddhist = holiday.type == BUDDHIST
             val accentColor = if (isBuddhist) TraditionalGold else LotusPink
             Row(
                 modifier = Modifier
@@ -1876,16 +1932,16 @@ fun HolidaysTabContent(
                     Text(if (isBuddhist) "🪷" else "🏮", fontSize = 18.sp)
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(holiday.second, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
-                    Text(holiday.third, fontSize = 9.sp, color = accentColor.copy(0.7f))
-                    Text(holiday.first, fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    Text(if (lang == AppLanguage.EN) holiday.nameEn else holiday.nameKm, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
+                    Text(typeLabel(holiday.type), fontSize = 9.sp, color = accentColor.copy(0.7f))
+                    Text(if (lang == AppLanguage.EN) holiday.dateEn else holiday.dateKm, fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                 }
                 Box(
                     modifier = Modifier
                         .background(accentColor.copy(0.12f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
-                    Text("ឈប់", fontSize = 9.sp, color = accentColor, fontWeight = FontWeight.Bold)
+                    Text(tr("ឈប់", "Off"), fontSize = 9.sp, color = accentColor, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1901,15 +1957,11 @@ fun DateConvertContent(
     convertedDate: KhmerDate?,
     onConvert: (String, String, String) -> Unit
 ) {
+    val lang = LocalAppLanguage.current
     var inYear by remember { mutableStateOf(year) }
     var inMonth by remember { mutableStateOf(month) }
     var inDay by remember { mutableStateOf(day) }
     var inputError by remember { mutableStateOf<String?>(null) }
-
-    val khMonths = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
 
     fun validate(): Boolean {
         val y = inYear.toIntOrNull()
@@ -1917,19 +1969,19 @@ fun DateConvertContent(
         val d = inDay.toIntOrNull()
         return when {
             y == null || m == null || d == null -> {
-                inputError = "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)"
+                inputError = tr(lang, "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)", "Please enter numbers only")
                 false
             }
             y < 2019 || y > 2036 -> {
-                inputError = "ឆ្នាំ ២០១៩–២០៣៦ ប៉ុណ្ណោះ (Year 2019–2036 only)"
+                inputError = tr(lang, "ឆ្នាំ ២០១៩–២០៣៦ ប៉ុណ្ណោះ (Year 2019–2036 only)", "Year 2019–2036 only")
                 false
             }
             m < 1 || m > 12 -> {
-                inputError = "ខែត្រូវស្ថិតក្នុងចន្លោះ ១–១២ (Month 1–12)"
+                inputError = tr(lang, "ខែត្រូវស្ថិតក្នុងចន្លោះ ១–១២ (Month 1–12)", "Month must be 1–12")
                 false
             }
             d < 1 || d > 31 -> {
-                inputError = "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)"
+                inputError = tr(lang, "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)", "Day must be 1–31")
                 false
             }
             else -> {
@@ -1970,8 +2022,8 @@ fun DateConvertContent(
                 ) {
                     Text("🔄", fontSize = 28.sp)
                     Column {
-                        Text("បំលែងថ្ងៃខែ", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                        Text("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", fontSize = 10.sp, color = SkyBlue)
+                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Text(tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"), fontSize = 10.sp, color = SkyBlue)
                     }
                 }
             }
@@ -1996,7 +2048,7 @@ fun DateConvertContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "ថ្ងៃខែគ្រីស្ដសករាជ",
+                            tr("ថ្ងៃខែគ្រីស្ដសករាជ", "Gregorian Date"),
                             fontSize = 10.sp,
                             color = SkyBlue,
                             fontWeight = FontWeight.Bold,
@@ -2015,14 +2067,14 @@ fun DateConvertContent(
                                 }
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Text("📅 ថ្ងៃនេះ", fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
+                            Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     // Day / Month / Year fields
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("ថ្ងៃ (Day)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ថ្ងៃ (Day)", "Day"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inDay,
@@ -2050,7 +2102,7 @@ fun DateConvertContent(
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("ខែ (Month)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ខែ (Month)", "Month"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inMonth,
@@ -2078,7 +2130,7 @@ fun DateConvertContent(
                             )
                         }
                         Column(modifier = Modifier.weight(1.6f)) {
-                            Text("ឆ្នាំ (Year)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ឆ្នាំ (Year)", "Year"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inYear,
@@ -2125,7 +2177,7 @@ fun DateConvertContent(
 
                     // Year range hint
                     Text(
-                        "ឆ្នាំដែលគ្រប: ២០២០ – ២០៣៥",
+                        tr("ឆ្នាំដែលគ្រប: ២០២០ – ២០៣៥", "Supported years: 2020 – 2035"),
                         fontSize = 9.sp,
                         color = DimColor,
                         modifier = Modifier.fillMaxWidth(),
@@ -2147,7 +2199,7 @@ fun DateConvertContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("⇅", fontSize = 18.sp, color = NightBlack)
-                            Text("បំលែងជាចន្ទគតិ", color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
@@ -2171,7 +2223,7 @@ fun DateConvertContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "លទ្ធផលថ្ងៃចន្ទគតិ",
+                                tr("លទ្ធផលថ្ងៃចន្ទគតិ", "Lunar Date Result"),
                                 fontSize = 10.sp,
                                 color = TraditionalGold,
                                 fontWeight = FontWeight.Bold,
@@ -2192,7 +2244,10 @@ fun DateConvertContent(
                         ) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(SkyBlue))
                             Text(
-                                "ថ្ងៃ${convertedDate.dayOfWeek} ទី${convertedDate.day} ${khMonths[mIdx]} ${convertedDate.year}",
+                                text = if (lang == AppLanguage.EN)
+                                    "${convertedDate.dayOfWeekEn}, ${convertedDate.day} ${gregMonth(lang, mIdx)} ${convertedDate.year}"
+                                else
+                                    "ថ្ងៃ${convertedDate.dayOfWeek} ទី${num(lang, convertedDate.day)} ${gregMonth(lang, mIdx)} ${num(lang, convertedDate.year)}",
                                 fontSize = 12.sp,
                                 color = GoldSubText
                             )
@@ -2202,7 +2257,10 @@ fun DateConvertContent(
 
                         // Main lunar result — large
                         Text(
-                            text = "${convertedDate.lunarDayName} ខែ${convertedDate.lunarMonthName}",
+                            text = if (lang == AppLanguage.EN)
+                                "${lunarDayLabel(lang, convertedDate)} ${lunarMonth(lang, convertedDate.lunarMonthName)}"
+                            else
+                                "${lunarDayLabel(lang, convertedDate)} ខែ${convertedDate.lunarMonthName}",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = MoonWheat
@@ -2221,7 +2279,7 @@ fun DateConvertContent(
                                     .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ព.ស. ${convertedDate.BE}", fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                                Text(tr("ព.ស. ${num(lang, convertedDate.BE)}", "BE ${convertedDate.BE}"), fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                             }
                             Box(
                                 modifier = Modifier
@@ -2229,7 +2287,7 @@ fun DateConvertContent(
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text(convertedDate.zodiac, fontSize = 10.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                                Text(zodiac(lang, convertedDate.zodiac), fontSize = 10.sp, color = LotusPink, fontWeight = FontWeight.Bold)
                             }
                             Box(
                                 modifier = Modifier
@@ -2238,7 +2296,11 @@ fun DateConvertContent(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    "${convertedDate.moonEmoji} ${if (convertedDate.isWaxing) "កើត" else "រោច"}",
+                                    "${convertedDate.moonEmoji} " + if (lang == AppLanguage.EN) {
+                                        if (convertedDate.isWaxing) "Waxing" else "Waning"
+                                    } else {
+                                        if (convertedDate.isWaxing) "កើត" else "រោច"
+                                    },
                                     fontSize = 10.sp,
                                     color = SkyBlue,
                                     fontWeight = FontWeight.Bold
@@ -2260,8 +2322,8 @@ fun DateConvertContent(
                             ) {
                                 Text("🎉", fontSize = 16.sp)
                                 Column {
-                                    Text("ថ្ងៃបុណ្យ", fontSize = 9.sp, color = LotusPink.copy(0.7f))
-                                    Text(convertedDate.holiday!!, fontSize = 12.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                                    Text(tr("ថ្ងៃបុណ្យ", "Holiday"), fontSize = 9.sp, color = LotusPink.copy(0.7f))
+                                    Text(localizeDual(lang, convertedDate.holiday!!), fontSize = 12.sp, color = LotusPink, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -2280,9 +2342,9 @@ fun DateConvertContent(
                             ) {
                                 Text("🌿", fontSize = 16.sp)
                                 Column {
-                                    Text("ថ្ងៃមង្គល", fontSize = 9.sp, color = JadeGreen.copy(0.7f))
+                                    Text(tr("ថ្ងៃមង្គល", "Auspicious"), fontSize = 9.sp, color = JadeGreen.copy(0.7f))
                                     Text(
-                                        convertedDate.auspiciousType ?: "ថ្ងៃល្អ",
+                                        localizeDual(lang, convertedDate.auspiciousType ?: tr(lang, "ថ្ងៃល្អ", "Good day")),
                                         fontSize = 12.sp,
                                         color = JadeGreen,
                                         fontWeight = FontWeight.Bold
@@ -2300,8 +2362,11 @@ fun DateConvertContent(
 // 6. PROFILE, SETTINGS & DEMO CONTROLLER
 @Composable
 fun ProfileSettingsContent(
-    onLogOut: () -> Unit
+    onLogOut: () -> Unit,
+    appLanguage: AppLanguage = AppLanguage.KM,
+    onLanguageChange: (AppLanguage) -> Unit = {}
 ) {
+    val lang = LocalAppLanguage.current
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
@@ -2332,11 +2397,11 @@ fun ProfileSettingsContent(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("ស", fontSize = 24.sp, color = NightBlack, fontWeight = FontWeight.Bold)
+                    Text("S", fontSize = 24.sp, color = NightBlack, fontWeight = FontWeight.Bold)
                 }
                 Column {
-                    Text("សុខ ចន្ទដារ៉ា", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text("jengah6@gmail.com · Member since 2024", fontSize = 10.sp, color = GoldSubText)
+                    Text("Sophanit", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text("jengah6@gmail.com · ${tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024")}", fontSize = 10.sp, color = GoldSubText)
                 }
             }
         }
@@ -2348,9 +2413,9 @@ fun ProfileSettingsContent(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 listOf(
-                    Pair("១២៨", "ថ្ងៃបានមើល"),
-                    Pair("៣៤", "ការបំលែង"),
-                    Pair("១២", "រក្សាទុក")
+                    Pair(num(lang, 128), tr("ថ្ងៃបានមើល", "Days viewed")),
+                    Pair(num(lang, 34), tr("ការបំលែង", "Conversions")),
+                    Pair(num(lang, 12), tr("រក្សាទុក", "Saved"))
                 ).forEach { stat ->
                     Card(
                         modifier = Modifier.weight(1f),
@@ -2373,7 +2438,7 @@ fun ProfileSettingsContent(
 
         // Notification Settings Panel list item
         item {
-            Text("ភាសា និង ការជូនដំណឹង (LANGUAGES & ALERTS)", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(tr("ភាសា និង ការជូនដំណឹង (LANGUAGES & ALERTS)", "LANGUAGE & ALERTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))
             Column(
                 modifier = Modifier
@@ -2381,6 +2446,7 @@ fun ProfileSettingsContent(
                     .background(PlumSurface, RoundedCornerShape(12.dp))
                     .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
             ) {
+                // Functional language selector — switches the whole app live.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2388,8 +2454,34 @@ fun ProfileSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("ភាសាខ្មែរ (Khmer Language)", fontSize = 11.sp, color = SandText)
-                    Text("សកម្ម", fontSize = 10.sp, color = JadeGreen, fontWeight = FontWeight.Bold)
+                    Text(tr("ភាសា (Language)", "Language"), fontSize = 11.sp, color = SandText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            AppLanguage.KM to "ខ្មែរ",
+                            AppLanguage.EN to "English"
+                        ).forEach { (langOption, label) ->
+                            val isActive = appLanguage == langOption
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (isActive) TraditionalGold else PlumCard)
+                                    .border(
+                                        1.dp,
+                                        if (isActive) TraditionalGold else DeepBorder,
+                                        RoundedCornerShape(20.dp)
+                                    )
+                                    .clickable { onLanguageChange(langOption) }
+                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    label,
+                                    fontSize = 10.sp,
+                                    color = if (isActive) NightBlack else SandText,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
                 Row(
@@ -2399,7 +2491,7 @@ fun ProfileSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("ការផ្តល់ដំណឹងថ្ងៃសីល (Buddhist Sila Notification)", fontSize = 11.sp, color = SandText)
+                    Text(tr("ការផ្តល់ដំណឹងថ្ងៃសីល (Buddhist Sila Notification)", "Buddhist Sila Notification"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
                     Switch(
                         checked = silaNotifyEnabled,
                         onCheckedChange = { enabled ->
@@ -2424,7 +2516,7 @@ fun ProfileSettingsContent(
                     .testTag("logout_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("ចាកចេញពីគណនី (Log Out)", color = SandText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(tr("ចាកចេញពីគណនី (Log Out)", "Log Out"), color = SandText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }
