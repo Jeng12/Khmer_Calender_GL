@@ -1,9 +1,9 @@
 package com.example
 
 import com.google.firebase.Firebase
-import com.google.firebase.ai.GenerativeBackend
 import com.google.firebase.ai.ai
-import com.google.firebase.ai.generationConfig
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

@@ -1,13 +1,15 @@
 import java.util.Base64
 
 plugins {
+  // AGP 9 provides built-in Kotlin support, so the standalone
+  // org.jetbrains.kotlin.android plugin must NOT be applied (it casts AGP's
+  // extension to the removed BaseExtension class). The Compose compiler plugin
+  // is separate and is still required.
   alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
   // KSP only needed when Room or Moshi codegen are active
   // alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
 }
 
 android {
@@ -67,13 +69,6 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
-}
-
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
 }
 
 dependencies {
