@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -34,7 +35,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -47,7 +50,7 @@ val DeepBorder = Color(0xFF322640)      // #2E2538 in Jetpack
 val DeepMuted = Color(0xFF453556)       // #3D3349 in Jetpack
 val SandText = Color(0xFFF5EDD8)        // #F5EDD8 (Cream)
 val GoldSubText = Color(0xFFC7B38E)     // #9B8E7A
-val DimColor = Color(0xFF706080)        // #5A5060
+val DimColor = Color(0xFFA090B8)        // improved contrast on dark backgrounds
 val TraditionalGold = Color(0xFFC8973A) // #C8973A
 val LightGold = Color(0xFFE8B84B)       // #E8B84B
 val CrimsonHoliday = Color(0xFFC0392B)  // #C0392B
@@ -56,10 +59,19 @@ val JadeGreen = Color(0xFF4DAF7C)       // #4DAF7C
 val MoonWheat = Color(0xFFF2E8C6)       // #F2E8C6
 val SkyBlue = Color(0xFF7BA7BC)         // #7BA7BC
 
+// Hoisted gradient brushes – allocated once, not on every recomposition
+val GoldBorderGradient = Brush.linearGradient(listOf(TraditionalGold, Color(0xFFFFF0C0), TraditionalGold))
+val GoldLotusBrush     = Brush.linearGradient(listOf(TraditionalGold, LotusPink))
+val AccentBarBrush     = Brush.horizontalGradient(listOf(CrimsonHoliday, TraditionalGold, LotusPink))
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Warm up the milestone table off the main thread to avoid first-frame jank
+        lifecycleScope.launch(Dispatchers.Default) {
+            KhmerCalendarHelper.warmUp()
+        }
         setContent {
             MyApplicationTheme {
                 KhmerCalendarApp()
@@ -276,7 +288,7 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)
-                .background(Brush.horizontalGradient(listOf(CrimsonHoliday, TraditionalGold, LotusPink)))
+                .background(AccentBarBrush)
         )
 
         Column(
@@ -988,7 +1000,11 @@ fun BottomBarItem(
 ) {
     Column(
         modifier = Modifier
-            .clickable { onClick() }
+            .clickable(
+                indication = ripple(color = TraditionalGold.copy(alpha = 0.2f)),
+                interactionSource = remember { MutableInteractionSource() },
+                onClickLabel = subLabel,
+            ) { onClick() }
             .padding(horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -1277,8 +1293,8 @@ fun CalendarTabContent(
     onMonthChange: (Int, Int) -> Unit,
     onDayChange: (Int) -> Unit
 ) {
-    // Generate dates inside month
-    val daysList = KhmerCalendarHelper.getGregorianMonthDays(year, month)
+    // Memoize: recompute only when year/month changes
+    val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
     // Starting day of week for index 1
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
     val startOffset = ((startDayOfWeekSerial + 4) % 7 + 7) % 7 // index representing start day of week (Sunday=0, etc.)
@@ -1560,18 +1576,26 @@ fun AuspiciousTabContent(
         "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
     )
 
-    // Dynamically compute auspicious days for the currently displayed calendar month
+    // Pair of display labels + the raw KhmerDate (needed for Gemini)
+    data class AuspiciousItem(val gregLabel: String, val lunarLabel: String, val typeLabel: String, val khmerDate: KhmerDate)
+
     val auspiciousDaysList = remember(calendarYear, calendarMonth) {
         KhmerCalendarHelper.getGregorianMonthDays(calendarYear, calendarMonth)
             .filter { it.isAuspicious }
             .map { d ->
-                val dayStr = KhmerCalendarHelper.toKhmerNumeral(d.day).padStart(2, ' ')
                 val monthName = khmerMonthNames[d.month - 1]
-                val gregLabel = "ថ្ងៃ${d.dayOfWeek} ${KhmerCalendarHelper.toKhmerNumeral(d.day)} $monthName"
-                val lunarLabel = "${d.lunarDayName} ${d.lunarMonthName}"
-                val typeLabel = d.auspiciousType ?: "ថ្ងៃល្អ"
-                Triple(gregLabel, lunarLabel, typeLabel)
+                AuspiciousItem(
+                    gregLabel  = "ថ្ងៃ${d.dayOfWeek} ${KhmerCalendarHelper.toKhmerNumeral(d.day)} $monthName",
+                    lunarLabel = "${d.lunarDayName} ${d.lunarMonthName}",
+                    typeLabel  = d.auspiciousType ?: "ថ្ងៃល្អ",
+                    khmerDate  = d
+                )
             }
+    }
+
+    val filteredList = remember(auspiciousDaysList, selectedFilter) {
+        if (selectedFilter == "ទាំងអស់") auspiciousDaysList
+        else auspiciousDaysList.filter { it.typeLabel.contains(selectedFilter.replace(" ថ្មី", "")) }
     }
 
     LazyColumn(
@@ -1623,11 +1647,6 @@ fun AuspiciousTabContent(
             }
         }
 
-        // Auspicious Day Items
-        val filteredList = if (selectedFilter == "ទាំងអស់") auspiciousDaysList else {
-            auspiciousDaysList.filter { it.third.contains(selectedFilter.replace(" ថ្មី", "")) }
-        }
-
         if (filteredList.isEmpty()) {
             item {
                 Column(
@@ -1642,29 +1661,86 @@ fun AuspiciousTabContent(
                 }
             }
         } else {
-            items(filteredList) { dayInfo ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(PlumCard, RoundedCornerShape(12.dp))
-                        .border(1.dp, JadeGreen.copy(0.25f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(dayInfo.first, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
-                        Text(dayInfo.second, fontSize = 10.sp, color = TraditionalGold)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .background(JadeGreen.copy(0.12f), RoundedCornerShape(8.dp))
-                            .border(1.dp, JadeGreen.copy(0.4f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(dayInfo.third, fontSize = 9.sp, color = JadeGreen, fontWeight = FontWeight.Bold)
+            items(filteredList, key = { it.gregLabel }) { item ->
+                AuspiciousDayCard(item.gregLabel, item.lunarLabel, item.typeLabel, item.khmerDate)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuspiciousDayCard(
+    gregLabel: String,
+    lunarLabel: String,
+    typeLabel: String,
+    khmerDate: KhmerDate
+) {
+    var explanation by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(PlumCard, RoundedCornerShape(12.dp))
+            .border(1.dp, JadeGreen.copy(0.25f), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(gregLabel, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
+                Text(lunarLabel, fontSize = 10.sp, color = TraditionalGold)
+            }
+            Box(
+                modifier = Modifier
+                    .background(JadeGreen.copy(0.12f), RoundedCornerShape(8.dp))
+                    .border(1.dp, JadeGreen.copy(0.4f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(typeLabel, fontSize = 9.sp, color = JadeGreen, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // AI Explanation section
+        if (explanation != null) {
+            Text(
+                text = explanation!!,
+                fontSize = 10.sp,
+                color = MoonWheat,
+                lineHeight = 15.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            )
+        }
+
+        TextButton(
+            onClick = {
+                if (explanation == null && !isLoading) {
+                    isLoading = true
+                    scope.launch {
+                        val result = GeminiRepository.explainAuspiciousDay(khmerDate)
+                        explanation = result.getOrElse { "មិនអាចភ្ជាប់ AI បានទេ (${it.message})" }
+                        isLoading = false
                     }
                 }
+            },
+            enabled = !isLoading && explanation == null,
+            modifier = Modifier.align(Alignment.End),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(12.dp), color = JadeGreen, strokeWidth = 1.5.dp)
+                Spacer(Modifier.width(4.dp))
+                Text("AI កំពុងព្យញ្ចដ…", fontSize = 9.sp, color = JadeGreen)
+            } else if (explanation == null) {
+                Text("✨ AI ពន្យល់", fontSize = 9.sp, color = JadeGreen)
             }
         }
     }
@@ -2214,7 +2290,7 @@ fun ProfileSettingsContent(
                     modifier = Modifier
                         .size(56.dp)
                         .background(
-                            Brush.linearGradient(listOf(TraditionalGold, LotusPink)),
+                            GoldLotusBrush,
                             CircleShape
                         ),
                     contentAlignment = Alignment.Center
