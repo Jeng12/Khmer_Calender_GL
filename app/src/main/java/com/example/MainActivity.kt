@@ -16,13 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.draw.*
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -383,6 +375,23 @@ fun LoginScreenContent(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+
+    fun validateAndSignIn() {
+        val emailRegex = Regex("^[^@]+@[^@]+\\.[^@]+")
+        emailError = when {
+            email.isBlank() -> "សូមបញ្ចូលអ៊ីមែល (Email required)"
+            !emailRegex.matches(email) -> "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)"
+            else -> null
+        }
+        passwordError = when {
+            password.isBlank() -> "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)"
+            password.length < 6 -> "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)"
+            else -> null
+        }
+        if (emailError == null && passwordError == null) onSignIn()
+    }
 
     Column(
         modifier = Modifier
@@ -420,7 +429,7 @@ fun LoginScreenContent(
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it },
+                onValueChange = { email = it; emailError = null },
                 textStyle = LocalTextStyle.current.copy(color = SandText, fontSize = 13.sp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -429,10 +438,13 @@ fun LoginScreenContent(
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = PlumSurface,
                     focusedContainerColor = PlumSurface,
-                    unfocusedBorderColor = DeepBorder,
-                    focusedBorderColor = TraditionalGold
+                    unfocusedBorderColor = if (emailError != null) CrimsonHoliday else DeepBorder,
+                    focusedBorderColor = if (emailError != null) CrimsonHoliday else TraditionalGold
                 )
             )
+            if (emailError != null) {
+                Text(emailError!!, fontSize = 9.sp, color = CrimsonHoliday, modifier = Modifier.padding(top = 2.dp))
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -440,7 +452,7 @@ fun LoginScreenContent(
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = { password = it; passwordError = null },
                 textStyle = LocalTextStyle.current.copy(color = SandText, fontSize = 13.sp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -449,10 +461,13 @@ fun LoginScreenContent(
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedContainerColor = PlumSurface,
                     focusedContainerColor = PlumSurface,
-                    unfocusedBorderColor = DeepBorder,
-                    focusedBorderColor = TraditionalGold
+                    unfocusedBorderColor = if (passwordError != null) CrimsonHoliday else DeepBorder,
+                    focusedBorderColor = if (passwordError != null) CrimsonHoliday else TraditionalGold
                 )
             )
+            if (passwordError != null) {
+                Text(passwordError!!, fontSize = 9.sp, color = CrimsonHoliday, modifier = Modifier.padding(top = 2.dp))
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
             Box(
@@ -470,7 +485,7 @@ fun LoginScreenContent(
             Spacer(modifier = Modifier.height(28.dp))
 
             Button(
-                onClick = onSignIn,
+                onClick = { validateAndSignIn() },
                 colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -542,10 +557,29 @@ fun RegisterScreenContent(
     onBack: () -> Unit,
     onRegister: () -> Unit
 ) {
-    var fn by remember { mutableStateOf("ចន្ទ") }
-    var ln by remember { mutableStateOf("ដារ៉ា") }
-    var email by remember { mutableStateOf("chanda@example.com") }
+    var fn by remember { mutableStateOf("") }
+    var ln by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+
+    fun validateAndRegister() {
+        val emailRegex = Regex("^[^@]+@[^@]+\\.[^@]+")
+        nameError = if (fn.isBlank() || ln.isBlank()) "សូមបញ្ចូលឈ្មោះ (Name required)" else null
+        emailError = when {
+            email.isBlank() -> "សូមបញ្ចូលអ៊ីមែល (Email required)"
+            !emailRegex.matches(email) -> "អ៊ីមែលមិនត្រឹមត្រូវ (Invalid email)"
+            else -> null
+        }
+        passwordError = when {
+            password.isBlank() -> "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)"
+            password.length < 6 -> "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)"
+            else -> null
+        }
+        if (nameError == null && emailError == null && passwordError == null) onRegister()
+    }
 
     Column(
         modifier = Modifier
@@ -575,9 +609,12 @@ fun RegisterScreenContent(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = ln,
-                    onValueChange = { ln = it },
+                    onValueChange = { ln = it; nameError = null },
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = PlumSurface, unfocusedBorderColor = DeepBorder)
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = PlumSurface,
+                        unfocusedBorderColor = if (nameError != null) CrimsonHoliday else DeepBorder
+                    )
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -585,11 +622,17 @@ fun RegisterScreenContent(
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = fn,
-                    onValueChange = { fn = it },
+                    onValueChange = { fn = it; nameError = null },
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = PlumSurface, unfocusedBorderColor = DeepBorder)
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = PlumSurface,
+                        unfocusedBorderColor = if (nameError != null) CrimsonHoliday else DeepBorder
+                    )
                 )
             }
+        }
+        if (nameError != null) {
+            Text(nameError!!, fontSize = 9.sp, color = CrimsonHoliday, modifier = Modifier.padding(top = 2.dp))
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -597,22 +640,34 @@ fun RegisterScreenContent(
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { email = it; emailError = null },
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
             modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = PlumSurface, unfocusedBorderColor = DeepBorder)
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = PlumSurface,
+                unfocusedBorderColor = if (emailError != null) CrimsonHoliday else DeepBorder
+            )
         )
+        if (emailError != null) {
+            Text(emailError!!, fontSize = 9.sp, color = CrimsonHoliday, modifier = Modifier.padding(top = 2.dp))
+        }
 
         Spacer(modifier = Modifier.height(14.dp))
         Text("ពាក្យសម្ងាត់ (Password)", fontSize = 9.sp, color = DimColor)
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = { password = it; passwordError = null },
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
             modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = PlumSurface, unfocusedBorderColor = DeepBorder)
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedContainerColor = PlumSurface,
+                unfocusedBorderColor = if (passwordError != null) CrimsonHoliday else DeepBorder
+            )
         )
+        if (passwordError != null) {
+            Text(passwordError!!, fontSize = 9.sp, color = CrimsonHoliday, modifier = Modifier.padding(top = 2.dp))
+        }
 
         Spacer(modifier = Modifier.height(20.dp))
         Row(
@@ -635,7 +690,7 @@ fun RegisterScreenContent(
 
         Spacer(modifier = Modifier.height(24.dp))
         Button(
-            onClick = onRegister,
+            onClick = { validateAndRegister() },
             colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
             modifier = Modifier
                 .fillMaxWidth()
@@ -829,6 +884,8 @@ fun MainAppLayout(
                         onDayChange = onDaySelect
                     )
                     AppTab.AUSPICIOUS -> AuspiciousTabContent(
+                        calendarYear = calendarYear,
+                        calendarMonth = calendarMonth,
                         selectedFilter = selectedAuspiciousFilter,
                         onFilterChange = onAuspiciousFilterChange
                     )
@@ -1491,19 +1548,31 @@ fun CalendarTabContent(
 // 3. AUSPICIOUS DAYS TAB CONTAINER
 @Composable
 fun AuspiciousTabContent(
+    calendarYear: Int,
+    calendarMonth: Int,
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
     val filters = listOf("ទាំងអស់", "ពិធីមង្គលការ", "ឡើងផ្ទះថ្មី", "បើកអាជីវកម្ម", "ធ្វើដំណើរ")
 
-    // Custom simulated auspicious calendar days in May 2026
-    val auspiciousDaysList = listOf(
-        Pair("ថ្ងៃពុធ ០៣ ឧសភា", Pair("៣ កើត ពិសាខ", "ពិធីមង្គលការ (Wedding)")),
-        Pair("ថ្ងៃសៅរ៍ ០៧ ឧសភា", Pair("៧ កើត ពិសាខ", "ធ្វើដំណើរស្វែងរកលាភ (Travel)")),
-        Pair("ថ្ងៃអង្គារ ១២ ឧសភា", Pair("១២ កើត ពិសាខ", "បើកអាជីវកម្ម (Business)")),
-        Pair("ថ្ងៃពុធ ១៩ ឧសភា", Pair("៤ រោច ពិសាខ", "ឡើងផ្ទះថ្មី (Housewarming)")),
-        Pair("ថ្ងៃអង្គារ ២៦ ឧសភា", Pair("១១ រោច ពិសាខ", "ពិធីមង្គលការ (Wedding)"))
+    val khmerMonthNames = listOf(
+        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
+        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
     )
+
+    // Dynamically compute auspicious days for the currently displayed calendar month
+    val auspiciousDaysList = remember(calendarYear, calendarMonth) {
+        KhmerCalendarHelper.getGregorianMonthDays(calendarYear, calendarMonth)
+            .filter { it.isAuspicious }
+            .map { d ->
+                val dayStr = KhmerCalendarHelper.toKhmerNumeral(d.day).padStart(2, ' ')
+                val monthName = khmerMonthNames[d.month - 1]
+                val gregLabel = "ថ្ងៃ${d.dayOfWeek} ${KhmerCalendarHelper.toKhmerNumeral(d.day)} $monthName"
+                val lunarLabel = "${d.lunarDayName} ${d.lunarMonthName}"
+                val typeLabel = d.auspiciousType ?: "ថ្ងៃល្អ"
+                Triple(gregLabel, lunarLabel, typeLabel)
+            }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -1520,7 +1589,7 @@ fun AuspiciousTabContent(
             ) {
                 Column {
                     Text("ថ្ងៃមង្គល (Auspicious Days)", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text("Auspicious Days in Cambodia · ២០២៦", fontSize = 9.sp, color = JadeGreen)
+                    Text("Auspicious Days · ${KhmerCalendarHelper.toKhmerNumeral(calendarYear)}", fontSize = 9.sp, color = JadeGreen)
                 }
                 Text("🌿", fontSize = 24.sp)
             }
@@ -1556,7 +1625,7 @@ fun AuspiciousTabContent(
 
         // Auspicious Day Items
         val filteredList = if (selectedFilter == "ទាំងអស់") auspiciousDaysList else {
-            auspiciousDaysList.filter { it.second.second.contains(selectedFilter.replace(" ថ្មី", "")) }
+            auspiciousDaysList.filter { it.third.contains(selectedFilter.replace(" ថ្មី", "")) }
         }
 
         if (filteredList.isEmpty()) {
@@ -1585,7 +1654,7 @@ fun AuspiciousTabContent(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(dayInfo.first, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
-                        Text(dayInfo.second.first, fontSize = 10.sp, color = TraditionalGold)
+                        Text(dayInfo.second, fontSize = 10.sp, color = TraditionalGold)
                     }
                     Box(
                         modifier = Modifier
@@ -1593,7 +1662,7 @@ fun AuspiciousTabContent(
                             .border(1.dp, JadeGreen.copy(0.4f), RoundedCornerShape(8.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text(dayInfo.second.second, fontSize = 9.sp, color = JadeGreen, fontWeight = FontWeight.Bold)
+                        Text(dayInfo.third, fontSize = 9.sp, color = JadeGreen, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1609,12 +1678,25 @@ fun HolidaysTabContent(
 ) {
     val filters = listOf("ទាំងអស់", "ជាតិ (National)", "ព្រះពុទ្ធ (Buddhist)")
 
+    // Each holiday: Triple(date string, Khmer name, type tag)
+    // Type tag must match filter values: "ជាតិ (National)" or "ព្រះពុទ្ធ (Buddhist)"
     val holidaysList = listOf(
-        Triple("១៤-១៦ មេសា", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ", "Khmer New Year Day"),
-        Triple("១៥ ឧសភា", "បុណ្យវិសាខបូជា", "Visak Bochea Day"),
-        Triple("១-១៥ កញ្ញា", "បុណ្យភ្ជុំបិណ្ឌ", "Pchum Ben Festival"),
-        Triple("១៣-១៥ តុលា", "ព្រះរាជពិធីបុណ្យអុំទូក", "Water Festival Holiday"),
-        Triple("០៩ វិច្ឆិកា", "ទិវាបុណ្យឯករាជ្យជាតិ", "Independence Day")
+        Triple("០១ មករា", "ទិវាឆ្នាំថ្មីអន្តរជាតិ · New Year's Day", "ជាតិ (National)"),
+        Triple("០៧ មករា", "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍", "ជាតិ (National)"),
+        Triple("០៨ មីនា", "ទិវាអន្តរជាតិរបស់ស្ត្រី · International Women's Day", "ជាតិ (National)"),
+        Triple("១៤-១៦ មេសា", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ · Khmer New Year", "ជាតិ (National)"),
+        Triple("០១ ឧសភា", "ទិវាពលកម្មអន្តរជាតិ · International Labour Day", "ជាតិ (National)"),
+        Triple("ទី១៥ ពិសាខ (ច)", "បុណ្យវិសាខបូជា · Visak Bochea Day", "ព្រះពុទ្ធ (Buddhist)"),
+        Triple("០១ មិថុនា", "ទិវាកុមារអន្តរជាតិ · International Children's Day", "ជាតិ (National)"),
+        Triple("១៨ មិថុនា", "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្ដេចម៉ែ", "ជាតិ (National)"),
+        Triple("ទី១-១៥ ភទ្របទ (ច)", "បុណ្យភ្ជុំបិណ្ឌ · Pchum Ben Festival", "ព្រះពុទ្ធ (Buddhist)"),
+        Triple("២៤ កញ្ញា", "ទិវារដ្ឋធម្មនុញ្ញ · Constitution Day", "ជាតិ (National)"),
+        Triple("១៥ តុលា", "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ", "ជាតិ (National)"),
+        Triple("ទី១៥ កត្តិក (ក)", "ព្រះរាជពិធីបុណ្យអុំទូក · Water Festival", "ព្រះពុទ្ធ (Buddhist)"),
+        Triple("ទី១៥ មាឃ (ក)", "បុណ្យមាឃបូជា · Meak Bochea Day", "ព្រះពុទ្ធ (Buddhist)"),
+        Triple("២៩ តុលា", "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ", "ជាតិ (National)"),
+        Triple("០៩ វិច្ឆិកា", "ទិវាបុណ្យឯករាជ្យជាតិ · Independence Day", "ជាតិ (National)"),
+        Triple("១០ ធ្នូ", "ទិវាសិទ្ធិមនុស្ស · Human Rights Day", "ជាតិ (National)")
     )
 
     LazyColumn(
@@ -1654,14 +1736,19 @@ fun HolidaysTabContent(
             }
         }
 
-        // Items mapping
-        items(holidaysList) { holiday ->
+        // Filter and render holidays
+        val filteredHolidays = if (selectedFilter == "ទាំងអស់") holidaysList
+            else holidaysList.filter { it.third == selectedFilter }
+
+        items(filteredHolidays) { holiday ->
+            val isBuddhist = holiday.third == "ព្រះពុទ្ធ (Buddhist)"
+            val accentColor = if (isBuddhist) TraditionalGold else LotusPink
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
                     .background(PlumSurface, RoundedCornerShape(12.dp))
-                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                    .border(1.dp, accentColor.copy(0.3f), RoundedCornerShape(12.dp))
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1669,23 +1756,23 @@ fun HolidaysTabContent(
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .background(LotusPink.copy(0.12f), RoundedCornerShape(12.dp))
-                        .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(12.dp)),
+                        .background(accentColor.copy(0.12f), RoundedCornerShape(12.dp))
+                        .border(1.dp, accentColor.copy(0.3f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("🏮", fontSize = 18.sp)
+                    Text(if (isBuddhist) "🪷" else "🏮", fontSize = 18.sp)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(holiday.second, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
-                    Text(holiday.third, fontSize = 9.sp, color = DimColor)
+                    Text(holiday.third, fontSize = 9.sp, color = accentColor.copy(0.7f))
                     Text(holiday.first, fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                 }
                 Box(
                     modifier = Modifier
-                        .background(LotusPink.copy(0.12f), RoundedCornerShape(8.dp))
+                        .background(accentColor.copy(0.12f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
-                    Text("ឈប់", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                    Text("ឈប់", fontSize = 9.sp, color = accentColor, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1720,8 +1807,8 @@ fun DateConvertContent(
                 inputError = "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)"
                 false
             }
-            y < 2020 || y > 2035 -> {
-                inputError = "ឆ្នាំ ២០២០–២០៣៥ ប៉ុណ្ណោះ (Year 2020–2035 only)"
+            y < 2019 || y > 2036 -> {
+                inputError = "ឆ្នាំ ២០១៩–២០៣៦ ប៉ុណ្ណោះ (Year 2019–2036 only)"
                 false
             }
             m < 1 || m > 12 -> {
@@ -2102,6 +2189,10 @@ fun DateConvertContent(
 fun ProfileSettingsContent(
     onLogOut: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
+    var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -2197,8 +2288,11 @@ fun ProfileSettingsContent(
                 ) {
                     Text("ការផ្តល់ដំណឹងថ្ងៃសីល (Buddhist Sila Notification)", fontSize = 11.sp, color = SandText)
                     Switch(
-                        checked = true,
-                        onCheckedChange = {},
+                        checked = silaNotifyEnabled,
+                        onCheckedChange = { enabled ->
+                            silaNotifyEnabled = enabled
+                            prefs.edit().putBoolean("sila_notify", enabled).apply()
+                        },
                         colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                     )
                 }
