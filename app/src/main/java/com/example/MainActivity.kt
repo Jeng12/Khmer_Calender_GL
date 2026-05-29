@@ -1333,16 +1333,16 @@ fun CalendarTabContent(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .aspectRatio(0.9f)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .aspectRatio(0.8f)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(if (isSelected) TraditionalGold.copy(0.2f) else Color.Transparent)
                                         .border(
-                                            1.dp,
+                                            1.5.dp,
                                             if (isSelected) TraditionalGold else Color.Transparent,
-                                            RoundedCornerShape(8.dp)
+                                            RoundedCornerShape(10.dp)
                                         )
                                         .clickable { onDayChange(dayNumber) }
-                                        .padding(2.dp),
+                                        .padding(4.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Column(
@@ -1354,12 +1354,12 @@ fun CalendarTabContent(
                                             (dateInfo.isWaxing && dateInfo.lunarDayVal in listOf(1, 8, 15)) ||
                                             (!dateInfo.isWaxing && dateInfo.lunarDayVal == 8)
                                         if (hasMoonIndicator) {
-                                            Text(dateInfo.moonEmoji, fontSize = 7.sp, lineHeight = 8.sp)
+                                            Text(dateInfo.moonEmoji, fontSize = 10.sp, lineHeight = 12.sp)
                                         }
 
                                         Text(
                                             text = dayNumber.toString(),
-                                            fontSize = 12.sp,
+                                            fontSize = 20.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                                             color = when {
                                                 isSelected -> TraditionalGold
@@ -1370,14 +1370,14 @@ fun CalendarTabContent(
                                         )
                                         Text(
                                             text = KhmerCalendarHelper.toKhmerNumeral(dateInfo.lunarDayVal),
-                                            fontSize = 7.sp,
+                                            fontSize = 11.sp,
                                             color = if (isSelected) TraditionalGold.copy(0.8f) else DimColor
                                         )
                                         // Small dot if auspicious or has custom holiday
                                         if (dateInfo.isAuspicious) {
-                                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(JadeGreen))
+                                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(JadeGreen))
                                         } else if (isHoliday) {
-                                            Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(LotusPink))
+                                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
                                         }
                                     }
                                 }

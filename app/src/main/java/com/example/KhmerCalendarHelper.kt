@@ -58,32 +58,32 @@ object KhmerCalendarHelper {
         }
 
         // --- 2025 ---
-        addMs(2025, 1, 24, "បុស្ស", 30, 2568, "ឆ្នាំរោង")
-        addMs(2025, 2, 23, "មាឃ", 29, 2568, "ឆ្នាំរោង")
-        addMs(2025, 3, 24, "ផល្គុន", 30, 2568, "ឆ្នាំរោង")
-        addMs(2025, 4, 23, "ចេត្រ", 29, 2569, "ឆ្នាំម្សាញ់") // Buddhist New Year (Chet)
-        addMs(2025, 5, 22, "ពិសាខ", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 6, 21, "ជេស្ឋ", 29, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 7, 20, "អាសាឍ", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 8, 19, "ស្រាពណ៍", 29, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 9, 17, "ភទ្របទ", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 10, 17, "អស្សុជ", 29, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 11, 15, "កត្តិក", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2025, 12, 15, "មិគសិរ", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 1, 29, "មាឃ", 29, 2568, "ឆ្នាំរោង")
+        addMs(2025, 2, 27, "ផល្គុន", 30, 2568, "ឆ្នាំរោង")
+        addMs(2025, 3, 29, "ចេត្រ", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 4, 27, "ពិសាខ", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 5, 27, "ជេស្ឋ", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 6, 26, "អាសាឍ", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 7, 26, "ស្រាពណ៍", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 8, 24, "ភទ្របទ", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 9, 23, "អស្សុជ", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 10, 22, "កត្តិក", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 11, 21, "មិគសិរ", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2025, 12, 20, "បុស្ស", 30, 2569, "ឆ្នាំម្សាញ់")
 
         // --- 2026 ---
-        addMs(2026, 1, 13, "បុស្ស", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2026, 2, 12, "មាឃ", 29, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2026, 3, 13, "ផល្គុន", 30, 2569, "ឆ្នាំម្សាញ់")
-        addMs(2026, 4, 12, "ចេត្រ", 29, 2570, "ឆ្នាំមមែ") // Buddhist New Year (Chet)
-        addMs(2026, 5, 11, "ពិសាខ", 30, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 6, 10, "ជេស្ឋ", 29, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 7, 9, "អាសាឍ", 30, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 8, 8, "ស្រាពណ៍", 29, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 9, 6, "ភទ្របទ", 30, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 10, 6, "អស្សុជ", 29, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 11, 4, "កត្តិក", 30, 2570, "ឆ្នាំមមែ")
-        addMs(2026, 12, 4, "មិគសិរ", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 1, 19, "មាឃ", 29, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2026, 2, 17, "ផល្គុន", 30, 2569, "ឆ្នាំម្សាញ់")
+        addMs(2026, 3, 19, "ចេត្រ", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 4, 17, "ពិសាខ", 30, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 5, 17, "ជេស្ឋ", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 6, 15, "អាសាឍ", 30, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 7, 15, "ស្រាពណ៍", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 8, 13, "ភទ្របទ", 30, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 9, 12, "អស្សុជ", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 10, 11, "កត្តិក", 30, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 11, 10, "មិគសិរ", 29, 2570, "ឆ្នាំមមែ")
+        addMs(2026, 12, 9, "បុស្ស", 30, 2570, "ឆ្នាំមមែ")
 
         // --- 2027 ---
         addMs(2027, 1, 2, "បុស្ស", 30, 2570, "ឆ្នាំមមែ")
@@ -116,10 +116,15 @@ object KhmerCalendarHelper {
         }
 
         val offset = sDay - matchingMs.serialDay
-        val lunarDayVal = (offset % 30) + 1
-
-        val isWaxing = offset % 30 < 15
-        val displayLunarDay = if (isWaxing) (offset % 30) + 1 else (offset % 30) - 14
+        val isWaxing = (offset % 30) < 15
+        
+        // Correct lunar day calculation for 29 or 30 day months
+        // If it's waning (Roach), the value starts from 1 again after day 15
+        val displayLunarDay = if (isWaxing) {
+            (offset % 30) + 1
+        } else {
+            (offset % 30) - 14
+        }
 
         val lunarDayNameStr = "${toKhmerNumeral(displayLunarDay)} ${if (isWaxing) "កើត" else "រោច"}"
 
@@ -137,29 +142,45 @@ object KhmerCalendarHelper {
 
         // Gregorian Calendar Holiday checkers
         var holiday: String? = null
-        if (month == 4 && day in 13..16) {
+        if (month == 4 && day in 14..16) {
             holiday = "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ"
-        } else if (month == 5 && day == 25) { // May 25, 2026 is exact Visak Bochea
-            holiday = "បុណ្យវិសាខបូជា"
-        } else if (matchingMs.khmerMonthName == "ពិសាខ" && isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យវិសាខបូជា"
+        } else if (year == 2025 && month == 2 && day == 12) {
+            holiday = "បុណ្យមាឃបូជា (Meak Bochea)"
+        } else if (year == 2026 && month == 2 && day == 2) {
+            holiday = "បុណ្យមាឃបូជា (Meak Bochea)"
+        } else if (year == 2027 && month == 2 && day == 20) {
+            holiday = "បុណ្យមាឃបូជា (Meak Bochea)"
+        } else if (year == 2025 && month == 5 && day == 11) {
+            holiday = "បុណ្យវិសាខបូជា (Visak Bochea)"
+        } else if (year == 2026 && month == 5 && day == 1) {
+            holiday = "បុណ្យវិសាខបូជា (Visak Bochea)"
+        } else if (year == 2027 && month == 5 && day == 20) {
+            holiday = "បុណ្យវិសាខបូជា (Visak Bochea)"
         } else if (matchingMs.khmerMonthName == "ភទ្របទ" && !isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យភ្ជុំបិណ្ឌ"
+            holiday = "បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben)"
         } else if (matchingMs.khmerMonthName == "កត្តិក" && isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យអុំទូក"
+            holiday = "បុណ្យអុំទូក (Water Festival)"
         } else if (month == 11 && day == 9) {
             holiday = "ទិវាបុណ្យឯករាជ្យជាតិ"
         } else if (month == 1 && day == 7) {
             holiday = "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍"
         } else if (month == 5 && day == 1) {
             holiday = "ទិវាពលកម្មអន្តរជាតិ"
+        } else if (month == 6 && day == 18) {
+            holiday = "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្តេចម៉ែ"
+        } else if (month == 9 && day == 24) {
+            holiday = "ទិវារដ្ឋធម្មនុញ្ញ"
+        } else if (month == 10 && day == 15) {
+            holiday = "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ"
+        } else if (month == 10 && day == 29) {
+            holiday = "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ"
         }
 
         // Auspicious Checker: Stable algorithm to make auspicious days look realistic
         // We consider days that have specific lunar alignments as auspicious
         val isAuspicious = (offset % 30) in listOf(2, 6, 10, 11, 18, 25)
         val auspiciousType = if (isAuspicious) {
-            when (lunarDayVal % 4) {
+            when (displayLunarDay % 4) {
                 0 -> "ពិធីមង្គលការ (Wedding)"
                 1 -> "ឡើងផ្ទះថ្មី (Housewarming)"
                 2 -> "បើកអាជីវកម្ម (Business)"
