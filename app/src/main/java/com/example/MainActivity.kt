@@ -1720,8 +1720,8 @@ fun DateConvertContent(
                 inputError = "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)"
                 false
             }
-            y < 2025 || y > 2027 -> {
-                inputError = "ឆ្នាំ ២០២៥–២០២៧ ប៉ុណ្ណោះ (Year 2025–2027 only)"
+            y < 2020 || y > 2035 -> {
+                inputError = "ឆ្នាំ ២០២០–២០៣៥ ប៉ុណ្ណោះ (Year 2020–2035 only)"
                 false
             }
             m < 1 || m > 12 -> {
@@ -1925,7 +1925,7 @@ fun DateConvertContent(
 
                     // Year range hint
                     Text(
-                        "ឆ្នាំដែលគ្រប: ២០២៥ – ២០២៧",
+                        "ឆ្នាំដែលគ្រប: ២០២០ – ២០៣៥",
                         fontSize = 9.sp,
                         color = DimColor,
                         modifier = Modifier.fillMaxWidth(),
