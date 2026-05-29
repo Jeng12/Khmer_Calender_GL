@@ -24,6 +24,15 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Accept Android SDK licenses and install platform 36
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" || \
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" || true
+
+      - name: Write local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
       - name: Decode debug keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
@@ -32,7 +41,8 @@ jobs:
 
       - name: Create .env file
         run: |
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY || 'placeholder_key' }}" > .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          [ -z "${{ secrets.GEMINI_API_KEY }}" ] && echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env || true
 
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
@@ -41,18 +51,13 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: khmer-calendar-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      - name: Copy APK to build-outputs
-        run: |
-          mkdir -p .build-outputs
-          cp app/build/outputs/apk/debug/app-debug.apk .build-outputs/app-debug.apk
-
-      - name: Show APK info
-        run: |
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
-          echo "APK size: $(du -sh app/build/outputs/apk/debug/app-debug.apk | cut -f1)"
+      - name: Show APK size
+        if: success()
+        run: ls -lh app/build/outputs/apk/debug/app-debug.apk
