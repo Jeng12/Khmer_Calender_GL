@@ -58,7 +58,7 @@ private fun daysInMonth(year: Int, month: Int): Int = when (month) {
 
 private fun firstDayOfWeek(year: Int, month: Int): Int {
     val sd = KhmerCalendarHelper.getSerialDay(year, month, 1)
-    return ((sd + 4) % 7 + 7) % 7  // 0=Sunday
+    return ((sd + 2) % 7 + 7) % 7  // 0=Sunday (offset matches getKhmerDate's weekday math)
 }
 
 /**

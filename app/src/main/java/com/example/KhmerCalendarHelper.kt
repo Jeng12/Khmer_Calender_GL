@@ -207,12 +207,18 @@ object KhmerCalendarHelper {
         var y = year
         var m = month
         if (m <= 2) { y -= 1; m += 12 }
-        return (365 * y) + (y / 4) - (y / 100) + (y / 400) + ((153 * m + 2) / 5) + day
+        // March-based month index must start at 0 for the (153*idx+2)/5 cumulative-days
+        // formula to stay continuous. After the Jan/Feb shift, m ranges 3..14, so use (m - 3).
+        // Using `m` directly added a non-constant rounding offset that broke day counting
+        // across the Feb→March boundary, throwing the weekday (and lunar) math off.
+        return (365 * y) + (y / 4) - (y / 100) + (y / 400) + ((153 * (m - 3) + 2) / 5) + day
     }
 
     fun getKhmerDate(year: Int, month: Int, day: Int): KhmerDate {
         val sDay   = getSerialDay(year, month, day)
-        val dowIdx = ((sDay + 4) % 7 + 7) % 7
+        // Sunday = 0. Offset +2 aligns the continuous serial-day count with the real
+        // Gregorian weekday (verified against known reference dates).
+        val dowIdx = ((sDay + 2) % 7 + 7) % 7
 
         val ms = findMilestone(sDay)
 
