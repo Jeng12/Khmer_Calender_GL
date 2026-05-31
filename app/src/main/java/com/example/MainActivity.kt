@@ -117,6 +117,7 @@ fun scheduleAlarm(
     context: android.content.Context,
     year: Int, month: Int, day: Int,
     hour: Int, minute: Int,
+    alarmTitle: String,
     khmerDate: KhmerDate,
     lang: AppLanguage
 ) {
@@ -124,17 +125,39 @@ fun scheduleAlarm(
         set(year, month - 1, day, hour, minute, 0)
         set(java.util.Calendar.MILLISECOND, 0)
     }
+    val triggerMs = cal.timeInMillis
     val alarmMgr = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-    val title = if (lang == AppLanguage.EN) "Khmer Calendar Reminder" else "ការរំលឹកប្រតិទិនខ្មែរ"
+    val title = alarmTitle.ifBlank {
+        if (lang == AppLanguage.EN) "Khmer Calendar Reminder" else "ការរំលឹកប្រតិទិនខ្មែរ"
+    }
     val msg = if (lang == AppLanguage.EN)
         "${khmerDate.dayOfWeekEn}, $day ${GREG_MONTHS_EN.getOrElse(month - 1) { "" }} $year"
     else
         "ថ្ងៃ${khmerDate.dayOfWeek} ទី${KhmerCalendarHelper.toKhmerNumeral(day)} ខែ${GREG_MONTHS_KM.getOrElse(month - 1) { "" }}"
+    val requestCode = year * 10000 + month * 100 + day
+
+    // Persist so BootReceiver can reschedule after device reboot
+    try {
+        val prefs = context.getSharedPreferences("khmer_calendar_alarms", android.content.Context.MODE_PRIVATE)
+        val existing = org.json.JSONArray(prefs.getString("alarms", "[]") ?: "[]")
+        val updated = org.json.JSONArray()
+        for (i in 0 until existing.length()) {
+            if (existing.getJSONObject(i).getInt("requestCode") != requestCode)
+                updated.put(existing.getJSONObject(i))
+        }
+        updated.put(org.json.JSONObject().apply {
+            put("requestCode", requestCode)
+            put("triggerMs", triggerMs)
+            put("title", title)
+            put("message", msg)
+        })
+        prefs.edit().putString("alarms", updated.toString()).apply()
+    } catch (_: Exception) {}
+
     val intent = Intent(context, AlarmReceiver::class.java).apply {
         putExtra("title", title)
         putExtra("message", msg)
     }
-    val requestCode = year * 10000 + month * 100 + day
     val pi = PendingIntent.getBroadcast(
         context, requestCode, intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -142,13 +165,13 @@ fun scheduleAlarm(
     when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (alarmMgr.canScheduleExactAlarms())
-                alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
             else
-                alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, cal.timeInMillis, 5 * 60_000L, pi)
+                alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi)
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
-            alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
         else ->
-            alarmMgr.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            alarmMgr.setExact(AlarmManager.RTC_WAKEUP, triggerMs, pi)
     }
 }
 
@@ -1469,6 +1492,9 @@ fun CalendarTabContent(
     var editNoteText by remember { mutableStateOf("") }
 
     // Reminder state
+    var showAlarmForm by remember(year, month, selectedDay) { mutableStateOf(false) }
+    var alarmTitleText by remember(year, month, selectedDay) { mutableStateOf("") }
+    var pendingAlarmTitle by remember { mutableStateOf("") }
     var showTimePicker by remember { mutableStateOf(false) }
     var reminderMessage by remember { mutableStateOf<String?>(null) }
     val notifPermLauncher = rememberLauncherForActivityResult(
@@ -1482,7 +1508,7 @@ fun CalendarTabContent(
             val dlg = TimePickerDialog(
                 context,
                 { _, hour, minute ->
-                    scheduleAlarm(context, year, month, selectedDay, hour, minute, selectedKhmerDate, lang)
+                    scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, selectedKhmerDate, lang)
                     val timeStr = "$hour:${String.format("%02d", minute)}"
                     reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
                     else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
@@ -1714,7 +1740,12 @@ fun CalendarTabContent(
                                             ) {
                                                 if (dateInfo.isAuspicious) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(JadeGreen))
                                                 else if (isHoliday) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
-                                                if (hasNote) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(SkyBlue))
+                                                if (hasNote) Box(
+                                                    modifier = Modifier
+                                                        .width(10.dp).height(4.dp)
+                                                        .clip(RoundedCornerShape(2.dp))
+                                                        .background(SkyBlue)
+                                                )
                                             }
                                         }
                                     }
@@ -1910,6 +1941,41 @@ fun CalendarTabContent(
                         }
                         TextButton(
                             onClick = {
+                                alarmTitleText = ""
+                                reminderMessage = null
+                                showAlarmForm = !showAlarmForm
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                if (showAlarmForm) tr("បោះបង់", "Cancel")
+                                else tr("+ កំណត់", "+ Set"),
+                                fontSize = 10.sp,
+                                color = if (showAlarmForm) DimColor else TraditionalGold
+                            )
+                        }
+                    }
+                    if (showAlarmForm) {
+                        OutlinedTextField(
+                            value = alarmTitleText,
+                            onValueChange = { alarmTitleText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 12.sp),
+                            placeholder = { Text(tr("ចំណងជើងរំលឹក...", "Alarm title..."), color = DimColor, fontSize = 12.sp) },
+                            label = { Text(tr("ចំណងជើង (ស្រេចចិត្ត)", "Title (optional)"), color = GoldSubText, fontSize = 10.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = PlumSurface,
+                                focusedContainerColor = PlumSurface,
+                                unfocusedBorderColor = DeepBorder,
+                                focusedBorderColor = TraditionalGold
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                pendingAlarmTitle = alarmTitleText
+                                showAlarmForm = false
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
                                         showTimePicker = true
@@ -1919,9 +1985,15 @@ fun CalendarTabContent(
                                     showTimePicker = true
                                 }
                             },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(tr("+ កំណត់", "+ Set"), fontSize = 10.sp, color = TraditionalGold)
+                            Text(
+                                "⏰ ${tr("ជ្រើសម៉ោង", "Pick Time")}",
+                                fontSize = 12.sp, color = NightBlack, fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                     if (reminderMessage != null) {
