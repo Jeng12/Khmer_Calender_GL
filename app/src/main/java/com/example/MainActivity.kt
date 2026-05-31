@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -35,6 +36,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
@@ -99,6 +111,46 @@ val LightAppColors = AppColors(
 )
 
 val LocalAppColors = compositionLocalOf { DarkAppColors }
+
+// ── Alarm/Reminder helper ────────────────────────────────────────────────────
+fun scheduleAlarm(
+    context: android.content.Context,
+    year: Int, month: Int, day: Int,
+    hour: Int, minute: Int,
+    khmerDate: KhmerDate,
+    lang: AppLanguage
+) {
+    val cal = java.util.Calendar.getInstance().apply {
+        set(year, month - 1, day, hour, minute, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }
+    val alarmMgr = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
+    val title = if (lang == AppLanguage.EN) "Khmer Calendar Reminder" else "ការរំលឹកប្រតិទិនខ្មែរ"
+    val msg = if (lang == AppLanguage.EN)
+        "${khmerDate.dayOfWeekEn}, $day ${GREG_MONTHS_EN.getOrElse(month - 1) { "" }} $year"
+    else
+        "ថ្ងៃ${khmerDate.dayOfWeek} ទី${KhmerCalendarHelper.toKhmerNumeral(day)} ខែ${GREG_MONTHS_KM.getOrElse(month - 1) { "" }}"
+    val intent = Intent(context, AlarmReceiver::class.java).apply {
+        putExtra("title", title)
+        putExtra("message", msg)
+    }
+    val requestCode = year * 10000 + month * 100 + day
+    val pi = PendingIntent.getBroadcast(
+        context, requestCode, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (alarmMgr.canScheduleExactAlarms())
+                alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            else
+                alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, cal.timeInMillis, 5 * 60_000L, pi)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
+            alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+        else ->
+            alarmMgr.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1386,6 +1438,7 @@ fun CalendarTabContent(
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    val context = LocalContext.current
     var swipeOffset by remember { mutableStateOf(0f) }
     // Focus on the current day each time the Calendar tab is opened
     LaunchedEffect(Unit) { onGoToToday() }
@@ -1397,12 +1450,54 @@ fun CalendarTabContent(
     val todayDay = todayCal.get(java.util.Calendar.DAY_OF_MONTH)
     // Memoize: recompute only when year/month changes
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
-    // Starting day of week for index 1 (Sunday=0). Offset +2 matches getKhmerDate's
-    // weekday math so the grid columns line up with the real Gregorian weekdays.
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
-    val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7 // index representing start day of week (Sunday=0, etc.)
+    val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7
 
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
+
+    // Notes state
+    val notesPrefs = remember { context.getSharedPreferences("khmer_calendar_notes", android.content.Context.MODE_PRIVATE) }
+    var notesVersion by remember { mutableStateOf(0) }
+    val daysWithNotes = remember(year, month, notesVersion) {
+        (1..31).filter { d -> !notesPrefs.getString("${year}_${month}_$d", "").isNullOrEmpty() }.toSet()
+    }
+    val noteKey = "${year}_${month}_${selectedDay}"
+    var currentNote by remember(year, month, selectedDay) {
+        mutableStateOf(notesPrefs.getString(noteKey, "") ?: "")
+    }
+    var isEditingNote by remember { mutableStateOf(false) }
+    var editNoteText by remember { mutableStateOf("") }
+
+    // Reminder state
+    var showTimePicker by remember { mutableStateOf(false) }
+    var reminderMessage by remember { mutableStateOf<String?>(null) }
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) showTimePicker = true }
+
+    // Time picker dialog — placed outside LazyColumn to always trigger
+    if (showTimePicker) {
+        val cal = remember { java.util.Calendar.getInstance() }
+        DisposableEffect(selectedDay) {
+            val dlg = TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    scheduleAlarm(context, year, month, selectedDay, hour, minute, selectedKhmerDate, lang)
+                    val timeStr = "$hour:${String.format("%02d", minute)}"
+                    reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
+                    else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
+                    Toast.makeText(context, reminderMessage, Toast.LENGTH_SHORT).show()
+                    showTimePicker = false
+                },
+                cal.get(java.util.Calendar.HOUR_OF_DAY),
+                cal.get(java.util.Calendar.MINUTE),
+                true
+            )
+            dlg.setOnCancelListener { showTimePicker = false }
+            dlg.show()
+            onDispose { if (dlg.isShowing) dlg.dismiss() }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -1504,111 +1599,123 @@ fun CalendarTabContent(
             }
         }
 
-        // Days Grid Calendar
+        // Days Grid Calendar — wrapped in AnimatedContent for smooth month slide
         item {
-            // We use simple nested layouts instead of complex lazy grid inside lazy column to prevent crashes
-            val totalCells = startOffset + daysList.size
-            val rowsCount = (totalCells + 6) / 7
+            AnimatedContent(
+                targetState = year * 12 + (month - 1),
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    (slideInHorizontally(tween(300)) { if (forward) it else -it } +
+                     fadeIn(tween(220))) togetherWith
+                    (slideOutHorizontally(tween(300)) { if (forward) -it else it } +
+                     fadeOut(tween(180)))
+                },
+                label = "MonthGrid"
+            ) { ym ->
+                val animYear   = ym / 12
+                val animMonth  = ym % 12 + 1
+                val animDays   = remember(ym) { KhmerCalendarHelper.getGregorianMonthDays(animYear, animMonth) }
+                val animSerial = remember(ym) { KhmerCalendarHelper.getSerialDay(animYear, animMonth, 1) }
+                val animOffset = ((animSerial + 2) % 7 + 7) % 7
+                val animRows   = ((animOffset + animDays.size + 6) / 7)
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.pointerInput(year, month) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (swipeOffset > 80f) {
-                                var prevMonth = month - 1; var prevYear = year
-                                if (prevMonth < 1) { prevMonth = 12; prevYear -= 1 }
-                                onMonthChange(prevYear, prevMonth)
-                            } else if (swipeOffset < -80f) {
-                                var nextMonth = month + 1; var nextYear = year
-                                if (nextMonth > 12) { nextMonth = 1; nextYear += 1 }
-                                onMonthChange(nextYear, nextMonth)
-                            }
-                            swipeOffset = 0f
-                        },
-                        onHorizontalDrag = { _, dragAmount -> swipeOffset += dragAmount }
-                    )
-                }
-            ) {
-                for (row in 0 until rowsCount) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        for (col in 0..6) {
-                            val cellIdx = row * 7 + col
-                            val dayNumber = cellIdx - startOffset + 1
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.pointerInput(animYear, animMonth) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (swipeOffset > 80f) {
+                                    var pm = animMonth - 1; var py = animYear
+                                    if (pm < 1) { pm = 12; py -= 1 }
+                                    onMonthChange(py, pm)
+                                } else if (swipeOffset < -80f) {
+                                    var nm = animMonth + 1; var ny = animYear
+                                    if (nm > 12) { nm = 1; ny += 1 }
+                                    onMonthChange(ny, nm)
+                                }
+                                swipeOffset = 0f
+                            },
+                            onHorizontalDrag = { _, d -> swipeOffset += d }
+                        )
+                    }
+                ) {
+                    for (row in 0 until animRows) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            for (col in 0..6) {
+                                val cellIdx   = row * 7 + col
+                                val dayNumber = cellIdx - animOffset + 1
 
-                            if (cellIdx < startOffset || dayNumber > daysList.size) {
-                                Box(modifier = Modifier.weight(1f))
-                            } else {
-                                val dateInfo = daysList[dayNumber - 1]
-                                val isSelected = dayNumber == selectedDay
-                                val isToday = year == todayYear && month == todayMonth && dayNumber == todayDay
-                                val isHoliday = dateInfo.holiday != null
-                                val isWeekend = col == 0 || col == 6
+                                if (cellIdx < animOffset || dayNumber > animDays.size) {
+                                    Box(modifier = Modifier.weight(1f))
+                                } else {
+                                    val dateInfo  = animDays[dayNumber - 1]
+                                    val isSelected = dayNumber == selectedDay && animYear == year && animMonth == month
+                                    val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
+                                    val isHoliday  = dateInfo.holiday != null
+                                    val isWeekend  = col == 0 || col == 6
+                                    val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithNotes
 
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(0.8f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            when {
-                                                isSelected -> TraditionalGold.copy(0.2f)
-                                                isToday -> LotusPink.copy(0.12f)
-                                                else -> Color.Transparent
-                                            }
-                                        )
-                                        .border(
-                                            1.5.dp,
-                                            when {
-                                                isSelected -> TraditionalGold
-                                                isToday -> LotusPink.copy(0.7f)
-                                                else -> Color.Transparent
-                                            },
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                        .clickable { onDayChange(dayNumber) }
-                                        .padding(4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(0.8f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(
+                                                when {
+                                                    isSelected -> TraditionalGold.copy(0.2f)
+                                                    isToday    -> LotusPink.copy(0.12f)
+                                                    else       -> Color.Transparent
+                                                }
+                                            )
+                                            .border(
+                                                1.5.dp,
+                                                when {
+                                                    isSelected -> TraditionalGold
+                                                    isToday    -> LotusPink.copy(0.7f)
+                                                    else       -> Color.Transparent
+                                                },
+                                                RoundedCornerShape(10.dp)
+                                            )
+                                            .clickable { onDayChange(dayNumber) }
+                                            .padding(4.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        // Render small indicator for major moon phase
-                                        val hasMoonIndicator =
-                                            (dateInfo.isWaxing && dateInfo.lunarDayVal in listOf(1, 8, 15)) ||
-                                            (!dateInfo.isWaxing && dateInfo.lunarDayVal == 8)
-                                        if (hasMoonIndicator) {
-                                            Text(dateInfo.moonEmoji, fontSize = 10.sp, lineHeight = 12.sp)
-                                        }
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            val hasMoon = (dateInfo.isWaxing && dateInfo.lunarDayVal in listOf(1, 8, 15)) ||
+                                                (!dateInfo.isWaxing && dateInfo.lunarDayVal == 8)
+                                            if (hasMoon) Text(dateInfo.moonEmoji, fontSize = 10.sp, lineHeight = 12.sp)
 
-                                        Text(
-                                            text = dayNumber.toString(),
-                                            fontSize = 20.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                            color = when {
-                                                isSelected -> TraditionalGold
-                                                isHoliday -> LotusPink
-                                                isWeekend -> CrimsonHoliday
-                                                else -> SandText
+                                            Text(
+                                                text = dayNumber.toString(),
+                                                fontSize = 20.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                                color = when {
+                                                    isSelected -> TraditionalGold
+                                                    isHoliday  -> LotusPink
+                                                    isWeekend  -> CrimsonHoliday
+                                                    else       -> SandText
+                                                }
+                                            )
+                                            Text(
+                                                text = lunarDayLabel(lang, dateInfo),
+                                                fontSize = 8.sp, lineHeight = 9.sp,
+                                                maxLines = 1, softWrap = false,
+                                                color = if (isSelected) TraditionalGold.copy(0.8f) else DimColor
+                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                modifier = Modifier.height(5.dp)
+                                            ) {
+                                                if (dateInfo.isAuspicious) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(JadeGreen))
+                                                else if (isHoliday) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
+                                                if (hasNote) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(SkyBlue))
                                             }
-                                        )
-                                        Text(
-                                            text = lunarDayLabel(lang, dateInfo),
-                                            fontSize = 8.sp,
-                                            lineHeight = 9.sp,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            color = if (isSelected) TraditionalGold.copy(0.8f) else DimColor
-                                        )
-                                        // Small dot if auspicious or has custom holiday
-                                        if (dateInfo.isAuspicious) {
-                                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(JadeGreen))
-                                        } else if (isHoliday) {
-                                            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
                                         }
                                     }
                                 }
@@ -1700,23 +1807,130 @@ fun CalendarTabContent(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         listOf(
-                            Pair(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious")),
-                            Pair(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday")),
-                            Pair(TraditionalGold, tr("ថ្ងៃសកម្ម", "Selected")),
-                            Pair(CrimsonHoliday, tr("ថ្ងៃឈប់", "Weekend"))
-                        ).forEach { legend ->
+                            Triple(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious"), ""),
+                            Triple(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"), ""),
+                            Triple(TraditionalGold, tr("ថ្ងៃសកម្ម", "Selected"), ""),
+                            Triple(CrimsonHoliday, tr("ថ្ងៃឈប់", "Weekend"), ""),
+                            Triple(SkyBlue, tr("កំណត់ចំណាំ", "Note"), "")
+                        ).forEach { (color, label, _) ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(legend.first))
-                                Text(legend.second, fontSize = 8.sp, color = DimColor)
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
+                                Text(label, fontSize = 8.sp, color = DimColor)
                             }
                         }
+                    }
+
+                    // ── Notes section ─────────────────────────────────────────
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(tr("📝 កំណត់ចំណាំ", "📝 Notes"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                        if (!isEditingNote) {
+                            TextButton(
+                                onClick = { editNoteText = currentNote; isEditingNote = true },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    if (currentNote.isEmpty()) tr("+ បន្ថែម", "+ Add") else tr("✏️ កែ", "✏️ Edit"),
+                                    fontSize = 10.sp, color = SkyBlue
+                                )
+                            }
+                        }
+                    }
+                    if (isEditingNote) {
+                        OutlinedTextField(
+                            value = editNoteText,
+                            onValueChange = { editNoteText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 12.sp),
+                            placeholder = { Text(tr("សរសេរកំណត់ចំណាំ...", "Write a note..."), color = DimColor, fontSize = 12.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = PlumSurface,
+                                focusedContainerColor = PlumSurface,
+                                unfocusedBorderColor = DeepBorder,
+                                focusedBorderColor = SkyBlue
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            maxLines = 4
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { isEditingNote = false }) {
+                                Text(tr("បោះបង់", "Cancel"), fontSize = 10.sp, color = DimColor)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val trimmed = editNoteText.trim()
+                                    notesPrefs.edit().putString(noteKey, trimmed).apply()
+                                    currentNote = trimmed
+                                    isEditingNote = false
+                                    notesVersion++
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(tr("រក្សាទុក", "Save"), fontSize = 10.sp, color = NightBlack, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else if (currentNote.isNotEmpty()) {
+                        Text(
+                            text = currentNote,
+                            fontSize = 12.sp, color = SandText, lineHeight = 17.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PlumSurface, RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        )
+                    }
+
+                    // ── Reminder section ──────────────────────────────────────
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🔔", fontSize = 14.sp)
+                            Text(tr("ការរំលឹក", "Reminder"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                        }
+                        TextButton(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                                        showTimePicker = true
+                                    else
+                                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    showTimePicker = true
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(tr("+ កំណត់", "+ Set"), fontSize = 10.sp, color = TraditionalGold)
+                        }
+                    }
+                    if (reminderMessage != null) {
+                        Text(reminderMessage!!, fontSize = 10.sp, color = JadeGreen)
                     }
                 }
             }
         }
+
     }
 }
 
@@ -2497,36 +2711,6 @@ fun ProfileSettingsContent(
                 Column {
                     Text("Sophanit", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                     Text("jengah6@gmail.com · ${tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024")}", fontSize = 10.sp, color = GoldSubText)
-                }
-            }
-        }
-
-        // Stats boxes section
-        item {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                listOf(
-                    Pair(num(lang, 128), tr("ថ្ងៃបានមើល", "Days viewed")),
-                    Pair(num(lang, 34), tr("ការបំលែង", "Conversions")),
-                    Pair(num(lang, 12), tr("រក្សាទុក", "Saved"))
-                ).forEach { stat ->
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = PlumCard),
-                        border = BorderStroke(1.dp, DeepBorder)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(stat.first, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TraditionalGold)
-                            Text(stat.second, fontSize = 8.sp, color = GoldSubText)
-                        }
-                    }
                 }
             }
         }
