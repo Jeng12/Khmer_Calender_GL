@@ -40,6 +40,8 @@ import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
 // Beautiful Khmer Heritage Color Palette
 val NightBlack = Color(0xFF0D0A0F)      // #0D0A0F
@@ -63,6 +65,40 @@ val SkyBlue = Color(0xFF7BA7BC)         // #7BA7BC
 val GoldBorderGradient = Brush.linearGradient(listOf(TraditionalGold, Color(0xFFFFF0C0), TraditionalGold))
 val GoldLotusBrush     = Brush.linearGradient(listOf(TraditionalGold, LotusPink))
 val AccentBarBrush     = Brush.horizontalGradient(listOf(CrimsonHoliday, TraditionalGold, LotusPink))
+
+// ── Themeable color scheme (positional destructuring maps to legacy names) ──────
+// val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted,
+//      SandText, GoldSubText, DimColor) = LocalAppColors.current
+data class AppColors(
+    val bg:      Color,  // NightBlack
+    val deepBg:  Color,  // DeepAmethyst
+    val surface: Color,  // PlumSurface
+    val card:    Color,  // PlumCard
+    val border:  Color,  // DeepBorder
+    val muted:   Color,  // DeepMuted
+    val text:    Color,  // SandText
+    val subText: Color,  // GoldSubText
+    val dim:     Color,  // DimColor
+)
+
+val DarkAppColors = AppColors(
+    bg = NightBlack, deepBg = DeepAmethyst, surface = PlumSurface, card = PlumCard,
+    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor
+)
+
+val LightAppColors = AppColors(
+    bg      = Color(0xFFFAF5EE),
+    deepBg  = Color(0xFFF0E8DC),
+    surface = Color(0xFFFFFFFF),
+    card    = Color(0xFFF5EFE6),
+    border  = Color(0xFFE2D5C3),
+    muted   = Color(0xFFCFC0A8),
+    text    = Color(0xFF2C1F0E),
+    subText = Color(0xFF7A5F3A),
+    dim     = Color(0xFF9A8068),
+)
+
+val LocalAppColors = compositionLocalOf { DarkAppColors }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,7 +127,7 @@ enum class AppTab {
 @Composable
 fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
-    var currentTab by remember { mutableStateOf(AppTab.HOME) }
+    var currentTab by remember { mutableStateOf(AppTab.CALENDAR) }
 
     // App-wide language, persisted across launches. Defaults to Khmer.
     val context = LocalContext.current
@@ -101,6 +137,7 @@ fun KhmerCalendarApp() {
             if (langPrefs.getString("app_lang", "km") == "en") AppLanguage.EN else AppLanguage.KM
         )
     }
+    var isDarkMode by remember { mutableStateOf(langPrefs.getBoolean("dark_mode", true)) }
 
     // Today's real Gregorian date, used to open the calendar focused on the current day
     val today = remember { java.util.Calendar.getInstance() }
@@ -136,10 +173,14 @@ fun KhmerCalendarApp() {
     }
 
     // Outer edge-to-edge container
-    CompositionLocalProvider(LocalAppLanguage provides appLanguage) {
+    CompositionLocalProvider(
+        LocalAppLanguage provides appLanguage,
+        LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
+    ) {
+    val C = LocalAppColors.current
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = NightBlack
+        color = C.bg
     ) {
         Box(
             modifier = Modifier
@@ -209,6 +250,8 @@ fun KhmerCalendarApp() {
                             screenState = AppScreen.LOGIN
                             currentTab = AppTab.HOME
                         },
+                        isDarkMode = isDarkMode,
+                        onDarkModeToggle = { enabled -> isDarkMode = enabled; langPrefs.edit().putBoolean("dark_mode", enabled).apply() },
                         appLanguage = appLanguage,
                         onLanguageChange = { lang ->
                             appLanguage = lang
@@ -230,6 +273,7 @@ fun KhmerCalendarApp() {
 
 @Composable
 fun SplashScreenContent() {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -305,6 +349,7 @@ fun SplashScreenContent() {
 
 @Composable
 fun OnboardingScreenContent(onContinue: () -> Unit) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -412,6 +457,7 @@ fun LoginScreenContent(
     onSignUp: () -> Unit,
     onForgot: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -597,6 +643,7 @@ fun RegisterScreenContent(
     onBack: () -> Unit,
     onRegister: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     var fn by remember { mutableStateOf("") }
     var ln by remember { mutableStateOf("") }
@@ -745,6 +792,7 @@ fun RegisterScreenContent(
 
 @Composable
 fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     var email by remember { mutableStateOf("chanda@example.com") }
     Column(
         modifier = Modifier
@@ -812,6 +860,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
 
 @Composable
 fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -903,14 +952,17 @@ fun MainAppLayout(
     selectedHolidayFilter: String,
     onHolidayFilterChange: (String) -> Unit,
     onLogOut: () -> Unit,
+    isDarkMode: Boolean = true,
+    onDarkModeToggle: (Boolean) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.KM,
     onLanguageChange: (AppLanguage) -> Unit = {}
 ) {
+    val C = LocalAppColors.current
     Scaffold(
         bottomBar = {
             CustomBottomBar(currentTab = currentTab, onTabSelect = onTabChange)
         },
-        containerColor = NightBlack
+        containerColor = C.bg
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -947,6 +999,8 @@ fun MainAppLayout(
                     )
                     AppTab.PROFILE -> ProfileSettingsContent(
                         onLogOut = onLogOut,
+                        isDarkMode = isDarkMode,
+                        onDarkModeToggle = onDarkModeToggle,
                         appLanguage = appLanguage,
                         onLanguageChange = onLanguageChange
                     )
@@ -961,6 +1015,7 @@ fun CustomBottomBar(
     currentTab: AppTab,
     onTabSelect: (AppTab) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1025,6 +1080,7 @@ fun BottomBarItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Column(
         modifier = Modifier
             .clickable(
@@ -1061,6 +1117,7 @@ fun BottomBarItem(
 // 1. HOME TAB CONTAINER
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val calendar = remember { java.util.Calendar.getInstance() }
     val currentYear = calendar.get(java.util.Calendar.YEAR)
@@ -1296,6 +1353,7 @@ fun QuickGridCard(
     accentColor: Color,
     onClick: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = modifier
             .background(PlumCard, RoundedCornerShape(12.dp))
@@ -1326,7 +1384,9 @@ fun CalendarTabContent(
     onDayChange: (Int) -> Unit,
     onGoToToday: () -> Unit = {}
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    var swipeOffset by remember { mutableStateOf(0f) }
     // Focus on the current day each time the Calendar tab is opened
     LaunchedEffect(Unit) { onGoToToday() }
 
@@ -1376,9 +1436,9 @@ fun CalendarTabContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = if (lang == AppLanguage.EN)
-                            "${gregMonth(lang, month - 1)} $year"
+                            "${selectedKhmerDate.dayOfWeekEn}, ${gregMonth(lang, month - 1)} $selectedDay, $year"
                         else
-                            "ខែ${gregMonth(lang, month - 1)} ${num(lang, year)}",
+                            "ថ្ងៃទី ${num(lang, selectedDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = MoonWheat
@@ -1393,6 +1453,7 @@ fun CalendarTabContent(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    val isTodaySelected = year == todayYear && month == todayMonth && selectedDay == todayDay
                     Box(
                         modifier = Modifier
                             .background(TraditionalGold.copy(0.15f), RoundedCornerShape(20.dp))
@@ -1400,7 +1461,15 @@ fun CalendarTabContent(
                             .clickable { onGoToToday() }
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (lang == AppLanguage.EN)
+                                if (isTodaySelected) "Today · ${selectedKhmerDate.dayOfWeekEn}"
+                                else selectedKhmerDate.dayOfWeekEn
+                            else
+                                if (isTodaySelected) "ថ្ងៃនេះ ${selectedKhmerDate.dayOfWeek}"
+                                else "ថ្ងៃ${selectedKhmerDate.dayOfWeek}",
+                            fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
@@ -1441,7 +1510,26 @@ fun CalendarTabContent(
             val totalCells = startOffset + daysList.size
             val rowsCount = (totalCells + 6) / 7
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.pointerInput(year, month) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (swipeOffset > 80f) {
+                                var prevMonth = month - 1; var prevYear = year
+                                if (prevMonth < 1) { prevMonth = 12; prevYear -= 1 }
+                                onMonthChange(prevYear, prevMonth)
+                            } else if (swipeOffset < -80f) {
+                                var nextMonth = month + 1; var nextYear = year
+                                if (nextMonth > 12) { nextMonth = 1; nextYear += 1 }
+                                onMonthChange(nextYear, nextMonth)
+                            }
+                            swipeOffset = 0f
+                        },
+                        onHorizontalDrag = { _, dragAmount -> swipeOffset += dragAmount }
+                    )
+                }
+            ) {
                 for (row in 0 until rowsCount) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1640,6 +1728,7 @@ fun AuspiciousTabContent(
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     // Stable Khmer filter keys (used for state + matching); display labels localized.
     val filters = listOf("ទាំងអស់", "ពិធីមង្គលការ", "ឡើងផ្ទះថ្មី", "បើកអាជីវកម្ម", "ធ្វើដំណើរ")
@@ -1755,6 +1844,7 @@ private fun AuspiciousDayCard(
     typeLabel: String,
     khmerDate: KhmerDate
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     var explanation by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -1833,6 +1923,7 @@ fun HolidaysTabContent(
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val NATIONAL = "ជាតិ (National)"
     val BUDDHIST = "ព្រះពុទ្ធ (Buddhist)"
@@ -1957,6 +2048,7 @@ fun DateConvertContent(
     convertedDate: KhmerDate?,
     onConvert: (String, String, String) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     var inYear by remember { mutableStateOf(year) }
     var inMonth by remember { mutableStateOf(month) }
@@ -2363,6 +2455,8 @@ fun DateConvertContent(
 @Composable
 fun ProfileSettingsContent(
     onLogOut: () -> Unit,
+    isDarkMode: Boolean = true,
+    onDarkModeToggle: (Boolean) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.KM,
     onLanguageChange: (AppLanguage) -> Unit = {}
 ) {
@@ -2370,6 +2464,7 @@ fun ProfileSettingsContent(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
+    val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
 
     LazyColumn(
         modifier = Modifier
@@ -2501,6 +2596,31 @@ fun ProfileSettingsContent(
                         colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                     )
                 }
+            }
+        }
+
+        // Dark/Light mode toggle
+        item {
+            Text(tr("ការបង្ហាញ (DISPLAY)", "DISPLAY"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (isDarkMode) "🌙" else "☀️", fontSize = 16.sp)
+                    Text(tr("របៀបតាមយប់/ថ្ងៃ (Dark Mode)", "Dark / Light Mode"), fontSize = 11.sp, color = SandText)
+                }
+                Switch(
+                    checked = isDarkMode,
+                    onCheckedChange = { onDarkModeToggle(it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                )
             }
         }
 
