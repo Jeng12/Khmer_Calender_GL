@@ -33,9 +33,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1475,6 +1478,70 @@ fun QuickGridCard(
     }
 }
 
+// ── Scroll-wheel drum picker ─────────────────────────────────────────────────
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ScrollWheelPicker(
+    items: List<String>,
+    initialIndex: Int,
+    onIndexChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    bgColor: Color = PlumCard
+) {
+    val itemH = 44.dp
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = maxOf(0, initialIndex)
+    )
+    val fling = rememberSnapFlingBehavior(listState)
+    // Track center item in real-time (firstVisibleItemIndex = center due to 1-item padding)
+    val centerIdx by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    // Notify parent only when scroll settles
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) onIndexChange(listState.firstVisibleItemIndex)
+        }
+    }
+    Box(modifier = modifier.height(itemH * 3)) {
+        // Center highlight bar (drawn first so it's behind text)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(itemH)
+                .align(Alignment.Center)
+                .clip(RoundedCornerShape(8.dp))
+                .background(TraditionalGold.copy(alpha = 0.12f))
+                .border(1.dp, TraditionalGold.copy(alpha = 0.40f), RoundedCornerShape(8.dp))
+        )
+        LazyColumn(
+            state = listState,
+            flingBehavior = fling,
+            contentPadding = PaddingValues(vertical = itemH),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(items.size) { i ->
+                val isSel = i == centerIdx
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(itemH),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = items[i],
+                        color = if (isSel) TraditionalGold else GoldSubText.copy(alpha = 0.55f),
+                        fontSize = if (isSel) 20.sp else 14.sp,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        // Top/bottom fade-out for depth
+        Box(modifier = Modifier.fillMaxWidth().height(itemH).align(Alignment.TopCenter)
+            .background(Brush.verticalGradient(listOf(bgColor, Color.Transparent))))
+        Box(modifier = Modifier.fillMaxWidth().height(itemH).align(Alignment.BottomCenter)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, bgColor))))
+    }
+}
+
 // 2. CALENDAR TAB CONTAINER
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1535,166 +1602,384 @@ fun CalendarTabContent(
         longPressDay?.let { notesPrefs.getString("${year}_${month}_$it", "") ?: "" } ?: ""
     }
 
-    // Reminder state
-    var showAlarmForm by remember(year, month, selectedDay) { mutableStateOf(false) }
+    // Reminder / alarm-picker state
+    var showAlarmPickerDialog by remember { mutableStateOf(false) }
     var alarmTitleText by remember(year, month, selectedDay) { mutableStateOf("") }
     var selectedRepeat by remember(year, month, selectedDay) { mutableStateOf(AlarmRepeat.ONCE) }
-    var pendingAlarmTitle by remember { mutableStateOf("") }
-    var pendingRepeat by remember { mutableStateOf(AlarmRepeat.ONCE) }
-    var showTimePicker by remember { mutableStateOf(false) }
+    var pickerDay   by remember(year, month, selectedDay) { mutableStateOf(selectedDay) }
+    var pickerMonth by remember(year, month) { mutableStateOf(month) }
+    var pickerYear  by remember(year) { mutableStateOf(year) }
+    var pickerHour   by remember { mutableStateOf(8) }
+    var pickerMinute by remember { mutableStateOf(0) }
     var reminderMessage by remember { mutableStateOf<String?>(null) }
     val notifPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) showTimePicker = true }
+    ) { granted -> if (granted) showAlarmPickerDialog = true }
 
-    // Time picker dialog — placed outside LazyColumn to always trigger
-    if (showTimePicker) {
-        val cal = remember { java.util.Calendar.getInstance() }
-        DisposableEffect(selectedDay) {
-            val dlg = TimePickerDialog(
-                context,
-                { _, hour, minute ->
-                    scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, pendingRepeat, selectedKhmerDate, lang)
-                    alarmsVersion++
-                    val timeStr = "$hour:${String.format("%02d", minute)}"
-                    reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
-                    else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
-                    Toast.makeText(context, reminderMessage, Toast.LENGTH_SHORT).show()
-                    showTimePicker = false
-                },
-                cal.get(java.util.Calendar.HOUR_OF_DAY),
-                cal.get(java.util.Calendar.MINUTE),
-                true
-            )
-            dlg.setOnCancelListener { showTimePicker = false }
-            dlg.show()
-            onDispose { if (dlg.isShowing) dlg.dismiss() }
+    // ── Scroll-wheel alarm picker dialog ──────────────────────────────────────
+    if (showAlarmPickerDialog) {
+        val months = listOf("មករា","កុម្ភៈ","មីនា","មេសា","ឧសភា","មិថុនា",
+            "កក្កដា","សីហា","កញ្ញា","តុលា","វិច្ឆិកា","ធ្នូ")
+        val daysInMonth = java.util.Calendar.getInstance()
+            .apply { set(pickerYear, pickerMonth - 1, 1) }
+            .getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+        val dayItems    = (1..daysInMonth).map { KhmerCalendarHelper.toKhmerNumeral(it) }
+        val monthItems  = months
+        val yearItems   = (year - 2..year + 5).map { KhmerCalendarHelper.toKhmerNumeral(it) }
+        val hourItems   = (0..23).map { String.format("%02d", it) }
+        val minuteItems = (0..59).map { String.format("%02d", it) }
+        val yearOffset  = 2  // year is index 2 in yearItems (year - 2 + 2 = year)
+
+        Dialog(
+            onDismissRequest = { showAlarmPickerDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PlumCard),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Dialog title
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            tr("🔔 កំណត់ការរំលឹក", "🔔 Set Reminder"),
+                            fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TraditionalGold
+                        )
+                        IconButton(onClick = { showAlarmPickerDialog = false }, modifier = Modifier.size(24.dp)) {
+                            Text("✕", fontSize = 14.sp, color = DimColor)
+                        }
+                    }
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                    // Title field
+                    OutlinedTextField(
+                        value = alarmTitleText,
+                        onValueChange = { alarmTitleText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 13.sp),
+                        placeholder = { Text(tr("ចំណងជើងរំលឹក...", "Alarm title..."), color = DimColor, fontSize = 12.sp) },
+                        label = { Text(tr("ចំណងជើង (ស្រេចចិត្ត)", "Title (optional)"), color = GoldSubText, fontSize = 10.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = PlumSurface,
+                            focusedContainerColor = PlumSurface,
+                            unfocusedBorderColor = DeepBorder,
+                            focusedBorderColor = TraditionalGold
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    // Date picker row
+                    Text(tr("📅 ថ្ងៃខែ", "📅 Date"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Day wheel
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("ថ្ងៃ", "Day"), fontSize = 9.sp, color = DimColor)
+                            ScrollWheelPicker(
+                                items = dayItems,
+                                initialIndex = maxOf(0, pickerDay - 1),
+                                onIndexChange = { pickerDay = it + 1 },
+                                bgColor = PlumCard
+                            )
+                        }
+                        // Month wheel
+                        Column(modifier = Modifier.weight(1.5f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("ខែ", "Month"), fontSize = 9.sp, color = DimColor)
+                            ScrollWheelPicker(
+                                items = monthItems,
+                                initialIndex = maxOf(0, pickerMonth - 1),
+                                onIndexChange = { pickerMonth = it + 1 },
+                                bgColor = PlumCard
+                            )
+                        }
+                        // Year wheel
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("ឆ្នាំ", "Year"), fontSize = 9.sp, color = DimColor)
+                            ScrollWheelPicker(
+                                items = yearItems,
+                                initialIndex = yearOffset,
+                                onIndexChange = { pickerYear = year - 2 + it },
+                                bgColor = PlumCard
+                            )
+                        }
+                    }
+
+                    // Time picker row
+                    Text(tr("⏰ ម៉ោង", "⏰ Time"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Hour wheel
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("ម៉ោង", "Hour"), fontSize = 9.sp, color = DimColor)
+                            ScrollWheelPicker(
+                                items = hourItems,
+                                initialIndex = pickerHour,
+                                onIndexChange = { pickerHour = it },
+                                bgColor = PlumCard
+                            )
+                        }
+                        Text(":", fontSize = 24.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp))
+                        // Minute wheel
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(tr("នាទី", "Min"), fontSize = 9.sp, color = DimColor)
+                            ScrollWheelPicker(
+                                items = minuteItems,
+                                initialIndex = pickerMinute,
+                                onIndexChange = { pickerMinute = it },
+                                bgColor = PlumCard
+                            )
+                        }
+                    }
+
+                    // Repeat selector
+                    Text(tr("ការប្រើប្រាស់ឡើងវិញ", "Repeat"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AlarmRepeat.values().forEach { rep ->
+                            val isActive = rep == selectedRepeat
+                            Box(
+                                modifier = Modifier
+                                    .background(if (isActive) TraditionalGold else PlumSurface, RoundedCornerShape(16.dp))
+                                    .border(1.dp, if (isActive) TraditionalGold else DeepBorder, RoundedCornerShape(16.dp))
+                                    .clickable { selectedRepeat = rep }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = if (lang == AppLanguage.EN) rep.en else rep.km,
+                                    fontSize = 10.sp,
+                                    color = if (isActive) NightBlack else SandText,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                    // Confirm/Cancel buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showAlarmPickerDialog = false },
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, DeepBorder),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(tr("បោះបង់", "Cancel"), color = DimColor, fontSize = 13.sp)
+                        }
+                        Button(
+                            onClick = {
+                                val kd = try {
+                                    KhmerCalendarHelper.getKhmerDate(pickerYear, pickerMonth, pickerDay)
+                                } catch (_: Exception) { selectedKhmerDate }
+                                scheduleAlarm(
+                                    context, pickerYear, pickerMonth, pickerDay,
+                                    pickerHour, pickerMinute,
+                                    alarmTitleText.trim(),
+                                    selectedRepeat, kd, lang
+                                )
+                                alarmsVersion++
+                                val timeStr = "${String.format("%02d", pickerHour)}:${String.format("%02d", pickerMinute)}"
+                                reminderMessage = if (lang == AppLanguage.EN)
+                                    "✓ Reminder set for $timeStr"
+                                else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
+                                Toast.makeText(context, reminderMessage, Toast.LENGTH_SHORT).show()
+                                showAlarmPickerDialog = false
+                                alarmTitleText = ""
+                                selectedRepeat = AlarmRepeat.ONCE
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(tr("កំណត់ការរំលឹក", "Set Alarm"), color = NightBlack, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    // Long-press day details bottom sheet
+    // Long-press day details — centered popup Dialog
     if (longPressDay != null) {
         val lpDay = longPressDay!!
         val lpKhmerDate = daysList.getOrNull(lpDay - 1) ?: KhmerCalendarHelper.getKhmerDate(year, month, lpDay)
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        Dialog(
             onDismissRequest = { longPressDay = null },
-            sheetState = sheetState,
-            containerColor = PlumCard
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            Column(
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PlumCard),
+                shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column {
-                        Text(
-                            text = if (lang == AppLanguage.EN)
-                                "${lpKhmerDate.dayOfWeekEn}, $lpDay ${gregMonth(lang, month - 1)} $year"
-                            else
-                                "ថ្ងៃទី ${num(lang, lpDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = headline
-                        )
-                        Text(
-                            text = "${lunarDayLabel(lang, lpKhmerDate)} ${lunarMonth(lang, lpKhmerDate.lunarMonthName)}",
-                            fontSize = 12.sp,
-                            color = TraditionalGold
-                        )
-                    }
-                    Text(lpKhmerDate.moonEmoji, fontSize = 24.sp)
-                }
-
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
-
-                // Holiday / Auspicious badges
-                if (lpKhmerDate.holiday != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(LotusPink.copy(0.12f), RoundedCornerShape(8.dp))
-                            .border(1.dp, LotusPink.copy(0.5f), RoundedCornerShape(8.dp))
-                            .padding(8.dp)
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "🎉 ${tr("ថ្ងៃបុណ្យ", "Holiday")}: ${localizeDual(lang, lpKhmerDate.holiday!!)}",
-                            fontSize = 11.sp, color = LotusPink, fontWeight = FontWeight.SemiBold
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (lang == AppLanguage.EN)
+                                    "${lpKhmerDate.dayOfWeekEn}, $lpDay ${gregMonth(lang, month - 1)} $year"
+                                else
+                                    "ថ្ងៃទី ${num(lang, lpDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = headline
+                            )
+                            Text(
+                                text = "${lunarDayLabel(lang, lpKhmerDate)} ${lunarMonth(lang, lpKhmerDate.lunarMonthName)}",
+                                fontSize = 12.sp,
+                                color = TraditionalGold
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(lpKhmerDate.moonEmoji, fontSize = 22.sp)
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(onClick = { longPressDay = null }, modifier = Modifier.size(22.dp)) {
+                                Text("✕", fontSize = 12.sp, color = DimColor)
+                            }
+                        }
                     }
-                }
-                if (lpKhmerDate.isAuspicious) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(JadeGreen.copy(0.12f), RoundedCornerShape(8.dp))
-                            .border(1.dp, JadeGreen.copy(0.5f), RoundedCornerShape(8.dp))
-                            .padding(8.dp)
+
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                    // Holiday / Auspicious badges
+                    if (lpKhmerDate.holiday != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(LotusPink.copy(0.12f), RoundedCornerShape(8.dp))
+                                .border(1.dp, LotusPink.copy(0.5f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                "🎉 ${tr("ថ្ងៃបុណ្យ", "Holiday")}: ${localizeDual(lang, lpKhmerDate.holiday!!)}",
+                                fontSize = 11.sp, color = LotusPink, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    if (lpKhmerDate.isAuspicious) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(JadeGreen.copy(0.12f), RoundedCornerShape(8.dp))
+                                .border(1.dp, JadeGreen.copy(0.5f), RoundedCornerShape(8.dp))
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                "🌿 ${tr("ថ្ងៃមង្គល", "Auspicious")}: ${localizeDual(lang, lpKhmerDate.auspiciousType ?: tr("ការងារទូទៅ", "General"))}",
+                                fontSize = 11.sp, color = JadeGreen, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // ── Note section ───────────────────────────────────────────
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "🌿 ${tr("ថ្ងៃមង្គល", "Auspicious")}: ${localizeDual(lang, lpKhmerDate.auspiciousType ?: tr("ការងារទូទៅ", "General"))}",
-                            fontSize = 11.sp, color = JadeGreen, fontWeight = FontWeight.SemiBold
-                        )
+                        Text(tr("📝 កំណត់ចំណាំ", "📝 Note"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
                     }
-                }
-
-                // Note
-                Text(tr("📝 កំណត់ចំណាំ", "📝 Note"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
-                if (sheetNote.isNotEmpty()) {
-                    Text(
-                        text = sheetNote,
-                        fontSize = 12.sp, color = SandText, lineHeight = 17.sp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(PlumSurface, RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    )
-                } else {
-                    Text(tr("គ្មានកំណត់ចំណាំ", "No notes"), fontSize = 11.sp, color = DimColor)
-                }
-
-                // Alarms
-                Text(tr("🔔 ការរំលឹក", "🔔 Alarms"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
-                if (sheetAlarms.isEmpty()) {
-                    Text(tr("គ្មានការរំលឹក", "No alarms"), fontSize = 11.sp, color = DimColor)
-                } else {
-                    sheetAlarms.forEach { alarm ->
-                        Row(
+                    if (sheetNote.isNotEmpty()) {
+                        Text(
+                            text = sheetNote,
+                            fontSize = 12.sp, color = SandText, lineHeight = 17.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(PlumSurface, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "⏰ ${String.format("%02d:%02d", alarm.hour, alarm.minute)}" +
-                                        if (alarm.title.isNotBlank()) " · ${alarm.title}" else "",
-                                    fontSize = 12.sp, color = SandText, fontWeight = FontWeight.SemiBold
-                                )
-                                val repeatLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
-                                Text(repeatLabel, fontSize = 10.sp, color = DimColor)
-                            }
-                            IconButton(
-                                onClick = {
-                                    cancelAlarm(context, alarm.requestCode)
-                                    alarmsVersion++
-                                    longPressDay = null
-                                },
-                                modifier = Modifier.size(32.dp)
+                                .padding(10.dp)
+                        )
+                    } else {
+                        Text(tr("គ្មានកំណត់ចំណាំ", "No notes"), fontSize = 11.sp, color = DimColor)
+                    }
+
+                    // ── Alarms section ─────────────────────────────────────────
+                    Text(tr("🔔 ការរំលឹក", "🔔 Alarms"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                    if (sheetAlarms.isEmpty()) {
+                        Text(tr("គ្មានការរំលឹក", "No alarms set"), fontSize = 11.sp, color = DimColor)
+                    } else {
+                        sheetAlarms.forEach { alarm ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PlumSurface, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("✕", fontSize = 14.sp, color = CrimsonHoliday)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "⏰ ${String.format("%02d:%02d", alarm.hour, alarm.minute)}" +
+                                            if (alarm.title.isNotBlank()) " · ${alarm.title}" else "",
+                                        fontSize = 12.sp, color = SandText, fontWeight = FontWeight.SemiBold
+                                    )
+                                    val repLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
+                                    Text(repLabel, fontSize = 10.sp, color = DimColor)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        cancelAlarm(context, alarm.requestCode)
+                                        alarmsVersion++
+                                        longPressDay = null
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Text("✕", fontSize = 14.sp, color = CrimsonHoliday)
+                                }
                             }
                         }
+                    }
+
+                    // Close button
+                    Button(
+                        onClick = { longPressDay = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = DeepBorder),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(vertical = 10.dp)
+                    ) {
+                        Text(tr("បិទ", "Close"), color = SandText, fontSize = 13.sp)
                     }
                 }
             }
@@ -2155,134 +2440,78 @@ fun CalendarTabContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("🔔", fontSize = 14.sp)
-                            Text(tr("ការរំលឹក", "Reminder"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                tr("ការរំលឹក", "Reminders"),
+                                fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold
+                            )
+                            if (dayAlarms.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(TraditionalGold, CircleShape)
+                                        .size(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        dayAlarms.size.toString(),
+                                        fontSize = 8.sp, color = NightBlack, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                         TextButton(
                             onClick = {
                                 alarmTitleText = ""
+                                pickerDay = selectedDay
+                                pickerMonth = month
+                                pickerYear = year
                                 reminderMessage = null
-                                showAlarmForm = !showAlarmForm
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                                        showAlarmPickerDialog = true
+                                    else
+                                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    showAlarmPickerDialog = true
+                                }
                             },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Text(
-                                if (showAlarmForm) tr("បោះបង់", "Cancel")
-                                else tr("+ កំណត់", "+ Set"),
-                                fontSize = 10.sp,
-                                color = if (showAlarmForm) DimColor else TraditionalGold
-                            )
+                            Text(tr("+ កំណត់", "+ Set"), fontSize = 10.sp, color = TraditionalGold)
                         }
                     }
-                    // Existing alarms for this day
-                    if (dayAlarms.isNotEmpty()) {
+                    // List of existing alarms for the selected day
+                    if (dayAlarms.isEmpty()) {
+                        Text(
+                            tr("មិនទាន់មានការរំលឹក", "No reminders yet"),
+                            fontSize = 10.sp, color = DimColor,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    } else {
                         dayAlarms.forEach { alarm ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(PlumSurface, RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "⏰ ${String.format("%02d:%02d", alarm.hour, alarm.minute)}" +
-                                            if (alarm.title.isNotBlank()) " · ${alarm.title}" else "",
-                                        fontSize = 11.sp,
-                                        color = SandText,
-                                        fontWeight = FontWeight.SemiBold
+                                            if (alarm.title.isNotBlank()) "  ${alarm.title}" else "",
+                                        fontSize = 12.sp, color = SandText, fontWeight = FontWeight.SemiBold
                                     )
-                                    val repeatLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
-                                    Text(repeatLabel, fontSize = 9.sp, color = DimColor)
+                                    val repLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
+                                    Text(repLabel, fontSize = 9.sp, color = DimColor)
                                 }
                                 IconButton(
-                                    onClick = {
-                                        cancelAlarm(context, alarm.requestCode)
-                                        alarmsVersion++
-                                    },
+                                    onClick = { cancelAlarm(context, alarm.requestCode); alarmsVersion++ },
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Text("✕", fontSize = 12.sp, color = CrimsonHoliday)
                                 }
                             }
-                        }
-                    }
-
-                    if (showAlarmForm) {
-                        OutlinedTextField(
-                            value = alarmTitleText,
-                            onValueChange = { alarmTitleText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 12.sp),
-                            placeholder = { Text(tr("ចំណងជើងរំលឹក...", "Alarm title..."), color = DimColor, fontSize = 12.sp) },
-                            label = { Text(tr("ចំណងជើង (ស្រេចចិត្ត)", "Title (optional)"), color = GoldSubText, fontSize = 10.sp) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = PlumSurface,
-                                focusedContainerColor = PlumSurface,
-                                unfocusedBorderColor = DeepBorder,
-                                focusedBorderColor = TraditionalGold
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            singleLine = true
-                        )
-                        // Repeat selector
-                        Text(
-                            tr("ការប្រើប្រាស់ឡើងវិញ", "Repeat"),
-                            fontSize = 10.sp, color = GoldSubText,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            AlarmRepeat.values().forEach { rep ->
-                                val isActive = rep == selectedRepeat
-                                Box(
-                                    modifier = Modifier
-                                        .background(
-                                            if (isActive) TraditionalGold else PlumSurface,
-                                            RoundedCornerShape(16.dp)
-                                        )
-                                        .border(1.dp, if (isActive) TraditionalGold else DeepBorder, RoundedCornerShape(16.dp))
-                                        .clickable { selectedRepeat = rep }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = if (lang == AppLanguage.EN) rep.en else rep.km,
-                                        fontSize = 10.sp,
-                                        color = if (isActive) NightBlack else SandText,
-                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                pendingAlarmTitle = alarmTitleText
-                                pendingRepeat = selectedRepeat
-                                showAlarmForm = false
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-                                        showTimePicker = true
-                                    else
-                                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else {
-                                    showTimePicker = true
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp)
-                        ) {
-                            Text(
-                                "⏰ ${tr("ជ្រើសម៉ោង", "Pick Time")}",
-                                fontSize = 12.sp, color = NightBlack, fontWeight = FontWeight.Bold
-                            )
                         }
                     }
                     if (reminderMessage != null) {
