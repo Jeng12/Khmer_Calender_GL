@@ -17,9 +17,9 @@ private val googleFontProvider = GoogleFont.Provider(
     certificates = R.array.com_google_android_gms_fonts_certs
 )
 
-// "Kantumruy Pro" is a Khmer typeface designed for on-screen UI with full
-// Latin coverage too — a good match for this Khmer calendar app.
-private val khmerGoogleFont = GoogleFont("Kantumruy Pro")
+// Task 2.2 — "Noto Sans Khmer": Google's pan-Unicode Khmer typeface, designed
+// for authentic Khmer script rendering with broad weight + Latin coverage.
+private val khmerGoogleFont = GoogleFont("Noto Sans Khmer")
 
 val KhmerFontFamily = FontFamily(
     Font(googleFont = khmerGoogleFont, fontProvider = googleFontProvider, weight = FontWeight.Normal),

@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -48,69 +50,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
-import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 
-// Beautiful Khmer Heritage Color Palette
-val NightBlack = Color(0xFF0D0A0F)      // #0D0A0F
-val DeepAmethyst = Color(0xFF140F1A)    // #120E16 in Jetpack
-val PlumSurface = Color(0xFF1D1726)     // #1A1520 in Jetpack
-val PlumCard = Color(0xFF261E30)        // #221C2A in Jetpack
-val DeepBorder = Color(0xFF322640)      // #2E2538 in Jetpack
-val DeepMuted = Color(0xFF453556)       // #3D3349 in Jetpack
-val SandText = Color(0xFFF5EDD8)        // #F5EDD8 (Cream)
-val GoldSubText = Color(0xFFC7B38E)     // #9B8E7A
-val DimColor = Color(0xFFA090B8)        // improved contrast on dark backgrounds
-val TraditionalGold = Color(0xFFC8973A) // #C8973A
-val LightGold = Color(0xFFE8B84B)       // #E8B84B
-val CrimsonHoliday = Color(0xFFC0392B)  // #C0392B
-val LotusPink = Color(0xFFE8768A)       // #E8768A
-val JadeGreen = Color(0xFF4DAF7C)       // #4DAF7C
-val MoonWheat = Color(0xFFF2E8C6)       // #F2E8C6
-val SkyBlue = Color(0xFF7BA7BC)         // #7BA7BC
-
-// Hoisted gradient brushes – allocated once, not on every recomposition
-val GoldBorderGradient = Brush.linearGradient(listOf(TraditionalGold, Color(0xFFFFF0C0), TraditionalGold))
-val GoldLotusBrush     = Brush.linearGradient(listOf(TraditionalGold, LotusPink))
-val AccentBarBrush     = Brush.horizontalGradient(listOf(CrimsonHoliday, TraditionalGold, LotusPink))
-
-// ── Themeable color scheme (positional destructuring maps to legacy names) ──────
-// val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted,
-//      SandText, GoldSubText, DimColor) = LocalAppColors.current
-data class AppColors(
-    val bg:      Color,  // NightBlack
-    val deepBg:  Color,  // DeepAmethyst
-    val surface: Color,  // PlumSurface
-    val card:    Color,  // PlumCard
-    val border:  Color,  // DeepBorder
-    val muted:   Color,  // DeepMuted
-    val text:    Color,  // SandText
-    val subText: Color,  // GoldSubText
-    val dim:     Color,  // DimColor
-)
-
-val DarkAppColors = AppColors(
-    bg = NightBlack, deepBg = DeepAmethyst, surface = PlumSurface, card = PlumCard,
-    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor
-)
-
-val LightAppColors = AppColors(
-    bg      = Color(0xFFFAF5EE),
-    deepBg  = Color(0xFFF0E8DC),
-    surface = Color(0xFFFFFFFF),
-    card    = Color(0xFFF5EFE6),
-    border  = Color(0xFFE2D5C3),
-    muted   = Color(0xFFCFC0A8),
-    text    = Color(0xFF2C1F0E),
-    subText = Color(0xFF7A5F3A),
-    dim     = Color(0xFF9A8068),
-)
-
-val LocalAppColors = compositionLocalOf { DarkAppColors }
+// Task 1.1 — The Khmer Heritage palette, gradient brushes, AppColors bundle and
+// LocalAppColors now live in com.example.ui.theme.Color.kt (imported below).
 
 // ── Alarm/Reminder helper ────────────────────────────────────────────────────
 fun scheduleAlarm(
@@ -247,10 +195,17 @@ fun KhmerCalendarApp() {
         convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25)
     }
 
-    // Outer edge-to-edge container
+    // Outer edge-to-edge container.
+    // Task 1.2/1.3 — re-apply the Material color scheme so MaterialTheme.colorScheme
+    // (.background / .surface …) follows the in-app dark/light toggle, keeping it
+    // in sync with the custom LocalAppColors bundle.
     CompositionLocalProvider(
         LocalAppLanguage provides appLanguage,
         LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
+    ) {
+    MaterialTheme(
+        colorScheme = if (isDarkMode) KhmerDarkColorScheme else KhmerLightColorScheme,
+        typography = MaterialTheme.typography
     ) {
     val C = LocalAppColors.current
     Surface(
@@ -338,6 +293,7 @@ fun KhmerCalendarApp() {
                 }
             }
         }
+    }
     }
     }
 }
@@ -1206,8 +1162,8 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(NightBlack)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(KhmerSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(KhmerSpacing.lg)
     ) {
         // App header with Khmer lunar elements
         item {
@@ -1542,15 +1498,19 @@ fun CalendarTabContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = {
-                    var prevMonth = month - 1
-                    var prevYear = year
-                    if (prevMonth < 1) {
-                        prevMonth = 12
-                        prevYear -= 1
+                val prevMonthDesc = tr("ខែមុន", "Previous month")
+                IconButton(
+                    modifier = Modifier.semantics { contentDescription = prevMonthDesc },
+                    onClick = {
+                        var prevMonth = month - 1
+                        var prevYear = year
+                        if (prevMonth < 1) {
+                            prevMonth = 12
+                            prevYear -= 1
+                        }
+                        onMonthChange(prevYear, prevMonth)
                     }
-                    onMonthChange(prevYear, prevMonth)
-                }) {
+                ) {
                     Text("‹", fontSize = 24.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                 }
 
@@ -1594,33 +1554,63 @@ fun CalendarTabContent(
                     }
                 }
 
-                IconButton(onClick = {
-                    var nextMonth = month + 1
-                    var nextYear = year
-                    if (nextMonth > 12) {
-                        nextMonth = 1
-                        nextYear += 1
+                val nextMonthDesc = tr("ខែបន្ទាប់", "Next month")
+                IconButton(
+                    modifier = Modifier.semantics { contentDescription = nextMonthDesc },
+                    onClick = {
+                        var nextMonth = month + 1
+                        var nextYear = year
+                        if (nextMonth > 12) {
+                            nextMonth = 1
+                            nextYear += 1
+                        }
+                        onMonthChange(nextYear, nextMonth)
                     }
-                    onMonthChange(nextYear, nextMonth)
-                }) {
+                ) {
                     Text("›", fontSize = 24.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Days labels
+        // Days labels — Task 3.3: adaptively shrink the Khmer day abbreviations
+        // on narrow screens so they never clip or wrap.
         item {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                val weekLabels = weekdayLabels(lang)
-                weekLabels.forEachIndexed { idx, label ->
-                    Text(
-                        text = label,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (idx == 0 || idx == 6) CrimsonHoliday else GoldSubText
-                    )
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                // ~7 columns; scale the label down once each column gets tight.
+                val perColumn = maxWidth / 7
+                val labelSize = when {
+                    perColumn < 38.dp -> 9.sp
+                    perColumn < 46.dp -> 10.sp
+                    else              -> 11.sp
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val weekLabels = weekdayLabels(lang)
+                    weekLabels.forEachIndexed { idx, label ->
+                        // Task 1.5 — show the traditional Khmer "color of the day"
+                        // (ពណ៌ប្រចាំថ្ងៃ) as a small accent bar beneath each weekday.
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                textAlign = TextAlign.Center,
+                                fontSize = labelSize,
+                                maxLines = 1,
+                                softWrap = false,
+                                fontWeight = FontWeight.Bold,
+                                color = if (idx == 0 || idx == 6) CrimsonHoliday else GoldSubText
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(14.dp)
+                                    .height(3.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(khmerWeekdayColor(idx))
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2340,6 +2330,9 @@ fun DateConvertContent(
     var inMonth by remember { mutableStateOf(month) }
     var inDay by remember { mutableStateOf(day) }
     var inputError by remember { mutableStateOf<String?>(null) }
+    // Task 4.4 — brief loading feedback while the conversion is computed.
+    var isConverting by remember { mutableStateOf(false) }
+    val convertScope = rememberCoroutineScope()
 
     fun validate(): Boolean {
         val y = inYear.toIntOrNull()
@@ -2379,8 +2372,8 @@ fun DateConvertContent(
         modifier = Modifier
             .fillMaxSize()
             .background(NightBlack)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(KhmerSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(KhmerSpacing.md)
     ) {
         // Header banner
         item {
@@ -2564,8 +2557,21 @@ fun DateConvertContent(
 
                     // Convert button
                     Button(
-                        onClick = { if (validate()) onConvert(inYear, inMonth, inDay) },
-                        colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
+                        onClick = {
+                            if (!isConverting && validate()) {
+                                isConverting = true
+                                convertScope.launch {
+                                    delay(450) // brief visual feedback for the calculation
+                                    onConvert(inYear, inMonth, inDay)
+                                    isConverting = false
+                                }
+                            }
+                        },
+                        enabled = !isConverting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SkyBlue,
+                            disabledContainerColor = SkyBlue.copy(0.6f)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
@@ -2576,8 +2582,17 @@ fun DateConvertContent(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("⇅", fontSize = 18.sp, color = NightBlack)
-                            Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            if (isConverting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = NightBlack,
+                                    strokeWidth = 2.dp
+                                )
+                                Text(tr("កំពុងបំលែង...", "Converting..."), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            } else {
+                                Text("⇅", fontSize = 18.sp, color = NightBlack)
+                                Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
                         }
                     }
                 }

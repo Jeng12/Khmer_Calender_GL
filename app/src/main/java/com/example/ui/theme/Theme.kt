@@ -4,27 +4,54 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 
-private val KhmerDarkColorScheme = darkColorScheme(
-    primary         = TraditionalGoldTheme,
-    onPrimary       = NightBlackTheme,
-    primaryContainer = PlumCardTheme,
-    onPrimaryContainer = SandTextTheme,
-    secondary       = LotusPinkTheme,
-    onSecondary     = NightBlackTheme,
-    tertiary        = JadeGreenTheme,
-    onTertiary      = NightBlackTheme,
-    background      = NightBlackTheme,
-    onBackground    = SandTextTheme,
-    surface         = PlumSurfaceTheme,
-    onSurface       = SandTextTheme,
-    surfaceVariant  = PlumCardTheme,
-    onSurfaceVariant = GoldSubTextTheme,
-    outline         = DeepBorderTheme,
-    error           = CrimsonHolidayTheme,
-    onError         = SandTextTheme,
+// ─────────────────────────────────────────────────────────────────────────────
+//  Task 1.2 — Custom colors from Color.kt wired into Material 3 color schemes.
+//  Both a dark and a light scheme are provided so MaterialTheme.colorScheme
+//  (.background / .surface / .primary …) stays in sync with the app's
+//  dark/light toggle.
+// ─────────────────────────────────────────────────────────────────────────────
+val KhmerDarkColorScheme = darkColorScheme(
+    primary            = TraditionalGold,
+    onPrimary          = NightBlack,
+    primaryContainer   = PlumCard,
+    onPrimaryContainer = SandText,
+    secondary          = LotusPink,
+    onSecondary        = NightBlack,
+    tertiary           = JadeGreen,
+    onTertiary         = NightBlack,
+    background         = NightBlack,
+    onBackground       = SandText,
+    surface            = PlumSurface,
+    onSurface          = SandText,
+    surfaceVariant     = PlumCard,
+    onSurfaceVariant   = GoldSubText,
+    outline            = DeepBorder,
+    error              = CrimsonHoliday,
+    onError            = SandText,
+)
+
+val KhmerLightColorScheme = lightColorScheme(
+    primary            = TraditionalGold,
+    onPrimary          = NightBlack,
+    primaryContainer   = LightAppColors.card,
+    onPrimaryContainer = LightAppColors.text,
+    secondary          = LotusPink,
+    onSecondary        = NightBlack,
+    tertiary           = JadeGreen,
+    onTertiary         = NightBlack,
+    background         = LightAppColors.bg,
+    onBackground       = LightAppColors.text,
+    surface            = LightAppColors.surface,
+    onSurface          = LightAppColors.text,
+    surfaceVariant     = LightAppColors.card,
+    onSurfaceVariant   = LightAppColors.subText,
+    outline            = LightAppColors.border,
+    error              = CrimsonHoliday,
+    onError            = SandText,
 )
 
 @Composable
@@ -33,7 +60,7 @@ fun MyApplicationTheme(
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = KhmerDarkColorScheme,
+        colorScheme = if (darkTheme) KhmerDarkColorScheme else KhmerLightColorScheme,
         typography = Typography,
     ) {
         // Default every Text (even those that only set fontSize/color inline) to the
