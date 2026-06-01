@@ -392,7 +392,7 @@ private fun MediumWidget(today: TodayInfo) {
                             maxLines = 1
                         )
                         Text(
-                            text = "ឆ្នាំ${today.zodiac}",
+                            text = today.zodiac,
                             style = TextStyle(color = ColorProvider(WGold), fontSize = 7.sp)
                         )
                     }
@@ -432,21 +432,27 @@ private fun MediumWidget(today: TodayInfo) {
                         ) {
                             val isValid = d in 1..daysInMonth
                             val isToday = d == today.day
-                            Text(
-                                text = if (isValid) KhmerCalendarHelper.toKhmerNumeral(d) else "",
-                                style = TextStyle(
-                                    color = ColorProvider(
-                                        when {
-                                            !isValid -> Color.Transparent
-                                            isToday  -> WBg
-                                            else     -> WSub
-                                        }
-                                    ),
-                                    fontSize = 9.sp,
-                                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                    background = if (isToday) ColorProvider(WGold) else ColorProvider(Color.Transparent)
+                            Box(
+                                modifier = if (isToday)
+                                    GlanceModifier.background(ColorProvider(WGold)).padding(horizontal = 5.dp, vertical = 1.dp)
+                                else GlanceModifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (isValid) KhmerCalendarHelper.toKhmerNumeral(d) else "",
+                                    style = TextStyle(
+                                        color = ColorProvider(
+                                            when {
+                                                !isValid -> Color.Transparent
+                                                isToday  -> WBg
+                                                else     -> WSub
+                                            }
+                                        ),
+                                        fontSize = 9.sp,
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
@@ -521,7 +527,7 @@ private fun LargeWidget(today: TodayInfo) {
                         )
                     )
                     Text(
-                        text = "${today.lunarMonthKm} · ឆ្នាំ${today.zodiac}",
+                        text = "${today.lunarMonthKm} · ${today.zodiac}",
                         style = TextStyle(color = ColorProvider(WSub), fontSize = 8.sp)
                     )
                 }
@@ -578,15 +584,21 @@ private fun LargeWidget(today: TodayInfo) {
                                     col == 0       -> WRed.copy(alpha = 0.8f)
                                     else           -> WText
                                 }
-                                Text(
-                                    text = KhmerCalendarHelper.toKhmerNumeral(cell.dayNum),
-                                    style = TextStyle(
-                                        color = ColorProvider(textColor),
-                                        fontSize = 10.sp,
-                                        fontWeight = if (cell.isToday) FontWeight.Bold else FontWeight.Normal,
-                                        background = if (cell.isToday) ColorProvider(WGold) else ColorProvider(Color.Transparent)
+                                Box(
+                                    modifier = if (cell.isToday)
+                                        GlanceModifier.background(ColorProvider(WGold)).padding(horizontal = 4.dp, vertical = 1.dp)
+                                    else GlanceModifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = KhmerCalendarHelper.toKhmerNumeral(cell.dayNum),
+                                        style = TextStyle(
+                                            color = ColorProvider(textColor),
+                                            fontSize = 10.sp,
+                                            fontWeight = if (cell.isToday) FontWeight.Bold else FontWeight.Normal
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                     }

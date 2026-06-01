@@ -1493,12 +1493,21 @@ private fun ScrollWheelPicker(
         initialFirstVisibleItemIndex = maxOf(0, initialIndex)
     )
     val fling = rememberSnapFlingBehavior(listState)
-    // Track center item in real-time (firstVisibleItemIndex = center due to 1-item padding)
-    val centerIdx by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    // Centered item = the visible item whose center is closest to the viewport
+    // center. Robust against contentPadding off-by-one while scrolling.
+    val centerIdx by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            info.visibleItemsInfo.minByOrNull {
+                kotlin.math.abs((it.offset + it.size / 2) - mid)
+            }?.index ?: listState.firstVisibleItemIndex
+        }
+    }
     // Notify parent only when scroll settles
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) onIndexChange(listState.firstVisibleItemIndex)
+            if (!scrolling) onIndexChange(centerIdx)
         }
     }
     Box(modifier = modifier.height(itemH * 3)) {
