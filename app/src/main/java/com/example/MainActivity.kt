@@ -31,6 +31,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,12 +65,61 @@ import androidx.compose.ui.input.pointer.pointerInput
 // Task 1.1 — The Khmer Heritage palette, gradient brushes, AppColors bundle and
 // LocalAppColors now live in com.example.ui.theme.Color.kt (imported below).
 
+// ── Alarm data helpers ───────────────────────────────────────────────────────
+data class AlarmEntry(
+    val requestCode: Int,
+    val hour: Int,
+    val minute: Int,
+    val title: String,
+    val repeat: AlarmRepeat,
+    val triggerMs: Long
+)
+
+fun alarmsForDay(
+    prefs: android.content.SharedPreferences,
+    year: Int, month: Int, day: Int
+): List<AlarmEntry> = try {
+    val arr = org.json.JSONArray(prefs.getString("alarms", "[]") ?: "[]")
+    (0 until arr.length()).mapNotNull { i ->
+        val obj = arr.getJSONObject(i)
+        if (obj.optInt("year", -1) == year && obj.optInt("month", -1) == month && obj.optInt("day", -1) == day) {
+            AlarmEntry(
+                requestCode = obj.getInt("requestCode"),
+                hour        = obj.optInt("hour", 0),
+                minute      = obj.optInt("minute", 0),
+                title       = obj.optString("title", ""),
+                repeat      = runCatching { AlarmRepeat.valueOf(obj.optString("repeat", "ONCE")) }.getOrDefault(AlarmRepeat.ONCE),
+                triggerMs   = obj.getLong("triggerMs")
+            )
+        } else null
+    }
+} catch (_: Exception) { emptyList() }
+
+fun cancelAlarm(context: android.content.Context, requestCode: Int) {
+    val alarmMgr = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
+    val pi = PendingIntent.getBroadcast(
+        context, requestCode, Intent(context, AlarmReceiver::class.java),
+        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+    )
+    pi?.let { alarmMgr.cancel(it); it.cancel() }
+    try {
+        val prefs = context.getSharedPreferences("khmer_calendar_alarms", android.content.Context.MODE_PRIVATE)
+        val arr = org.json.JSONArray(prefs.getString("alarms", "[]") ?: "[]")
+        val updated = org.json.JSONArray()
+        for (i in 0 until arr.length()) {
+            if (arr.getJSONObject(i).getInt("requestCode") != requestCode) updated.put(arr.getJSONObject(i))
+        }
+        prefs.edit().putString("alarms", updated.toString()).apply()
+    } catch (_: Exception) {}
+}
+
 // ── Alarm/Reminder helper ────────────────────────────────────────────────────
 fun scheduleAlarm(
     context: android.content.Context,
     year: Int, month: Int, day: Int,
     hour: Int, minute: Int,
     alarmTitle: String,
+    repeat: AlarmRepeat,
     khmerDate: KhmerDate,
     lang: AppLanguage
 ) {
@@ -82,7 +136,9 @@ fun scheduleAlarm(
         "${khmerDate.dayOfWeekEn}, $day ${GREG_MONTHS_EN.getOrElse(month - 1) { "" }} $year"
     else
         "ថ្ងៃ${khmerDate.dayOfWeek} ទី${KhmerCalendarHelper.toKhmerNumeral(day)} ខែ${GREG_MONTHS_KM.getOrElse(month - 1) { "" }}"
-    val requestCode = year * 10000 + month * 100 + day
+
+    // Unique per alarm time so multiple alarms per day are supported
+    val requestCode = (year % 100) * 10_000_000 + month * 100_000 + day * 1_000 + hour * 60 + minute
 
     // Persist so BootReceiver can reschedule after device reboot
     try {
@@ -95,16 +151,29 @@ fun scheduleAlarm(
         }
         updated.put(org.json.JSONObject().apply {
             put("requestCode", requestCode)
-            put("triggerMs", triggerMs)
-            put("title", title)
-            put("message", msg)
+            put("triggerMs",   triggerMs)
+            put("title",       title)
+            put("message",     msg)
+            put("repeat",      repeat.name)
+            put("year",        year)
+            put("month",       month)
+            put("day",         day)
+            put("hour",        hour)
+            put("minute",      minute)
         })
         prefs.edit().putString("alarms", updated.toString()).apply()
     } catch (_: Exception) {}
 
     val intent = Intent(context, AlarmReceiver::class.java).apply {
-        putExtra("title", title)
-        putExtra("message", msg)
+        putExtra("title",       title)
+        putExtra("message",     msg)
+        putExtra("repeat",      repeat.name)
+        putExtra("year",        year)
+        putExtra("month",       month)
+        putExtra("day",         day)
+        putExtra("hour",        hour)
+        putExtra("minute",      minute)
+        putExtra("requestCode", requestCode)
     }
     val pi = PendingIntent.getBroadcast(
         context, requestCode, intent,
@@ -1149,6 +1218,7 @@ fun BottomBarItem(
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     val calendar = remember { java.util.Calendar.getInstance() }
     val currentYear = calendar.get(java.util.Calendar.YEAR)
@@ -1183,7 +1253,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     Text("🌙", fontSize = 24.sp)
                 }
                 Column {
-                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = headline)
                     Text("KHMER LUNAR CALENDAR · OFFICIAL v2", fontSize = 9.sp, color = TraditionalGold, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -1224,7 +1294,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                         "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${num(lang, currentKhmerInfo.day)} ${gregMonth(lang, currentMonth - 1)} ${num(lang, currentYear)}",
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MoonWheat
+                                    color = headline
                                 )
                             }
                             Text(text = currentKhmerInfo.moonEmoji, fontSize = 32.sp)
@@ -1406,6 +1476,7 @@ fun QuickGridCard(
 }
 
 // 2. CALENDAR TAB CONTAINER
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarTabContent(
     year: Int,
@@ -1416,6 +1487,7 @@ fun CalendarTabContent(
     onGoToToday: () -> Unit = {}
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
     var swipeOffset by remember { mutableStateOf(0f) }
@@ -1447,10 +1519,28 @@ fun CalendarTabContent(
     var isEditingNote by remember { mutableStateOf(false) }
     var editNoteText by remember { mutableStateOf("") }
 
+    // Alarm state
+    val alarmPrefs = remember { context.getSharedPreferences("khmer_calendar_alarms", android.content.Context.MODE_PRIVATE) }
+    var alarmsVersion by remember { mutableStateOf(0) }
+    val dayAlarms = remember(year, month, selectedDay, alarmsVersion) {
+        alarmsForDay(alarmPrefs, year, month, selectedDay)
+    }
+
+    // Long-press day details state
+    var longPressDay by remember { mutableStateOf<Int?>(null) }
+    val sheetAlarms = remember(year, month, longPressDay, alarmsVersion) {
+        longPressDay?.let { alarmsForDay(alarmPrefs, year, month, it) } ?: emptyList()
+    }
+    val sheetNote = remember(year, month, longPressDay, notesVersion) {
+        longPressDay?.let { notesPrefs.getString("${year}_${month}_$it", "") ?: "" } ?: ""
+    }
+
     // Reminder state
     var showAlarmForm by remember(year, month, selectedDay) { mutableStateOf(false) }
     var alarmTitleText by remember(year, month, selectedDay) { mutableStateOf("") }
+    var selectedRepeat by remember(year, month, selectedDay) { mutableStateOf(AlarmRepeat.ONCE) }
     var pendingAlarmTitle by remember { mutableStateOf("") }
+    var pendingRepeat by remember { mutableStateOf(AlarmRepeat.ONCE) }
     var showTimePicker by remember { mutableStateOf(false) }
     var reminderMessage by remember { mutableStateOf<String?>(null) }
     val notifPermLauncher = rememberLauncherForActivityResult(
@@ -1464,7 +1554,8 @@ fun CalendarTabContent(
             val dlg = TimePickerDialog(
                 context,
                 { _, hour, minute ->
-                    scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, selectedKhmerDate, lang)
+                    scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, pendingRepeat, selectedKhmerDate, lang)
+                    alarmsVersion++
                     val timeStr = "$hour:${String.format("%02d", minute)}"
                     reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
                     else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
@@ -1478,6 +1569,135 @@ fun CalendarTabContent(
             dlg.setOnCancelListener { showTimePicker = false }
             dlg.show()
             onDispose { if (dlg.isShowing) dlg.dismiss() }
+        }
+    }
+
+    // Long-press day details bottom sheet
+    if (longPressDay != null) {
+        val lpDay = longPressDay!!
+        val lpKhmerDate = daysList.getOrNull(lpDay - 1) ?: KhmerCalendarHelper.getKhmerDate(year, month, lpDay)
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { longPressDay = null },
+            sheetState = sheetState,
+            containerColor = PlumCard
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = if (lang == AppLanguage.EN)
+                                "${lpKhmerDate.dayOfWeekEn}, $lpDay ${gregMonth(lang, month - 1)} $year"
+                            else
+                                "ថ្ងៃទី ${num(lang, lpDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = headline
+                        )
+                        Text(
+                            text = "${lunarDayLabel(lang, lpKhmerDate)} ${lunarMonth(lang, lpKhmerDate.lunarMonthName)}",
+                            fontSize = 12.sp,
+                            color = TraditionalGold
+                        )
+                    }
+                    Text(lpKhmerDate.moonEmoji, fontSize = 24.sp)
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Holiday / Auspicious badges
+                if (lpKhmerDate.holiday != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(LotusPink.copy(0.12f), RoundedCornerShape(8.dp))
+                            .border(1.dp, LotusPink.copy(0.5f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            "🎉 ${tr("ថ្ងៃបុណ្យ", "Holiday")}: ${localizeDual(lang, lpKhmerDate.holiday!!)}",
+                            fontSize = 11.sp, color = LotusPink, fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                if (lpKhmerDate.isAuspicious) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(JadeGreen.copy(0.12f), RoundedCornerShape(8.dp))
+                            .border(1.dp, JadeGreen.copy(0.5f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            "🌿 ${tr("ថ្ងៃមង្គល", "Auspicious")}: ${localizeDual(lang, lpKhmerDate.auspiciousType ?: tr("ការងារទូទៅ", "General"))}",
+                            fontSize = 11.sp, color = JadeGreen, fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Note
+                Text(tr("📝 កំណត់ចំណាំ", "📝 Note"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                if (sheetNote.isNotEmpty()) {
+                    Text(
+                        text = sheetNote,
+                        fontSize = 12.sp, color = SandText, lineHeight = 17.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(PlumSurface, RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    )
+                } else {
+                    Text(tr("គ្មានកំណត់ចំណាំ", "No notes"), fontSize = 11.sp, color = DimColor)
+                }
+
+                // Alarms
+                Text(tr("🔔 ការរំលឹក", "🔔 Alarms"), fontSize = 12.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
+                if (sheetAlarms.isEmpty()) {
+                    Text(tr("គ្មានការរំលឹក", "No alarms"), fontSize = 11.sp, color = DimColor)
+                } else {
+                    sheetAlarms.forEach { alarm ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PlumSurface, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "⏰ ${String.format("%02d:%02d", alarm.hour, alarm.minute)}" +
+                                        if (alarm.title.isNotBlank()) " · ${alarm.title}" else "",
+                                    fontSize = 12.sp, color = SandText, fontWeight = FontWeight.SemiBold
+                                )
+                                val repeatLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
+                                Text(repeatLabel, fontSize = 10.sp, color = DimColor)
+                            }
+                            IconButton(
+                                onClick = {
+                                    cancelAlarm(context, alarm.requestCode)
+                                    alarmsVersion++
+                                    longPressDay = null
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Text("✕", fontSize = 14.sp, color = CrimsonHoliday)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1522,7 +1742,7 @@ fun CalendarTabContent(
                             "ថ្ងៃទី ${num(lang, selectedDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MoonWheat
+                        color = headline
                     )
                     Text(
                         text = tr(
@@ -1695,7 +1915,15 @@ fun CalendarTabContent(
                                                 },
                                                 RoundedCornerShape(10.dp)
                                             )
-                                            .clickable { onDayChange(dayNumber) }
+                                            .combinedClickable(
+                                                onClick = { onDayChange(dayNumber) },
+                                                onLongClick = {
+                                                    if (animYear == year && animMonth == month) {
+                                                        longPressDay = dayNumber
+                                                    }
+                                                },
+                                                onLongClickLabel = tr("ព័ត៌មានប្រចាំថ្ងៃ", "Day details")
+                                            )
                                             .padding(4.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -1945,6 +2173,41 @@ fun CalendarTabContent(
                             )
                         }
                     }
+                    // Existing alarms for this day
+                    if (dayAlarms.isNotEmpty()) {
+                        dayAlarms.forEach { alarm ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PlumSurface, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "⏰ ${String.format("%02d:%02d", alarm.hour, alarm.minute)}" +
+                                            if (alarm.title.isNotBlank()) " · ${alarm.title}" else "",
+                                        fontSize = 11.sp,
+                                        color = SandText,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    val repeatLabel = if (lang == AppLanguage.EN) alarm.repeat.en else alarm.repeat.km
+                                    Text(repeatLabel, fontSize = 9.sp, color = DimColor)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        cancelAlarm(context, alarm.requestCode)
+                                        alarmsVersion++
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Text("✕", fontSize = 12.sp, color = CrimsonHoliday)
+                                }
+                            }
+                        }
+                    }
+
                     if (showAlarmForm) {
                         OutlinedTextField(
                             value = alarmTitleText,
@@ -1962,9 +2225,43 @@ fun CalendarTabContent(
                             shape = RoundedCornerShape(8.dp),
                             singleLine = true
                         )
+                        // Repeat selector
+                        Text(
+                            tr("ការប្រើប្រាស់ឡើងវិញ", "Repeat"),
+                            fontSize = 10.sp, color = GoldSubText,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AlarmRepeat.values().forEach { rep ->
+                                val isActive = rep == selectedRepeat
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isActive) TraditionalGold else PlumSurface,
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .border(1.dp, if (isActive) TraditionalGold else DeepBorder, RoundedCornerShape(16.dp))
+                                        .clickable { selectedRepeat = rep }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = if (lang == AppLanguage.EN) rep.en else rep.km,
+                                        fontSize = 10.sp,
+                                        color = if (isActive) NightBlack else SandText,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
                         Button(
                             onClick = {
                                 pendingAlarmTitle = alarmTitleText
+                                pendingRepeat = selectedRepeat
                                 showAlarmForm = false
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
@@ -1978,7 +2275,9 @@ fun CalendarTabContent(
                             colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
                         ) {
                             Text(
                                 "⏰ ${tr("ជ្រើសម៉ោង", "Pick Time")}",
@@ -2005,6 +2304,7 @@ fun AuspiciousTabContent(
     onFilterChange: (String) -> Unit
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     // Stable Khmer filter keys (used for state + matching); display labels localized.
     val filters = listOf("ទាំងអស់", "ពិធីមង្គលការ", "ឡើងផ្ទះថ្មី", "បើកអាជីវកម្ម", "ធ្វើដំណើរ")
@@ -2057,7 +2357,7 @@ fun AuspiciousTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(tr("ថ្ងៃមង្គល (Auspicious Days)", "Auspicious Days"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ថ្ងៃមង្គល (Auspicious Days)", "Auspicious Days"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = headline)
                     Text("Auspicious Days · ${num(lang, calendarYear)}", fontSize = 9.sp, color = JadeGreen)
                 }
                 Text("🌿", fontSize = 24.sp)
@@ -2121,6 +2421,7 @@ private fun AuspiciousDayCard(
     khmerDate: KhmerDate
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     var explanation by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -2158,7 +2459,7 @@ private fun AuspiciousDayCard(
             Text(
                 text = explanation!!,
                 fontSize = 10.sp,
-                color = MoonWheat,
+                color = headline,
                 lineHeight = 15.sp,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2200,6 +2501,7 @@ fun HolidaysTabContent(
     onFilterChange: (String) -> Unit
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     val NATIONAL = "ជាតិ (National)"
     val BUDDHIST = "ព្រះពុទ្ធ (Buddhist)"
@@ -2244,7 +2546,7 @@ fun HolidaysTabContent(
     ) {
         item {
             Column {
-                Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = headline)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
             }
         }
@@ -2325,6 +2627,7 @@ fun DateConvertContent(
     onConvert: (String, String, String) -> Unit
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
     val lang = LocalAppLanguage.current
     var inYear by remember { mutableStateOf(year) }
     var inMonth by remember { mutableStateOf(month) }
@@ -2393,7 +2696,7 @@ fun DateConvertContent(
                 ) {
                     Text("🔄", fontSize = 28.sp)
                     Column {
-                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = headline)
                         Text(tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"), fontSize = 10.sp, color = SkyBlue)
                     }
                 }
@@ -2656,7 +2959,7 @@ fun DateConvertContent(
                                 "${lunarDayLabel(lang, convertedDate)} ខែ${convertedDate.lunarMonthName}",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MoonWheat
+                            color = headline
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -2766,6 +3069,7 @@ fun ProfileSettingsContent(
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val headline = LocalAppColors.current.headline
 
     LazyColumn(
         modifier = Modifier
@@ -2796,7 +3100,7 @@ fun ProfileSettingsContent(
                     Text("S", fontSize = 24.sp, color = NightBlack, fontWeight = FontWeight.Bold)
                 }
                 Column {
-                    Text("Sophanit", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text("Sophanit", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = headline)
                     Text("jengah6@gmail.com · ${tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024")}", fontSize = 10.sp, color = GoldSubText)
                 }
             }

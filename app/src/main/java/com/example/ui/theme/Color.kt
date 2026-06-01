@@ -91,11 +91,14 @@ data class AppColors(
     val text:    Color, // SandText
     val subText: Color, // GoldSubText
     val dim:     Color, // DimColor
+    // position 10 — not part of the 9-slot destructuring pattern, access via .headline
+    val headline: Color = MoonWheat, // prominent title text (adapts dark↔light)
 )
 
 val DarkAppColors = AppColors(
     bg = NightBlack, deepBg = DeepAmethyst, surface = PlumSurface, card = PlumCard,
-    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor
+    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor,
+    headline = MoonWheat
 )
 
 val LightAppColors = AppColors(
@@ -106,8 +109,9 @@ val LightAppColors = AppColors(
     border  = Color(0xFFE2D5C3),
     muted   = Color(0xFFCFC0A8),
     text    = Color(0xFF2C1F0E),
-    subText = Color(0xFF6B5028), // darkened from 0xFF7A5F3A for WCAG AA on light bg
-    dim     = Color(0xFF7A6450), // darkened from 0xFF9A8068 for WCAG AA on light bg
+    subText = Color(0xFF6B5028), // darkened for WCAG AA on light bg
+    dim     = Color(0xFF7A6450), // darkened for WCAG AA on light bg
+    headline = Color(0xFF2C1F0E), // same as text — MoonWheat is invisible on light bg
 )
 
 val LocalAppColors = compositionLocalOf { DarkAppColors }
