@@ -123,13 +123,23 @@ object CalendarStore {
             compareBy({ it.year }, { it.month }, { it.day }, { it.item.time ?: "" })
         )
     }
+
+    /** Upcoming user items on or after the given day, soonest first. */
+    fun upcomingItems(context: Context, year: Int, month: Int, day: Int, limit: Int): List<DatedDayItem> {
+        val from = year * 10000 + month * 100 + day
+        return allItems(context)
+            .filter { it.year * 10000 + it.month * 100 + it.day >= from }
+            .take(limit)
+    }
 }
 
 /* ─────────────────────────────────────────────────────────────
    Display / personalization settings (font, opacity, glass …)
    ───────────────────────────────────────────────────────────── */
 
-enum class AppFontChoice { DEFAULT, SERIF, MONOSPACE, SANS }fun AppFontChoice.toFontFamily(): FontFamily = when (this) {
+enum class AppFontChoice { DEFAULT, SERIF, MONOSPACE, SANS }
+
+fun AppFontChoice.toFontFamily(): FontFamily = when (this) {
     AppFontChoice.SERIF -> FontFamily.Serif
     AppFontChoice.MONOSPACE -> FontFamily.Monospace
     AppFontChoice.SANS -> FontFamily.SansSerif

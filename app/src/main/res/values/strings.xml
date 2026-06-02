@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Khmer Calendar</string>
-    <string name="widget_description">Today\'s Khmer lunar date, moon phase, and Buddhist Era year.</string>
+    <string name="widget_description">A month calendar with Khmer lunar days, holidays, and moon phases.</string>
+    <string name="widget_medium_description">Today\'s lunar date with a mini week view and upcoming events.</string>
 </resources>

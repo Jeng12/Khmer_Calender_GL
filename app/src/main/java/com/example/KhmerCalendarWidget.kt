@@ -3,22 +3,19 @@ package com.example
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import java.util.Calendar
-import kotlin.math.roundToInt
 
 /**
- * Home-screen month-calendar widget styled after the in-app calendar:
- * a header (Gregorian month/year + lunar month·zodiac), a 7-column grid
- * showing each day's Gregorian numeral with its lunar day beneath, today
- * highlighted, weekend/holiday colouring, and a footer summary for today.
+ * Large (4×4) month-calendar widget styled after the in-app calendar:
+ * header (Gregorian month/year + lunar month · zodiac + moon phase), a
+ * 7-column grid showing each day's Gregorian numeral with its lunar day
+ * beneath, today highlighted, weekend/holiday colouring, and a today footer.
  *
- * Transparency and accent colour are controlled from the app (Profile →
- * Widget) via [DisplaySettings]; tapping the widget opens the app. It
- * refreshes on the periodic update and whenever the date/time changes.
+ * All personalization (transparency, accent, glass, font size/family/weight)
+ * comes from the app via [DisplaySettings]; tapping opens the app.
  */
 class KhmerCalendarWidget : AppWidgetProvider() {
 
@@ -35,39 +32,20 @@ class KhmerCalendarWidget : AppWidgetProvider() {
         when (intent.action) {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED,
-            ACTION_REFRESH -> refreshAll(context)
+            Intent.ACTION_TIMEZONE_CHANGED -> refreshAllWidgets(context)
         }
     }
 
     companion object {
-        private const val ACTION_REFRESH = "com.example.action.WIDGET_REFRESH"
-
-        // Palette (matches the app theme).
-        private val SAND = 0xFFF5EDD8.toInt()
-        private val GOLD_SUB = 0xFFC7B38E.toInt()
-        private val DIM = 0xFFA090B8.toInt()
-        private val CRIMSON = 0xFFC0392B.toInt()
-        private val LOTUS = 0xFFE8768A.toInt()
-        private val SKY = 0xFF7BA7BC.toInt()
-
-        fun refreshAll(context: Context) {
-            val mgr = AppWidgetManager.getInstance(context)
-            val ids = mgr.getAppWidgetIds(ComponentName(context, KhmerCalendarWidget::class.java))
-            for (id in ids) updateWidget(context, mgr, id)
-        }
-
-        @Suppress("DEPRECATION") // RemoteViews.addView is fine for static (non-scrolling) grids
+        @Suppress("DEPRECATION") // RemoteViews.addView is supported for static (non-scrolling) grids
         private fun updateWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ) {
-            val settings = DisplaySettings.load(context)
-            val accent = settings.widgetAccent.colorInt()
-            val lang = if (context.getSharedPreferences("khmer_calendar_prefs", Context.MODE_PRIVATE)
-                    .getString("app_lang", "km") == "en"
-            ) AppLanguage.EN else AppLanguage.KM
+            val s = DisplaySettings.load(context)
+            val accent = s.widgetAccent.colorInt()
+            val lang = widgetLang(context)
 
             val now = Calendar.getInstance()
             val year = now.get(Calendar.YEAR)
@@ -77,33 +55,29 @@ class KhmerCalendarWidget : AppWidgetProvider() {
             val days = KhmerCalendarHelper.getGregorianMonthDays(year, month)
 
             val views = RemoteViews(context.packageName, R.layout.widget_khmer_calendar)
-
-            // Transparency (0.2–1.0 → 51–255 alpha).
-            views.setInt(R.id.widget_bg, "setImageAlpha", (settings.widgetOpacity * 255f).roundToInt().coerceIn(0, 255))
+            views.applyBackground(R.id.widget_bg, s)
 
             // Header.
-            views.setTextViewText(R.id.widget_title, "${gregMonth(lang, month - 1)} ${num(lang, year)}")
-            views.setTextColor(R.id.widget_title, accent)
-            views.setTextViewText(
+            views.applyText(R.id.widget_title, "${gregMonth(lang, month - 1)} ${num(lang, year)}", 20f, s, accent)
+            views.applyText(
                 R.id.widget_subtitle,
-                "${lunarMonth(lang, todayDate.lunarMonthName)} · ${zodiac(lang, todayDate.zodiac)}"
+                "${lunarMonth(lang, todayDate.lunarMonthName)} · ${zodiac(lang, todayDate.zodiac)}",
+                11f, s, W_GOLD_SUB
             )
-            views.setTextViewText(R.id.widget_moon, todayDate.moonEmoji)
-            views.setTextViewText(
+            views.applyText(R.id.widget_moon, todayDate.moonEmoji, 30f, s)
+            views.applyText(
                 R.id.widget_moon_label,
-                if (lang == AppLanguage.EN) "Day ${todayDate.lunarDayVal}" else "ថ្ងៃ${num(lang, todayDate.lunarDayVal)}"
+                if (lang == AppLanguage.EN) "Day ${todayDate.lunarDayVal}" else "ថ្ងៃ${num(lang, todayDate.lunarDayVal)}",
+                9f, s, accent
             )
-            views.setTextColor(R.id.widget_moon_label, accent)
 
             // Weekday header.
             views.removeAllViews(R.id.widget_weekdays)
-            val labels = weekdayLabels(lang)
-            labels.forEachIndexed { idx, label ->
+            weekdayLabels(lang).forEachIndexed { idx, label ->
                 val cell = RemoteViews(context.packageName, R.layout.widget_weekday_cell)
-                cell.setTextViewText(R.id.widget_wd_text, label)
-                cell.setTextColor(
-                    R.id.widget_wd_text,
-                    when (idx) { 0 -> CRIMSON; 6 -> SKY; else -> GOLD_SUB }
+                cell.applyText(
+                    R.id.widget_wd_text, label, 11f, s,
+                    when (idx) { 0 -> W_CRIMSON; 6 -> W_SKY; else -> W_GOLD_SUB }
                 )
                 views.addView(R.id.widget_weekdays, cell)
             }
@@ -117,22 +91,19 @@ class KhmerCalendarWidget : AppWidgetProvider() {
                 val rowViews = RemoteViews(context.packageName, R.layout.widget_grid_row)
                 for (col in 0..6) {
                     val cell = RemoteViews(context.packageName, R.layout.widget_grid_cell)
-                    val cellIdx = row * 7 + col
-                    val dayNumber = cellIdx - startOffset + 1
+                    val dayNumber = row * 7 + col - startOffset + 1
                     if (dayNumber in 1..days.size) {
                         val date = days[dayNumber - 1]
                         val isToday = dayNumber == today
                         val gregColor = when {
                             isToday -> accent
-                            date.holiday != null -> LOTUS
-                            col == 0 -> CRIMSON
-                            col == 6 -> SKY
-                            else -> SAND
+                            date.holiday != null -> W_LOTUS
+                            col == 0 -> W_CRIMSON
+                            col == 6 -> W_SKY
+                            else -> W_SAND
                         }
-                        cell.setTextViewText(R.id.widget_cell_greg, num(lang, dayNumber))
-                        cell.setTextColor(R.id.widget_cell_greg, gregColor)
-                        cell.setTextViewText(R.id.widget_cell_lunar, num(lang, date.lunarDayVal))
-                        cell.setTextColor(R.id.widget_cell_lunar, if (isToday) accent else DIM)
+                        cell.applyText(R.id.widget_cell_greg, num(lang, dayNumber), 16f, s, gregColor)
+                        cell.applyText(R.id.widget_cell_lunar, num(lang, date.lunarDayVal), 9f, s, if (isToday) accent else W_DIM)
                         if (isToday) {
                             cell.setInt(R.id.widget_cell_box, "setBackgroundResource", R.drawable.widget_cell_today)
                         }
@@ -146,32 +117,35 @@ class KhmerCalendarWidget : AppWidgetProvider() {
             }
 
             // Footer summary (today).
-            views.setTextViewText(R.id.widget_footer_day, num(lang, today))
-            views.setTextColor(R.id.widget_footer_day, accent)
-            views.setTextViewText(
+            views.applyText(R.id.widget_footer_day, num(lang, today), 26f, s, accent)
+            views.applyText(
                 R.id.widget_footer_title,
                 if (lang == AppLanguage.EN)
                     "${todayDate.dayOfWeekEn}, ${todayDate.day} ${gregMonth(lang, month - 1)} $year"
                 else
-                    "${todayDate.dayOfWeek} ${gregMonth(lang, month - 1)} ${num(lang, year)}"
+                    "${todayDate.dayOfWeek} ${gregMonth(lang, month - 1)} ${num(lang, year)}",
+                12f, s, W_SAND
             )
-            views.setTextViewText(
+            views.applyText(
                 R.id.widget_footer_sub,
-                "${lunarDayLabel(lang, todayDate)} ${lunarMonth(lang, todayDate.lunarMonthName)}"
+                "${lunarDayLabel(lang, todayDate)} ${lunarMonth(lang, todayDate.lunarMonthName)}",
+                10f, s, W_GOLD_SUB
             )
-            views.setTextViewText(R.id.widget_footer_moon, todayDate.moonEmoji)
+            views.applyText(R.id.widget_footer_moon, todayDate.moonEmoji, 22f, s)
 
-            // Tap → open app.
-            val launchIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val pi = PendingIntent.getActivity(
-                context, 0, launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            views.setOnClickPendingIntent(R.id.widget_root, pi)
-
+            views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
     }
+}
+
+/** Shared PendingIntent that launches the app when a widget is tapped. */
+internal fun openAppIntent(context: Context): PendingIntent {
+    val intent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+    }
+    return PendingIntent.getActivity(
+        context, 0, intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }

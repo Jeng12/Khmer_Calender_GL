@@ -362,14 +362,14 @@ fun KhmerCalendarApp() {
                                 .putString("app_lang", if (lang == AppLanguage.EN) "en" else "km")
                                 .apply()
                             // Keep the home-screen widget in sync with the chosen language.
-                            KhmerCalendarWidget.refreshAll(context)
+                            refreshAllWidgets(context)
                         },
                         displaySettings = displaySettings,
                         onDisplaySettingsChange = { updated ->
                             displaySettings = updated
                             updated.save(context)
                             // Reflect widget opacity/accent changes on the home screen.
-                            KhmerCalendarWidget.refreshAll(context)
+                            refreshAllWidgets(context)
                         }
                     )
                 }
@@ -3312,8 +3312,8 @@ fun ProfileSettingsContent(
 
                 Text(
                     tr(
-                        "បន្ថែមធាតុក្រាហ្វិកនៅលើអេក្រង់ដើម ៖ ចុចសង្កត់លើអេក្រង់ → ធាតុក្រាហ្វិក → ប្រតិទិនខ្មែរ។",
-                        "Add the widget from your home screen: long-press → Widgets → Khmer Calendar."
+                        "មានទំហំពីរ (តូច ៤×២ និងធំ ៤×៤)។ ការកំណត់ពុម្ពអក្សរ ទំហំ និងបែបកញ្ចក់ខាងលើ ក៏អនុវត្តលើធាតុក្រាហ្វិកផងដែរ។ បន្ថែម៖ ចុចសង្កត់លើអេក្រង់ដើម → ធាតុក្រាហ្វិក → ប្រតិទិនខ្មែរ។",
+                        "Two sizes (medium 4×2 and large 4×4). The font, size, and glass settings above also apply to the widget. To add: long-press your home screen → Widgets → Khmer Calendar."
                     ),
                     fontSize = 9.sp, color = DimColor
                 )
