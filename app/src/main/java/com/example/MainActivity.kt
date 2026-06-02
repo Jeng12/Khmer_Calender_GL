@@ -361,6 +361,8 @@ fun KhmerCalendarApp() {
                             langPrefs.edit()
                                 .putString("app_lang", if (lang == AppLanguage.EN) "en" else "km")
                                 .apply()
+                            // Keep the home-screen widget in sync with the chosen language.
+                            KhmerCalendarWidget.refreshAll(context)
                         },
                         displaySettings = displaySettings,
                         onDisplaySettingsChange = { updated ->
