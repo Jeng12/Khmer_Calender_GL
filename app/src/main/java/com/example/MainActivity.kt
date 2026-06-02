@@ -28,7 +28,9 @@ import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -214,6 +216,9 @@ fun KhmerCalendarApp() {
     }
     var isDarkMode by remember { mutableStateOf(langPrefs.getBoolean("dark_mode", true)) }
 
+    // App-wide personalization (font, opacity, glass effect …), persisted.
+    var displaySettings by remember { mutableStateOf(DisplaySettings.load(context)) }
+
     // Today's real Gregorian date, used to open the calendar focused on the current day
     val today = remember { java.util.Calendar.getInstance() }
 
@@ -248,15 +253,38 @@ fun KhmerCalendarApp() {
     }
 
     // Outer edge-to-edge container
+    val baseDensity = LocalDensity.current
     CompositionLocalProvider(
         LocalAppLanguage provides appLanguage,
-        LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
+        LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors,
+        LocalDisplaySettings provides displaySettings,
+        // Scale every sp text size app-wide via the font-size setting.
+        LocalDensity provides Density(baseDensity.density, baseDensity.fontScale * displaySettings.fontScale),
+        // Apply the chosen typeface + "weight" setting to all text by default.
+        // DEFAULT keeps the app's built-in Khmer font (already set by the theme).
+        LocalTextStyle provides LocalTextStyle.current.copy(
+            fontFamily = if (displaySettings.fontFamily == AppFontChoice.DEFAULT)
+                LocalTextStyle.current.fontFamily
+            else displaySettings.fontFamily.toFontFamily(),
+            fontWeight = if (displaySettings.boldText) FontWeight.Bold else LocalTextStyle.current.fontWeight
+        )
     ) {
     val C = LocalAppColors.current
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = C.bg
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(C.bg)) {
+        // Decorative layer revealed when background opacity is reduced.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        listOf(TraditionalGold.copy(alpha = 0.30f), C.deepBg, C.bg)
+                    )
+                )
+        )
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = C.bg.copy(alpha = displaySettings.bgOpacity)
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -333,10 +361,32 @@ fun KhmerCalendarApp() {
                             langPrefs.edit()
                                 .putString("app_lang", if (lang == AppLanguage.EN) "en" else "km")
                                 .apply()
+                        },
+                        displaySettings = displaySettings,
+                        onDisplaySettingsChange = { updated ->
+                            displaySettings = updated
+                            updated.save(context)
                         }
                     )
                 }
             }
+        }
+        }
+        // Frosted "glass" sheen overlay (does not intercept touches).
+        if (displaySettings.glassEffect) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.06f),
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.04f)
+                            )
+                        )
+                    )
+            )
         }
     }
     }
@@ -1030,7 +1080,9 @@ fun MainAppLayout(
     isDarkMode: Boolean = true,
     onDarkModeToggle: (Boolean) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.KM,
-    onLanguageChange: (AppLanguage) -> Unit = {}
+    onLanguageChange: (AppLanguage) -> Unit = {},
+    displaySettings: DisplaySettings = DisplaySettings(),
+    onDisplaySettingsChange: (DisplaySettings) -> Unit = {}
 ) {
     val C = LocalAppColors.current
     Scaffold(
@@ -1077,7 +1129,9 @@ fun MainAppLayout(
                         isDarkMode = isDarkMode,
                         onDarkModeToggle = onDarkModeToggle,
                         appLanguage = appLanguage,
-                        onLanguageChange = onLanguageChange
+                        onLanguageChange = onLanguageChange,
+                        displaySettings = displaySettings,
+                        onDisplaySettingsChange = onDisplaySettingsChange
                     )
                 }
             }
@@ -1322,9 +1376,9 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
         // Quick action grids
         item {
             Text(tr("សេវាកម្មរហ័ស (QUICK SERVICES)", "QUICK SERVICES"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 QuickGridCard(
@@ -1344,9 +1398,9 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     onClick = { onTabSelect(AppTab.AUSPICIOUS) }
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 QuickGridCard(
@@ -1431,17 +1485,26 @@ fun QuickGridCard(
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = modifier
-            .background(PlumCard, RoundedCornerShape(12.dp))
-            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.25f)), RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(PlumCard, RoundedCornerShape(14.dp))
+            .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.25f)), RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .padding(12.dp)
+            .padding(horizontal = 16.dp, vertical = 18.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(emoji, fontSize = 24.sp)
-            Column {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(accentColor.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(emoji, fontSize = 22.sp)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SandText)
                 Text(subtitle, fontSize = 9.sp, color = DimColor)
             }
@@ -1450,6 +1513,7 @@ fun QuickGridCard(
 }
 
 // 2. CALENDAR TAB CONTAINER
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CalendarTabContent(
     year: Int,
@@ -1478,51 +1542,25 @@ fun CalendarTabContent(
 
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
 
-    // Notes state
-    val notesPrefs = remember { context.getSharedPreferences("khmer_calendar_notes", android.content.Context.MODE_PRIVATE) }
-    var notesVersion by remember { mutableStateOf(0) }
-    val daysWithNotes = remember(year, month, notesVersion) {
-        (1..31).filter { d -> !notesPrefs.getString("${year}_${month}_$d", "").isNullOrEmpty() }.toSet()
+    // Notes & events state — backed by CalendarStore
+    var itemsVersion by remember { mutableStateOf(0) }
+    val daysWithItems = remember(year, month, itemsVersion) {
+        CalendarStore.daysWithItems(context, year, month)
     }
-    val noteKey = "${year}_${month}_${selectedDay}"
-    var currentNote by remember(year, month, selectedDay) {
-        mutableStateOf(notesPrefs.getString(noteKey, "") ?: "")
+    val selectedDayItems = remember(year, month, selectedDay, itemsVersion) {
+        CalendarStore.getItems(context, year, month, selectedDay)
     }
-    var isEditingNote by remember { mutableStateOf(false) }
-    var editNoteText by remember { mutableStateOf("") }
 
-    // Reminder state
-    var showAlarmForm by remember(year, month, selectedDay) { mutableStateOf(false) }
-    var alarmTitleText by remember(year, month, selectedDay) { mutableStateOf("") }
-    var pendingAlarmTitle by remember { mutableStateOf("") }
-    var showTimePicker by remember { mutableStateOf(false) }
-    var reminderMessage by remember { mutableStateOf<String?>(null) }
-    val notifPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) showTimePicker = true }
-
-    // Time picker dialog — placed outside LazyColumn to always trigger
-    if (showTimePicker) {
-        val cal = remember { java.util.Calendar.getInstance() }
-        DisposableEffect(selectedDay) {
-            val dlg = TimePickerDialog(
-                context,
-                { _, hour, minute ->
-                    scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, selectedKhmerDate, lang)
-                    val timeStr = "$hour:${String.format("%02d", minute)}"
-                    reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
-                    else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
-                    Toast.makeText(context, reminderMessage, Toast.LENGTH_SHORT).show()
-                    showTimePicker = false
-                },
-                cal.get(java.util.Calendar.HOUR_OF_DAY),
-                cal.get(java.util.Calendar.MINUTE),
-                true
-            )
-            dlg.setOnCancelListener { showTimePicker = false }
-            dlg.show()
-            onDispose { if (dlg.isShowing) dlg.dismiss() }
-        }
+    // Long-press / "+ Add" opens a dialog to create a note or event for a day.
+    var addDialogDay by remember { mutableStateOf<Int?>(null) }
+    addDialogDay?.let { d ->
+        val dialogDate = daysList.getOrNull(d - 1) ?: selectedKhmerDate
+        AddDayItemDialog(
+            year = year, month = month, day = d,
+            khmerDate = dialogDate,
+            onDismiss = { addDialogDay = null },
+            onSaved = { addDialogDay = null; itemsVersion++ }
+        )
     }
 
     LazyColumn(
@@ -1682,7 +1720,7 @@ fun CalendarTabContent(
                                     val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
                                     val isHoliday  = dateInfo.holiday != null
                                     val isWeekend  = col == 0 || col == 6
-                                    val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithNotes
+                                    val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithItems
 
                                     Box(
                                         modifier = Modifier
@@ -1705,7 +1743,13 @@ fun CalendarTabContent(
                                                 },
                                                 RoundedCornerShape(10.dp)
                                             )
-                                            .clickable { onDayChange(dayNumber) }
+                                            .combinedClickable(
+                                                onClick = { onDayChange(dayNumber) },
+                                                onLongClick = {
+                                                    onDayChange(dayNumber)
+                                                    addDialogDay = dayNumber
+                                                }
+                                            )
                                             .padding(4.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -1854,156 +1898,263 @@ fun CalendarTabContent(
                         }
                     }
 
-                    // ── Notes section ─────────────────────────────────────────
+                    // ── Notes & events list (read-only) ───────────────────────
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(tr("📝 កំណត់ចំណាំ", "📝 Notes"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
-                        if (!isEditingNote) {
-                            TextButton(
-                                onClick = { editNoteText = currentNote; isEditingNote = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) {
-                                Text(
-                                    if (currentNote.isEmpty()) tr("+ បន្ថែម", "+ Add") else tr("✏️ កែ", "✏️ Edit"),
-                                    fontSize = 10.sp, color = SkyBlue
-                                )
-                            }
-                        }
-                    }
-                    if (isEditingNote) {
-                        OutlinedTextField(
-                            value = editNoteText,
-                            onValueChange = { editNoteText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 12.sp),
-                            placeholder = { Text(tr("សរសេរកំណត់ចំណាំ...", "Write a note..."), color = DimColor, fontSize = 12.sp) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = PlumSurface,
-                                focusedContainerColor = PlumSurface,
-                                unfocusedBorderColor = DeepBorder,
-                                focusedBorderColor = SkyBlue
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            maxLines = 4
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = { isEditingNote = false }) {
-                                Text(tr("បោះបង់", "Cancel"), fontSize = 10.sp, color = DimColor)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    val trimmed = editNoteText.trim()
-                                    notesPrefs.edit().putString(noteKey, trimmed).apply()
-                                    currentNote = trimmed
-                                    isEditingNote = false
-                                    notesVersion++
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(tr("រក្សាទុក", "Save"), fontSize = 10.sp, color = NightBlack, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    } else if (currentNote.isNotEmpty()) {
-                        Text(
-                            text = currentNote,
-                            fontSize = 12.sp, color = SandText, lineHeight = 17.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(PlumSurface, RoundedCornerShape(8.dp))
-                                .padding(8.dp)
-                        )
-                    }
-
-                    // ── Reminder section ──────────────────────────────────────
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🔔", fontSize = 14.sp)
-                            Text(tr("ការរំលឹក", "Reminder"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
-                        }
+                        Text(tr("📝 កំណត់ចំណាំ និងព្រឹត្តិការណ៍", "📝 Notes & Events"), fontSize = 11.sp, color = GoldSubText, fontWeight = FontWeight.SemiBold)
                         TextButton(
-                            onClick = {
-                                alarmTitleText = ""
-                                reminderMessage = null
-                                showAlarmForm = !showAlarmForm
-                            },
+                            onClick = { addDialogDay = selectedDay },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Text(
-                                if (showAlarmForm) tr("បោះបង់", "Cancel")
-                                else tr("+ កំណត់", "+ Set"),
-                                fontSize = 10.sp,
-                                color = if (showAlarmForm) DimColor else TraditionalGold
-                            )
+                            Text(tr("+ បន្ថែម", "+ Add"), fontSize = 10.sp, color = SkyBlue)
                         }
                     }
-                    if (showAlarmForm) {
-                        OutlinedTextField(
-                            value = alarmTitleText,
-                            onValueChange = { alarmTitleText = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(color = SandText, fontSize = 12.sp),
-                            placeholder = { Text(tr("ចំណងជើងរំលឹក...", "Alarm title..."), color = DimColor, fontSize = 12.sp) },
-                            label = { Text(tr("ចំណងជើង (ស្រេចចិត្ត)", "Title (optional)"), color = GoldSubText, fontSize = 10.sp) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = PlumSurface,
-                                focusedContainerColor = PlumSurface,
-                                unfocusedBorderColor = DeepBorder,
-                                focusedBorderColor = TraditionalGold
+                    if (selectedDayItems.isEmpty()) {
+                        Text(
+                            tr(
+                                "មិនមានកំណត់ចំណាំ ឬព្រឹត្តិការណ៍ទេ · ចុចសង្កត់លើថ្ងៃដើម្បីបន្ថែម",
+                                "No notes or events · long-press a day to add"
                             ),
-                            shape = RoundedCornerShape(8.dp),
-                            singleLine = true
+                            fontSize = 10.sp, color = DimColor
                         )
-                        Button(
-                            onClick = {
-                                pendingAlarmTitle = alarmTitleText
-                                showAlarmForm = false
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-                                        showTimePicker = true
-                                    else
-                                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else {
-                                    showTimePicker = true
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(8.dp),
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                "⏰ ${tr("ជ្រើសម៉ោង", "Pick Time")}",
-                                fontSize = 12.sp, color = NightBlack, fontWeight = FontWeight.Bold
-                            )
+                            selectedDayItems.forEach { item ->
+                                val isEvent = item.type == DayItemType.EVENT
+                                val accent = if (isEvent) TraditionalGold else SkyBlue
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(PlumSurface, RoundedCornerShape(8.dp))
+                                        .border(1.dp, accent.copy(0.3f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(if (isEvent) "📅" else "📝", fontSize = 14.sp)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.title, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            buildString {
+                                                append(if (isEvent) tr("ព្រឹត្តិការណ៍", "Event") else tr("កំណត់ចំណាំ", "Note"))
+                                                if (isEvent && item.time != null) append(" · ⏰ ${item.time}")
+                                            },
+                                            fontSize = 9.sp, color = accent
+                                        )
+                                    }
+                                    Text(
+                                        "✕",
+                                        fontSize = 14.sp,
+                                        color = DimColor,
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                CalendarStore.removeItem(context, year, month, selectedDay, item.id)
+                                                itemsVersion++
+                                            }
+                                            .padding(4.dp)
+                                    )
+                                }
+                            }
                         }
-                    }
-                    if (reminderMessage != null) {
-                        Text(reminderMessage!!, fontSize = 10.sp, color = JadeGreen)
                     }
                 }
             }
         }
 
     }
+}
+
+// Add-note/event dialog opened by long-pressing a calendar day.
+@Composable
+private fun AddDayItemDialog(
+    year: Int,
+    month: Int,
+    day: Int,
+    khmerDate: KhmerDate,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val lang = LocalAppLanguage.current
+    val context = LocalContext.current
+
+    var type by remember { mutableStateOf(DayItemType.NOTE) }
+    var title by remember { mutableStateOf("") }
+    var time by remember { mutableStateOf<String?>(null) }
+    var reminder by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* result handled at save time */ }
+
+    if (showTimePicker) {
+        DisposableEffect(Unit) {
+            val cal = java.util.Calendar.getInstance()
+            val dlg = TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    time = "${String.format("%02d", hour)}:${String.format("%02d", minute)}"
+                    showTimePicker = false
+                },
+                cal.get(java.util.Calendar.HOUR_OF_DAY),
+                cal.get(java.util.Calendar.MINUTE),
+                true
+            )
+            dlg.setOnCancelListener { showTimePicker = false }
+            dlg.show()
+            onDispose { if (dlg.isShowing) dlg.dismiss() }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = PlumCard,
+        title = {
+            Text(
+                tr("បន្ថែមសម្រាប់ថ្ងៃទី ${num(lang, day)}", "Add for Day $day"),
+                color = MoonWheat, fontWeight = FontWeight.Bold, fontSize = 15.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Type selector: Note / Event
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        DayItemType.NOTE to tr("📝 កំណត់ចំណាំ", "📝 Note"),
+                        DayItemType.EVENT to tr("📅 ព្រឹត្តិការណ៍", "📅 Event")
+                    ).forEach { (t, label) ->
+                        val active = type == t
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (active) TraditionalGold.copy(0.2f) else PlumSurface)
+                                .border(
+                                    1.dp,
+                                    if (active) TraditionalGold else DeepBorder,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable { type = t }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                fontSize = 11.sp,
+                                color = if (active) TraditionalGold else SandText,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = TextStyle(color = SandText, fontSize = 13.sp),
+                    placeholder = {
+                        Text(
+                            if (type == DayItemType.EVENT) tr("ចំណងជើងព្រឹត្តិការណ៍...", "Event title...")
+                            else tr("សរសេរកំណត់ចំណាំ...", "Write a note..."),
+                            color = DimColor, fontSize = 13.sp
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = PlumSurface,
+                        focusedContainerColor = PlumSurface,
+                        unfocusedBorderColor = DeepBorder,
+                        focusedBorderColor = TraditionalGold
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    maxLines = 3
+                )
+
+                // Event-only: time + reminder
+                if (type == DayItemType.EVENT) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(tr("ម៉ោង", "Time"), fontSize = 11.sp, color = GoldSubText)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(TraditionalGold.copy(0.15f))
+                                .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(8.dp))
+                                .clickable { showTimePicker = true }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                time?.let { "⏰ $it" } ?: tr("⏰ ជ្រើសម៉ោង", "⏰ Pick time"),
+                                fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(tr("🔔 រំលឹក", "🔔 Reminder"), fontSize = 11.sp, color = GoldSubText)
+                        Switch(
+                            checked = reminder,
+                            onCheckedChange = { enabled ->
+                                reminder = enabled
+                                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = TraditionalGold,
+                                checkedTrackColor = TraditionalGold.copy(0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = title.isNotBlank(),
+                onClick = {
+                    val item = DayItem(
+                        id = System.currentTimeMillis().toString(),
+                        type = type,
+                        title = title.trim(),
+                        time = if (type == DayItemType.EVENT) time else null
+                    )
+                    CalendarStore.addItem(context, year, month, day, item)
+                    if (type == DayItemType.EVENT && reminder && time != null) {
+                        val parts = time!!.split(":")
+                        val hour = parts.getOrNull(0)?.toIntOrNull() ?: 9
+                        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                        scheduleAlarm(context, year, month, day, hour, minute, title.trim(), khmerDate, lang)
+                    }
+                    onSaved()
+                }
+            ) {
+                Text(tr("រក្សាទុក", "Save"), color = TraditionalGold, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr("បោះបង់", "Cancel"), color = DimColor)
+            }
+        }
+    )
 }
 
 // 3. AUSPICIOUS DAYS TAB CONTAINER
@@ -2211,6 +2362,9 @@ fun HolidaysTabContent(
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    val context = LocalContext.current
+    // User-created notes & events across all days (recomputed on each entry).
+    val customItems = CalendarStore.allItems(context)
     val NATIONAL = "ជាតិ (National)"
     val BUDDHIST = "ព្រះពុទ្ធ (Buddhist)"
     // Stable Khmer filter keys; display labels localized.
@@ -2257,6 +2411,84 @@ fun HolidaysTabContent(
                 Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
             }
+        }
+
+        // ── My custom notes & events ──────────────────────────────
+        item {
+            Text(
+                tr("កំណត់ចំណាំ និងព្រឹត្តិការណ៍ផ្ទាល់ខ្លួន (MY NOTES & EVENTS)", "MY NOTES & EVENTS"),
+                fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+            )
+        }
+        if (customItems.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(PlumSurface, RoundedCornerShape(12.dp))
+                        .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        tr(
+                            "មិនទាន់មានកំណត់ចំណាំ ឬព្រឹត្តិការណ៍ផ្ទាល់ខ្លួនទេ។ ចុចសង្កត់លើថ្ងៃនៅក្នុងប្រតិទិនដើម្បីបន្ថែម។",
+                            "No personal notes or events yet. Long-press a day in the calendar to add one."
+                        ),
+                        fontSize = 10.sp, color = DimColor
+                    )
+                }
+            }
+        } else {
+            items(customItems) { dated ->
+                val isEvent = dated.item.type == DayItemType.EVENT
+                val accentColor = if (isEvent) TraditionalGold else SkyBlue
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(PlumSurface, RoundedCornerShape(12.dp))
+                        .border(1.dp, accentColor.copy(0.3f), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(accentColor.copy(0.12f), RoundedCornerShape(12.dp))
+                            .border(1.dp, accentColor.copy(0.3f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (isEvent) "📅" else "📝", fontSize = 18.sp)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(dated.item.title, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isEvent) tr("ព្រឹត្តិការណ៍", "Event") else tr("កំណត់ចំណាំ", "Note"),
+                            fontSize = 9.sp, color = accentColor.copy(0.7f)
+                        )
+                        Text(
+                            buildString {
+                                append(
+                                    if (lang == AppLanguage.EN)
+                                        "${dated.day} ${gregMonth(lang, dated.month - 1)} ${dated.year}"
+                                    else
+                                        "ថ្ងៃទី ${num(lang, dated.day)} ខែ${gregMonth(lang, dated.month - 1)} ឆ្នាំ${num(lang, dated.year)}"
+                                )
+                                if (isEvent && dated.item.time != null) append(" · ⏰ ${dated.item.time}")
+                            },
+                            fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(
+                tr("ថ្ងៃបុណ្យជាតិ និងព្រះពុទ្ធសាសនា (PUBLIC HOLIDAYS)", "PUBLIC HOLIDAYS"),
+                fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+            )
         }
 
         // Chips
@@ -2744,7 +2976,9 @@ fun ProfileSettingsContent(
     isDarkMode: Boolean = true,
     onDarkModeToggle: (Boolean) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.KM,
-    onLanguageChange: (AppLanguage) -> Unit = {}
+    onLanguageChange: (AppLanguage) -> Unit = {},
+    displaySettings: DisplaySettings = DisplaySettings(),
+    onDisplaySettingsChange: (DisplaySettings) -> Unit = {}
 ) {
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
@@ -2877,6 +3111,131 @@ fun ProfileSettingsContent(
                     onCheckedChange = { onDarkModeToggle(it) },
                     colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                 )
+            }
+        }
+
+        // ── Personalization (font, opacity, glass effect …) ──────────
+        item {
+            Text(tr("ការប្ដូរតាមបំណង (PERSONALIZATION)", "PERSONALIZATION"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Font family selector
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(tr("ប្រភេទអក្សរ (Font)", "Font"), fontSize = 11.sp, color = SandText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        AppFontChoice.values().forEach { choice ->
+                            val active = displaySettings.fontFamily == choice
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (active) TraditionalGold else PlumCard)
+                                    .border(1.dp, if (active) TraditionalGold else DeepBorder, RoundedCornerShape(20.dp))
+                                    .clickable { onDisplaySettingsChange(displaySettings.copy(fontFamily = choice)) }
+                                    .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    choice.label(),
+                                    fontSize = 9.sp,
+                                    color = if (active) NightBlack else SandText,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = choice.toFontFamily()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Font size slider
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(tr("ទំហំអក្សរ (Font Size)", "Font Size"), fontSize = 11.sp, color = SandText)
+                        Text("${(displaySettings.fontScale * 100).toInt()}%", fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = displaySettings.fontScale,
+                        onValueChange = { onDisplaySettingsChange(displaySettings.copy(fontScale = it)) },
+                        valueRange = 0.8f..1.4f,
+                        steps = 5,
+                        colors = SliderDefaults.colors(
+                            thumbColor = TraditionalGold,
+                            activeTrackColor = TraditionalGold,
+                            inactiveTrackColor = DeepBorder
+                        )
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Font weight (the "weight" setting)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr("អក្សរដិត (Bold Text / Weight)", "Bold Text (Weight)"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = displaySettings.boldText,
+                        onCheckedChange = { onDisplaySettingsChange(displaySettings.copy(boldText = it)) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Background opacity slider (reveals decorative color when lowered)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(tr("ភាពស្រអាប់ផ្ទៃខាងក្រោយ (Background Opacity)", "Background Opacity"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                        Text("${(displaySettings.bgOpacity * 100).toInt()}%", fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = displaySettings.bgOpacity,
+                        onValueChange = { onDisplaySettingsChange(displaySettings.copy(bgOpacity = it)) },
+                        valueRange = 0.5f..1f,
+                        steps = 4,
+                        colors = SliderDefaults.colors(
+                            thumbColor = TraditionalGold,
+                            activeTrackColor = TraditionalGold,
+                            inactiveTrackColor = DeepBorder
+                        )
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Glass effect toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Text("🪟", fontSize = 14.sp)
+                        Text(tr("បែបកញ្ចក់ (Glass Effect)", "Glass Effect"), fontSize = 11.sp, color = SandText)
+                    }
+                    Switch(
+                        checked = displaySettings.glassEffect,
+                        onCheckedChange = { onDisplaySettingsChange(displaySettings.copy(glassEffect = it)) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                    )
+                }
             }
         }
 
