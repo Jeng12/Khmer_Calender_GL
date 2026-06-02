@@ -368,6 +368,8 @@ fun KhmerCalendarApp() {
                         onDisplaySettingsChange = { updated ->
                             displaySettings = updated
                             updated.save(context)
+                            // Reflect widget opacity/accent changes on the home screen.
+                            KhmerCalendarWidget.refreshAll(context)
                         }
                     )
                 }
@@ -3238,6 +3240,83 @@ fun ProfileSettingsContent(
                         colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                     )
                 }
+            }
+        }
+
+        // ── Home-screen widget settings ──────────────────────────────
+        item {
+            Text(tr("ធាតុក្រាហ្វិកអេក្រង់ដើម (HOME-SCREEN WIDGET)", "HOME-SCREEN WIDGET"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Widget transparency
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(tr("តម្លាភាព (Transparency)", "Transparency"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                        Text("${(displaySettings.widgetOpacity * 100).toInt()}%", fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = displaySettings.widgetOpacity,
+                        onValueChange = { onDisplaySettingsChange(displaySettings.copy(widgetOpacity = it)) },
+                        valueRange = 0.2f..1f,
+                        steps = 7,
+                        colors = SliderDefaults.colors(
+                            thumbColor = TraditionalGold,
+                            activeTrackColor = TraditionalGold,
+                            inactiveTrackColor = DeepBorder
+                        )
+                    )
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+
+                // Widget accent colour
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(tr("ពណ៌រចនា (Accent Color)", "Accent Color"), fontSize = 11.sp, color = SandText)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(
+                            WidgetAccent.GOLD to TraditionalGold,
+                            WidgetAccent.ROSE to LotusPink,
+                            WidgetAccent.JADE to JadeGreen,
+                            WidgetAccent.BLUE to SkyBlue
+                        ).forEach { (accent, color) ->
+                            val active = displaySettings.widgetAccent == accent
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(color.copy(alpha = 0.18f))
+                                    .border(
+                                        if (active) 2.dp else 1.dp,
+                                        if (active) color else DeepBorder,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { onDisplaySettingsChange(displaySettings.copy(widgetAccent = accent)) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(modifier = Modifier.size(16.dp).clip(CircleShape).background(color))
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    tr(
+                        "បន្ថែមធាតុក្រាហ្វិកនៅលើអេក្រង់ដើម ៖ ចុចសង្កត់លើអេក្រង់ → ធាតុក្រាហ្វិក → ប្រតិទិនខ្មែរ។",
+                        "Add the widget from your home screen: long-press → Widgets → Khmer Calendar."
+                    ),
+                    fontSize = 9.sp, color = DimColor
+                )
             }
         }
 

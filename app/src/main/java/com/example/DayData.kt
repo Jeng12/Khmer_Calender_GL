@@ -129,9 +129,7 @@ object CalendarStore {
    Display / personalization settings (font, opacity, glass …)
    ───────────────────────────────────────────────────────────── */
 
-enum class AppFontChoice { DEFAULT, SERIF, MONOSPACE, SANS }
-
-fun AppFontChoice.toFontFamily(): FontFamily = when (this) {
+enum class AppFontChoice { DEFAULT, SERIF, MONOSPACE, SANS }fun AppFontChoice.toFontFamily(): FontFamily = when (this) {
     AppFontChoice.SERIF -> FontFamily.Serif
     AppFontChoice.MONOSPACE -> FontFamily.Monospace
     AppFontChoice.SANS -> FontFamily.SansSerif
@@ -145,6 +143,24 @@ fun AppFontChoice.label(): String = when (this) {
     AppFontChoice.SANS -> "Sans"
 }
 
+/** Accent colour applied to the home-screen widget, chosen in the app. */
+enum class WidgetAccent { GOLD, ROSE, JADE, BLUE }
+
+/** ARGB int for use with RemoteViews (non-Compose). */
+fun WidgetAccent.colorInt(): Int = when (this) {
+    WidgetAccent.GOLD -> 0xFFC8973A.toInt()
+    WidgetAccent.ROSE -> 0xFFE8768A.toInt()
+    WidgetAccent.JADE -> 0xFF4DAF7C.toInt()
+    WidgetAccent.BLUE -> 0xFF7BA7BC.toInt()
+}
+
+fun WidgetAccent.label(): String = when (this) {
+    WidgetAccent.GOLD -> "Gold"
+    WidgetAccent.ROSE -> "Rose"
+    WidgetAccent.JADE -> "Jade"
+    WidgetAccent.BLUE -> "Blue"
+}
+
 /**
  * App-wide personalization controlled from the Profile screen.
  *  - [fontScale]      multiplies every sp text size (0.8–1.4)
@@ -153,13 +169,17 @@ fun AppFontChoice.label(): String = when (this) {
  *  - [bgOpacity]      how opaque the background surface is (0.5–1.0);
  *                     lower values reveal a decorative gradient (color change)
  *  - [glassEffect]    adds a frosted translucent sheen over the app
+ *  - [widgetOpacity]  transparency of the home-screen widget (0.2–1.0)
+ *  - [widgetAccent]   accent colour of the home-screen widget
  */
 data class DisplaySettings(
     val fontScale: Float = 1f,
     val fontFamily: AppFontChoice = AppFontChoice.DEFAULT,
     val boldText: Boolean = false,
     val bgOpacity: Float = 1f,
-    val glassEffect: Boolean = false
+    val glassEffect: Boolean = false,
+    val widgetOpacity: Float = 1f,
+    val widgetAccent: WidgetAccent = WidgetAccent.GOLD
 ) {
     companion object {
         fun load(context: Context): DisplaySettings {
@@ -171,7 +191,11 @@ data class DisplaySettings(
                 }.getOrDefault(AppFontChoice.DEFAULT),
                 boldText = p.getBoolean("disp_bold_text", false),
                 bgOpacity = p.getFloat("disp_bg_opacity", 1f),
-                glassEffect = p.getBoolean("disp_glass_effect", false)
+                glassEffect = p.getBoolean("disp_glass_effect", false),
+                widgetOpacity = p.getFloat("widget_opacity", 1f),
+                widgetAccent = runCatching {
+                    WidgetAccent.valueOf(p.getString("widget_accent", "GOLD") ?: "GOLD")
+                }.getOrDefault(WidgetAccent.GOLD)
             )
         }
     }
@@ -184,6 +208,8 @@ data class DisplaySettings(
             .putBoolean("disp_bold_text", boldText)
             .putFloat("disp_bg_opacity", bgOpacity)
             .putBoolean("disp_glass_effect", glassEffect)
+            .putFloat("widget_opacity", widgetOpacity)
+            .putString("widget_accent", widgetAccent.name)
             .apply()
     }
 }
