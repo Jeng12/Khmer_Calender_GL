@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.calendar.KhmerCalendarHelper
 import com.example.calendar.KhmerDate
+import com.example.ui.theme.*
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.NightBlack
 import com.example.ui.theme.PlumSurface
