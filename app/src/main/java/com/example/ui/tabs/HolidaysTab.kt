@@ -85,26 +85,61 @@ fun HolidaysTabContent(
         }
     }
 
-    // Holiday(dateKm, dateEn, nameKm, nameEn, typeKey)
-    data class Holiday(val dateKm: String, val dateEn: String, val nameKm: String, val nameEn: String, val type: String)
-    val holidaysList = listOf(
-        Holiday("០១ មករា", "01 Jan", "ទិវាឆ្នាំថ្មីអន្តរជាតិ · New Year's Day", "New Year's Day", NATIONAL),
-        Holiday("០៧ មករា", "07 Jan", "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍", "Victory over Genocide Day", NATIONAL),
-        Holiday("០៨ មីនា", "08 Mar", "ទិវាអន្តរជាតិរបស់ស្ត្រី · International Women's Day", "International Women's Day", NATIONAL),
-        Holiday("១៤-១៦ មេសា", "14-16 Apr", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ · Khmer New Year", "Khmer New Year", NATIONAL),
-        Holiday("០១ ឧសភា", "01 May", "ទិវាពលកម្មអន្តរជាតិ · International Labour Day", "International Labour Day", NATIONAL),
-        Holiday("ទី១៥ ពិសាខ (ច)", "15th Visakha (waxing)", "បុណ្យវិសាខបូជា · Visak Bochea Day", "Visak Bochea Day", BUDDHIST),
-        Holiday("០១ មិថុនា", "01 Jun", "ទិវាកុមារអន្តរជាតិ · International Children's Day", "International Children's Day", NATIONAL),
-        Holiday("១៨ មិថុនា", "18 Jun", "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្ដេចម៉ែ", "Queen Mother's Birthday", NATIONAL),
-        Holiday("ទី១-១៥ ភទ្របទ (ច)", "1-15 Phutrobot (waning)", "បុណ្យភ្ជុំបិណ្ឌ · Pchum Ben Festival", "Pchum Ben Festival", BUDDHIST),
-        Holiday("២៤ កញ្ញា", "24 Sep", "ទិវារដ្ឋធម្មនុញ្ញ · Constitution Day", "Constitution Day", NATIONAL),
-        Holiday("១៥ តុលា", "15 Oct", "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ", "Commemoration Day of the King Father", NATIONAL),
-        Holiday("ទី១៥ កត្តិក (ក)", "15th Kakdek (waxing)", "ព្រះរាជពិធីបុណ្យអុំទូក · Water Festival", "Water Festival", BUDDHIST),
-        Holiday("ទី១៥ មាឃ (ក)", "15th Meak (waxing)", "បុណ្យមាឃបូជា · Meak Bochea Day", "Meak Bochea Day", BUDDHIST),
-        Holiday("២៩ តុលា", "29 Oct", "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ", "King's Coronation Day", NATIONAL),
-        Holiday("០៩ វិច្ឆិកា", "09 Nov", "ទិវាបុណ្យឯករាជ្យជាតិ · Independence Day", "Independence Day", NATIONAL),
-        Holiday("១០ ធ្នូ", "10 Dec", "ទិវាសិទ្ធិមនុស្ស · Human Rights Day", "Human Rights Day", NATIONAL)
-    )
+    // Unified row model shared by the live API list and the offline fallback.
+    data class HolidayRow(val dateKm: String, val dateEn: String, val nameKm: String, val nameEn: String, val type: String)
+
+    // Bundled fallback used when the network is unavailable so the screen is never empty.
+    val fallbackHolidays = remember(NATIONAL, BUDDHIST) {
+        listOf(
+            HolidayRow("០១ មករា", "01 Jan", "ទិវាឆ្នាំថ្មីអន្តរជាតិ · New Year's Day", "New Year's Day", NATIONAL),
+            HolidayRow("០៧ មករា", "07 Jan", "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍", "Victory over Genocide Day", NATIONAL),
+            HolidayRow("០៨ មីនា", "08 Mar", "ទិវាអន្តរជាតិរបស់ស្ត្រី · International Women's Day", "International Women's Day", NATIONAL),
+            HolidayRow("១៤-១៦ មេសា", "14-16 Apr", "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ · Khmer New Year", "Khmer New Year", NATIONAL),
+            HolidayRow("០១ ឧសភា", "01 May", "ទិវាពលកម្មអន្តរជាតិ · International Labour Day", "International Labour Day", NATIONAL),
+            HolidayRow("ទី១៥ ពិសាខ (ច)", "15th Visakha (waxing)", "បុណ្យវិសាខបូជា · Visak Bochea Day", "Visak Bochea Day", BUDDHIST),
+            HolidayRow("០១ មិថុនា", "01 Jun", "ទិវាកុមារអន្តរជាតិ · International Children's Day", "International Children's Day", NATIONAL),
+            HolidayRow("១៨ មិថុនា", "18 Jun", "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្ដេចម៉ែ", "Queen Mother's Birthday", NATIONAL),
+            HolidayRow("ទី១-១៥ ភទ្របទ (ច)", "1-15 Phutrobot (waning)", "បុណ្យភ្ជុំបិណ្ឌ · Pchum Ben Festival", "Pchum Ben Festival", BUDDHIST),
+            HolidayRow("២៤ កញ្ញា", "24 Sep", "ទិវារដ្ឋធម្មនុញ្ញ · Constitution Day", "Constitution Day", NATIONAL),
+            HolidayRow("១៥ តុលា", "15 Oct", "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ", "Commemoration Day of the King Father", NATIONAL),
+            HolidayRow("ទី១៥ កត្តិក (ក)", "15th Kakdek (waxing)", "ព្រះរាជពិធីបុណ្យអុំទូក · Water Festival", "Water Festival", BUDDHIST),
+            HolidayRow("ទី១៥ មាឃ (ក)", "15th Meak (waxing)", "បុណ្យមាឃបូជា · Meak Bochea Day", "Meak Bochea Day", BUDDHIST),
+            HolidayRow("២៩ តុលា", "29 Oct", "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ", "King's Coronation Day", NATIONAL),
+            HolidayRow("០៩ វិច្ឆិកា", "09 Nov", "ទិវាបុណ្យឯករាជ្យជាតិ · Independence Day", "Independence Day", NATIONAL),
+            HolidayRow("១០ ធ្នូ", "10 Dec", "ទិវាសិទ្ធិមនុស្ស · Human Rights Day", "Human Rights Day", NATIONAL)
+        )
+    }
+
+    // Format an ISO date into the app's "០១ មករា" / "01 Jan" display strings.
+    fun formatDate(d: java.time.LocalDate): Pair<String, String> {
+        val dd = "%02d".format(d.dayOfMonth)
+        val en = "$dd ${GREG_MONTHS_EN[d.monthValue - 1].take(3)}"
+        val km = "${numStr(AppLanguage.KM, dd)} ${GREG_MONTHS_KM[d.monthValue - 1]}"
+        return km to en
+    }
+
+    // Fetch the live holidays from the public Khmer holidays API (once per entry).
+    val holidaysResult by produceState<Result<List<Holiday>>?>(initialValue = null) {
+        value = HolidayRepository.fetchHolidays()
+    }
+    val isLoading = holidaysResult == null
+    val apiHolidays = holidaysResult?.getOrNull().orEmpty()
+    val loadFailed = holidaysResult?.isFailure == true || (holidaysResult != null && apiHolidays.isEmpty())
+
+    val holidaysList: List<HolidayRow> = if (apiHolidays.isNotEmpty()) {
+        apiHolidays.map { h ->
+            val (km, en) = formatDate(h.date)
+            HolidayRow(
+                dateKm = km,
+                dateEn = en,
+                nameKm = h.nameKh.ifBlank { h.nameEn },
+                nameEn = h.nameEn.ifBlank { h.nameKh },
+                type = if (h.isBuddhist) BUDDHIST else NATIONAL
+            )
+        }
+    } else {
+        fallbackHolidays
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -139,6 +174,40 @@ fun HolidaysTabContent(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+        }
+
+        // Loading spinner while the API request is in flight.
+        if (isLoading) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = TraditionalGold)
+                    Spacer(Modifier.width(10.dp))
+                    Text(tr("កំពុងទាញយកថ្ងៃបុណ្យ…", "Loading holidays…"), fontSize = 11.sp, color = GoldSubText)
+                }
+            }
+        }
+
+        // Offline notice when the API failed — the bundled list is shown instead.
+        if (loadFailed) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LotusPink.copy(0.10f), RoundedCornerShape(10.dp))
+                        .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        tr("⚠ មិនអាចភ្ជាប់អ៊ីនធឺណិត — បង្ហាញទិន្នន័យក្នុងកម្មវិធី", "⚠ Offline — showing bundled holidays"),
+                        fontSize = 10.sp,
+                        color = LotusPink
+                    )
                 }
             }
         }

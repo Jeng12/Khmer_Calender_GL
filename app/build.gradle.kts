@@ -104,6 +104,8 @@ dependencies {
   // implementation(libs.retrofit)
   // Firebase AI — enabled for Gemini integration
   implementation(libs.firebase.ai)
+  // Glance — home-screen App Widget written in Compose-style code
+  implementation(libs.glance.appwidget)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.play.services.location)
