@@ -48,8 +48,8 @@ object KhmerCalendarHelper {
         "ឆ្នាំថោះ",   // 3: Rabbit
         "ឆ្នាំរោង",   // 4: Dragon  (BE 2568, 2580…)
         "ឆ្នាំម្សាញ់", // 5: Snake   (BE 2569, 2581…)
-        "ឆ្នាំдето",   // 6: Horse   (BE 2570, 2582…)
-        "ឆ្នាំមមី",    // 7: Goat    (BE 2571, 2583…)
+        "ឆ្នាំមមី",    // 6: Horse   (BE 2570, 2582…)
+        "ឆ្នាំមមែ",    // 7: Goat    (BE 2571, 2583…)
         "ឆ្នាំវក",     // 8: Monkey  (BE 2572, 2584…)
         "ឆ្នាំរកា",   // 9: Rooster (BE 2573, 2585…)
         "ឆ្នាំច",      // 10: Dog    (BE 2574, 2586…)
@@ -128,6 +128,31 @@ object KhmerCalendarHelper {
     // Pre-built for 1900–2200; covers all practical dates without restriction
     private val milestones: List<Milestone> by lazy { buildMilestones(1900, 2200) }
 
+    private val fallbackMilestone by lazy {
+        Milestone(getSerialDay(2026, 5, 11), "ពិសាខ", 30, 2570, ZODIAC_NAMES[6])
+    }
+
+    // Binary search: O(log n) instead of O(n) linear scan
+    private fun findMilestone(sDay: Int): Milestone {
+        val ms = milestones
+        if (ms.isEmpty()) return fallbackMilestone
+        var lo = 0
+        var hi = ms.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (ms[mid].serialDay <= sDay) lo = mid else hi = mid - 1
+        }
+        return if (ms[lo].serialDay <= sDay) ms[lo] else fallbackMilestone
+    }
+
+    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency
+    private val monthCache: MutableMap<Long, List<KhmerDate>> =
+        object : LinkedHashMap<Long, List<KhmerDate>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 12
+        }
+
+    private fun monthCacheKey(year: Int, month: Int): Long = year.toLong() * 100 + month
+
     private fun buildMilestones(firstGregorianYear: Int, lastGregorianYear: Int): List<Milestone> {
         // Collect all new moons whose Cambodia date falls in (firstGregorianYear-1)..(lastGregorianYear+1)
         val kStart = kotlin.math.round((firstGregorianYear - 2001) * 12.37).toInt() - 2
@@ -183,15 +208,20 @@ object KhmerCalendarHelper {
         var y = year
         var m = month
         if (m <= 2) { y -= 1; m += 12 }
-        return (365 * y) + (y / 4) - (y / 100) + (y / 400) + ((153 * m + 2) / 5) + day
+        // March-based month index must start at 0 for the (153*idx+2)/5 cumulative-days
+        // formula to stay continuous. After the Jan/Feb shift, m ranges 3..14, so use (m - 3).
+        // Using `m` directly added a non-constant rounding offset that broke day counting
+        // across the Feb→March boundary, throwing the weekday (and lunar) math off.
+        return (365 * y) + (y / 4) - (y / 100) + (y / 400) + ((153 * (m - 3) + 2) / 5) + day
     }
 
     fun getKhmerDate(year: Int, month: Int, day: Int): KhmerDate {
         val sDay   = getSerialDay(year, month, day)
-        val dowIdx = ((sDay + 4) % 7 + 7) % 7
+        // Sunday = 0. Offset +2 aligns the continuous serial-day count with the real
+        // Gregorian weekday (verified against known reference dates).
+        val dowIdx = ((sDay + 2) % 7 + 7) % 7
 
-        val ms = milestones.lastOrNull { it.serialDay <= sDay }
-            ?: Milestone(getSerialDay(2026, 5, 11), "ពិសាខ", 30, 2570, ZODIAC_NAMES[6])
+        val ms = findMilestone(sDay)
 
         val offset    = sDay - ms.serialDay
         val isWaxing  = (offset % 30) < 15
@@ -271,12 +301,21 @@ object KhmerCalendarHelper {
         n.toString().map { KHMER_NUMERAL_MAP[it] ?: it }.joinToString("")
 
     fun getGregorianMonthDays(year: Int, month: Int): List<KhmerDate> {
+        val key = monthCacheKey(year, month)
+        monthCache[key]?.let { return it }
         val daysInMonth = when (month) {
             1, 3, 5, 7, 8, 10, 12 -> 31
             4, 6, 9, 11            -> 30
             2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
             else -> 30
         }
-        return (1..daysInMonth).map { getKhmerDate(year, month, it) }
+        val result = (1..daysInMonth).map { getKhmerDate(year, month, it) }
+        monthCache[key] = result
+        return result
+    }
+
+    // Force lazy milestone init off the main thread
+    fun warmUp() {
+        milestones
     }
 }

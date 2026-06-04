@@ -1,52 +1,46 @@
 package com.example.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.CompositionLocalProvider
 
-private val DarkColorScheme =
-  darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
-
-private val LightColorScheme =
-  lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-  )
+private val KhmerDarkColorScheme = darkColorScheme(
+    primary         = TraditionalGoldTheme,
+    onPrimary       = NightBlackTheme,
+    primaryContainer = PlumCardTheme,
+    onPrimaryContainer = SandTextTheme,
+    secondary       = LotusPinkTheme,
+    onSecondary     = NightBlackTheme,
+    tertiary        = JadeGreenTheme,
+    onTertiary      = NightBlackTheme,
+    background      = NightBlackTheme,
+    onBackground    = SandTextTheme,
+    surface         = PlumSurfaceTheme,
+    onSurface       = SandTextTheme,
+    surfaceVariant  = PlumCardTheme,
+    onSurfaceVariant = GoldSubTextTheme,
+    outline         = DeepBorderTheme,
+    error           = CrimsonHolidayTheme,
+    onError         = SandTextTheme,
+)
 
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = false,
-  content: @Composable () -> Unit,
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
+    MaterialTheme(
+        colorScheme = KhmerDarkColorScheme,
+        typography = Typography,
+    ) {
+        // Default every Text (even those that only set fontSize/color inline) to the
+        // Khmer font family, so the whole app shares one consistent typeface.
+        CompositionLocalProvider(
+            LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = KhmerFontFamily),
+            content = content,
+        )
     }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

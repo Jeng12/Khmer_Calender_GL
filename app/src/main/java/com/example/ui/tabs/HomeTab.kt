@@ -1,29 +1,78 @@
 package com.example.ui.tabs
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.calendar.KhmerCalendarHelper
-import com.example.ui.navigation.AppTab
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.example.calendar.*
+import com.example.core.*
+import com.example.alarm.*
+import com.example.data.*
 import com.example.ui.theme.*
+import com.example.ui.components.*
+import com.example.ui.navigation.*
+import com.example.ui.auth.*
+import com.example.ui.tabs.*
+
+/* ─────────────────────────────────────────────────────────────
+   TAB CONTENTS
+───────────────────────────────────────────────────────────── */
 
 // 1. HOME TAB CONTAINER
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val lang = LocalAppLanguage.current
     val calendar = remember { java.util.Calendar.getInstance() }
     val currentYear = calendar.get(java.util.Calendar.YEAR)
     val currentMonth = calendar.get(java.util.Calendar.MONTH) + 1
@@ -31,10 +80,6 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val currentKhmerInfo = remember(currentYear, currentMonth, currentDay) {
         KhmerCalendarHelper.getKhmerDate(currentYear, currentMonth, currentDay)
     }
-    val khmerGregorianMonths = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
 
     LazyColumn(
         modifier = Modifier
@@ -61,7 +106,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     Text("🌙", fontSize = 24.sp)
                 }
                 Column {
-                    Text("ប្រតិទិនចន្ទគតិខ្មែរ", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                     Text("KHMER LUNAR CALENDAR · OFFICIAL v2", fontSize = 9.sp, color = TraditionalGold, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -94,10 +139,13 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column {
-                                Text("TODAY · ថ្ងៃនេះ", fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
+                                Text(tr("TODAY · ថ្ងៃនេះ", "TODAY"), fontSize = 9.sp, color = GoldSubText, letterSpacing = 1.sp)
                                 Text(
-                                    text = "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${currentKhmerInfo.day} ${khmerGregorianMonths[currentMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(currentYear)}",
-                                    fontSize = 15.sp,
+                                    text = if (lang == AppLanguage.EN)
+                                        "${currentKhmerInfo.dayOfWeekEn}, ${currentKhmerInfo.day} ${gregMonth(lang, currentMonth - 1)} $currentYear"
+                                    else
+                                        "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${num(lang, currentKhmerInfo.day)} ${gregMonth(lang, currentMonth - 1)} ${num(lang, currentYear)}",
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MoonWheat
                                 )
@@ -114,8 +162,8 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                         )
 
                         Text(
-                            text = "${currentKhmerInfo.lunarDayName} ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.zodiac}",
-                            fontSize = 13.sp,
+                            text = "${lunarDayLabel(lang, currentKhmerInfo)} ${lunarMonth(lang, currentKhmerInfo.lunarMonthName)} ${zodiac(lang, currentKhmerInfo.zodiac)}",
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TraditionalGold
                         )
@@ -128,7 +176,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                     .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ព.ស. ${currentKhmerInfo.BE}", fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold)
+                                Text(tr("ព.ស. ${num(lang, currentKhmerInfo.BE)}", "BE ${currentKhmerInfo.BE}"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold)
                             }
                             Box(
                                 modifier = Modifier
@@ -136,7 +184,13 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ខែ${currentKhmerInfo.lunarMonthName} ${currentKhmerInfo.lunarDayName}", fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = if (lang == AppLanguage.EN)
+                                        "${lunarMonth(lang, currentKhmerInfo.lunarMonthName)} ${lunarDayLabel(lang, currentKhmerInfo)}"
+                                    else
+                                        "ខែ${currentKhmerInfo.lunarMonthName} ${lunarDayLabel(lang, currentKhmerInfo)}",
+                                    fontSize = 9.sp, color = LotusPink, fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -146,7 +200,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
         // Quick action grids
         item {
-            Text("សេវាកម្មរហ័ស (QUICK SERVICES)", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(tr("សេវាកម្មរហ័ស (QUICK SERVICES)", "QUICK SERVICES"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -155,7 +209,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "📅",
-                    title = "ប្រតិទិន",
+                    title = tr("ប្រតិទិន", "Calendar"),
                     subtitle = "Calendar",
                     accentColor = TraditionalGold,
                     onClick = { onTabSelect(AppTab.CALENDAR) }
@@ -163,7 +217,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🌿",
-                    title = "ថ្ងៃមង្គល",
+                    title = tr("ថ្ងៃមង្គល", "Auspicious"),
                     subtitle = "Auspicious",
                     accentColor = JadeGreen,
                     onClick = { onTabSelect(AppTab.AUSPICIOUS) }
@@ -177,7 +231,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🎊",
-                    title = "ថ្ងៃបុណ្យ",
+                    title = tr("ថ្ងៃបុណ្យ", "Holidays"),
                     subtitle = "Holidays",
                     accentColor = LotusPink,
                     onClick = { onTabSelect(AppTab.HOLIDAYS) }
@@ -185,7 +239,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🔄",
-                    title = "បំលែង",
+                    title = tr("បំលែង", "Convert"),
                     subtitle = "Convert",
                     accentColor = SkyBlue,
                     onClick = { onTabSelect(AppTab.CONVERT) }
@@ -195,10 +249,14 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
         // Upcoming national events in Cambodia
         item {
-            Text("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(tr("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", "UPCOMING EVENTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            val events = listOf(
+            val events = if (lang == AppLanguage.EN) listOf(
+                Pair("Visak Bochea", "3 days left · 🌕 15 Waxing"),
+                Pair("Pchum Ben Festival", "98 days left · 🌑 15 Waning"),
+                Pair("Royal Ploughing Ceremony", "14 days left · 4 Waning")
+            ) else listOf(
                 Pair("ថ្ងៃបុណ្យវិសាខបូជា (Visak Bochea)", "៣ ថ្ងៃទៀត · 🌕 ១៥ កើត"),
                 Pair("បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben Festival)", "៩៨ ថ្ងៃទៀត · 🌑 ១៥ រោច"),
                 Pair("ព្រះរាជពិធីច្រត់ព្រះនង្គ័ល (Royal Ploughing)", "១៤ ថ្ងៃទៀត · ៤ រោច")
@@ -232,7 +290,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                             .background(TraditionalGold.copy(0.12f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
-                        Text("រំលឹក", fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Text(tr("រំលឹក", "Remind"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -249,6 +307,7 @@ fun QuickGridCard(
     accentColor: Color,
     onClick: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = modifier
             .background(PlumCard, RoundedCornerShape(12.dp))
@@ -262,7 +321,7 @@ fun QuickGridCard(
         ) {
             Text(emoji, fontSize = 24.sp)
             Column {
-                Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = SandText)
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SandText)
                 Text(subtitle, fontSize = 9.sp, color = DimColor)
             }
         }

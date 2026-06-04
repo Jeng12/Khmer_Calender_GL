@@ -1,28 +1,75 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.navigation.AppTab
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.example.calendar.*
+import com.example.core.*
+import com.example.alarm.*
+import com.example.data.*
 import com.example.ui.theme.*
+import com.example.ui.components.*
+import com.example.ui.navigation.*
+import com.example.ui.auth.*
+import com.example.ui.tabs.*
 
 @Composable
 fun CustomBottomBar(
     currentTab: AppTab,
     onTabSelect: (AppTab) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -38,7 +85,7 @@ fun CustomBottomBar(
             // Home Tab
             BottomBarItem(
                 emoji = "🏠",
-                label = "ទំព័រដើម",
+                label = tr("ទំព័រដើម", "Home"),
                 subLabel = "Home",
                 isSelected = currentTab == AppTab.HOME,
                 onClick = { onTabSelect(AppTab.HOME) }
@@ -46,23 +93,15 @@ fun CustomBottomBar(
             // Calendar Tab
             BottomBarItem(
                 emoji = "📅",
-                label = "ប្រតិទិន",
+                label = tr("ប្រតិទិន", "Calendar"),
                 subLabel = "Calendar",
                 isSelected = currentTab == AppTab.CALENDAR,
                 onClick = { onTabSelect(AppTab.CALENDAR) }
             )
-            // Auspicious Tab
-            BottomBarItem(
-                emoji = "🌿",
-                label = "មង្គល",
-                subLabel = "Auspicious",
-                isSelected = currentTab == AppTab.AUSPICIOUS,
-                onClick = { onTabSelect(AppTab.AUSPICIOUS) }
-            )
             // Holidays Tab
             BottomBarItem(
                 emoji = "🎉",
-                label = "ថ្ងៃបុណ្យ",
+                label = tr("ថ្ងៃបុណ្យ", "Holidays"),
                 subLabel = "Holidays",
                 isSelected = currentTab == AppTab.HOLIDAYS,
                 onClick = { onTabSelect(AppTab.HOLIDAYS) }
@@ -70,7 +109,7 @@ fun CustomBottomBar(
             // Convert Tab
             BottomBarItem(
                 emoji = "🔄",
-                label = "បំលែង",
+                label = tr("បំលែង", "Convert"),
                 subLabel = "Convert",
                 isSelected = currentTab == AppTab.CONVERT,
                 onClick = { onTabSelect(AppTab.CONVERT) }
@@ -78,7 +117,7 @@ fun CustomBottomBar(
             // Profile Tab
             BottomBarItem(
                 emoji = "👤",
-                label = "ប្រវត្តិរូប",
+                label = tr("ប្រវត្តិរូប", "Profile"),
                 subLabel = "Profile",
                 isSelected = currentTab == AppTab.PROFILE,
                 onClick = { onTabSelect(AppTab.PROFILE) }
@@ -95,24 +134,24 @@ fun BottomBarItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     Column(
         modifier = Modifier
-            .clickable { onClick() }
+            .clickable(
+                indication = ripple(color = TraditionalGold.copy(alpha = 0.2f)),
+                interactionSource = remember { MutableInteractionSource() },
+                onClickLabel = subLabel,
+            ) { onClick() }
             .padding(horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(text = emoji, fontSize = 18.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
+        Text(text = emoji, fontSize = 20.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
         Text(
             text = label,
-            fontSize = 9.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = if (isSelected) TraditionalGold else GoldSubText.copy(0.6f)
-        )
-        Text(
-            text = subLabel,
-            fontSize = 7.sp,
-            color = if (isSelected) TraditionalGold.copy(0.7f) else DimColor
         )
         if (isSelected) {
             Box(

@@ -1,32 +1,68 @@
 package com.example.ui.navigation
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.example.calendar.KhmerCalendarHelper
-import com.example.calendar.KhmerDate
-import com.example.ui.auth.ForgotScreenContent
-import com.example.ui.auth.LoginScreenContent
-import com.example.ui.auth.OTPScreenContent
-import com.example.ui.auth.OnboardingScreenContent
-import com.example.ui.auth.RegisterScreenContent
-import com.example.ui.auth.SplashScreenContent
-import com.example.ui.components.CustomBottomBar
-import com.example.ui.tabs.AuspiciousTabContent
-import com.example.ui.tabs.CalendarTabContent
-import com.example.ui.tabs.DateConvertContent
-import com.example.ui.tabs.HolidaysTabContent
-import com.example.ui.tabs.HomeTabContent
-import com.example.ui.tabs.ProfileSettingsContent
-import com.example.ui.theme.NightBlack
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.example.calendar.*
+import com.example.core.*
+import com.example.alarm.*
+import com.example.data.*
+import com.example.ui.theme.*
+import com.example.ui.components.*
+import com.example.ui.navigation.*
+import com.example.ui.auth.*
+import com.example.ui.tabs.*
 
 enum class AppScreen {
     SPLASH, ONBOARDING, LOGIN, REGISTER, FORGOT, OTP, MAIN_APP
@@ -39,12 +75,25 @@ enum class AppTab {
 @Composable
 fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
-    var currentTab by remember { mutableStateOf(AppTab.HOME) }
+    var currentTab by remember { mutableStateOf(AppTab.CALENDAR) }
 
-    // State for interactive dates
-    var calendarYear by remember { mutableStateOf(2026) }
-    var calendarMonth by remember { mutableStateOf(5) } // May 2026 as standard reference
-    var selectedDayIndex by remember { mutableStateOf(15) } // Default May 15 2026
+    // App-wide language, persisted across launches. Defaults to Khmer.
+    val context = LocalContext.current
+    val langPrefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
+    var appLanguage by remember {
+        mutableStateOf(
+            if (langPrefs.getString("app_lang", "km") == "en") AppLanguage.EN else AppLanguage.KM
+        )
+    }
+    var isDarkMode by remember { mutableStateOf(langPrefs.getBoolean("dark_mode", true)) }
+
+    // Today's real Gregorian date, used to open the calendar focused on the current day
+    val today = remember { java.util.Calendar.getInstance() }
+
+    // State for interactive dates — initialised to the current day
+    var calendarYear by remember { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
+    var calendarMonth by remember { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
+    var selectedDayIndex by remember { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
 
     // Conversion calculator state
     var convertYear by remember { mutableStateOf("2026") }
@@ -58,11 +107,11 @@ fun KhmerCalendarApp() {
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
 
-    // Splash Timer
+    // Splash Timer — go straight to the main app (login flow skipped)
     LaunchedEffect(screenState) {
         if (screenState == AppScreen.SPLASH) {
             delay(1800)
-            screenState = AppScreen.ONBOARDING
+            screenState = AppScreen.MAIN_APP
         }
     }
 
@@ -72,9 +121,14 @@ fun KhmerCalendarApp() {
     }
 
     // Outer edge-to-edge container
+    CompositionLocalProvider(
+        LocalAppLanguage provides appLanguage,
+        LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
+    ) {
+    val C = LocalAppColors.current
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = NightBlack
+        color = C.bg
     ) {
         Box(
             modifier = Modifier
@@ -117,6 +171,12 @@ fun KhmerCalendarApp() {
                             selectedDayIndex = 1 // reset to 1st of month
                         },
                         onDaySelect = { selectedDayIndex = it },
+                        onGoToToday = {
+                            val cal = java.util.Calendar.getInstance()
+                            calendarYear = cal.get(java.util.Calendar.YEAR)
+                            calendarMonth = cal.get(java.util.Calendar.MONTH) + 1
+                            selectedDayIndex = cal.get(java.util.Calendar.DAY_OF_MONTH)
+                        },
                         convertYear = convertYear,
                         convertMonth = convertMonth,
                         convertDay = convertDay,
@@ -137,13 +197,28 @@ fun KhmerCalendarApp() {
                         onLogOut = {
                             screenState = AppScreen.LOGIN
                             currentTab = AppTab.HOME
+                        },
+                        isDarkMode = isDarkMode,
+                        onDarkModeToggle = { enabled -> isDarkMode = enabled; langPrefs.edit().putBoolean("dark_mode", enabled).apply() },
+                        appLanguage = appLanguage,
+                        onLanguageChange = { lang ->
+                            appLanguage = lang
+                            langPrefs.edit()
+                                .putString("app_lang", if (lang == AppLanguage.EN) "en" else "km")
+                                .apply()
                         }
                     )
                 }
             }
         }
     }
+    }
 }
+
+
+/* ─────────────────────────────────────────────────────────────
+   MAIN APPLICATION CONTAINER & NAVIGATION
+───────────────────────────────────────────────────────────── */
 
 @Composable
 fun MainAppLayout(
@@ -154,6 +229,7 @@ fun MainAppLayout(
     selectedDayIndex: Int,
     onCalendarMonthChange: (Int, Int) -> Unit,
     onDaySelect: (Int) -> Unit,
+    onGoToToday: () -> Unit = {},
     convertYear: String,
     convertMonth: String,
     convertDay: String,
@@ -163,13 +239,18 @@ fun MainAppLayout(
     onAuspiciousFilterChange: (String) -> Unit,
     selectedHolidayFilter: String,
     onHolidayFilterChange: (String) -> Unit,
-    onLogOut: () -> Unit
+    onLogOut: () -> Unit,
+    isDarkMode: Boolean = true,
+    onDarkModeToggle: (Boolean) -> Unit = {},
+    appLanguage: AppLanguage = AppLanguage.KM,
+    onLanguageChange: (AppLanguage) -> Unit = {}
 ) {
+    val C = LocalAppColors.current
     Scaffold(
         bottomBar = {
             CustomBottomBar(currentTab = currentTab, onTabSelect = onTabChange)
         },
-        containerColor = NightBlack
+        containerColor = C.bg
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -184,9 +265,12 @@ fun MainAppLayout(
                         month = calendarMonth,
                         selectedDay = selectedDayIndex,
                         onMonthChange = onCalendarMonthChange,
-                        onDayChange = onDaySelect
+                        onDayChange = onDaySelect,
+                        onGoToToday = onGoToToday
                     )
                     AppTab.AUSPICIOUS -> AuspiciousTabContent(
+                        calendarYear = calendarYear,
+                        calendarMonth = calendarMonth,
                         selectedFilter = selectedAuspiciousFilter,
                         onFilterChange = onAuspiciousFilterChange
                     )
@@ -202,7 +286,11 @@ fun MainAppLayout(
                         onConvert = onConvertClick
                     )
                     AppTab.PROFILE -> ProfileSettingsContent(
-                        onLogOut = onLogOut
+                        onLogOut = onLogOut,
+                        isDarkMode = isDarkMode,
+                        onDarkModeToggle = onDarkModeToggle,
+                        appLanguage = appLanguage,
+                        onLanguageChange = onLanguageChange
                     )
                 }
             }

@@ -1,29 +1,68 @@
 package com.example.ui.tabs
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.calendar.KhmerDate
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.example.calendar.*
+import com.example.core.*
+import com.example.alarm.*
+import com.example.data.*
 import com.example.ui.theme.*
+import com.example.ui.components.*
+import com.example.ui.navigation.*
+import com.example.ui.auth.*
+import com.example.ui.tabs.*
 
 // 5. DATE CONVERTER TAB CONTAINER
 @Composable
@@ -34,15 +73,12 @@ fun DateConvertContent(
     convertedDate: KhmerDate?,
     onConvert: (String, String, String) -> Unit
 ) {
+    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val lang = LocalAppLanguage.current
     var inYear by remember { mutableStateOf(year) }
     var inMonth by remember { mutableStateOf(month) }
     var inDay by remember { mutableStateOf(day) }
     var inputError by remember { mutableStateOf<String?>(null) }
-
-    val khMonths = listOf(
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    )
 
     fun validate(): Boolean {
         val y = inYear.toIntOrNull()
@@ -50,15 +86,19 @@ fun DateConvertContent(
         val d = inDay.toIntOrNull()
         return when {
             y == null || m == null || d == null -> {
-                inputError = "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)"
+                inputError = tr(lang, "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)", "Please enter numbers only")
+                false
+            }
+            y < 2019 || y > 2036 -> {
+                inputError = tr(lang, "ឆ្នាំ ២០១៩–២០៣៦ ប៉ុណ្ណោះ (Year 2019–2036 only)", "Year 2019–2036 only")
                 false
             }
             m < 1 || m > 12 -> {
-                inputError = "ខែត្រូវស្ថិតក្នុងចន្លោះ ១–១២ (Month 1–12)"
+                inputError = tr(lang, "ខែត្រូវស្ថិតក្នុងចន្លោះ ១–១២ (Month 1–12)", "Month must be 1–12")
                 false
             }
             d < 1 || d > 31 -> {
-                inputError = "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)"
+                inputError = tr(lang, "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)", "Day must be 1–31")
                 false
             }
             else -> {
@@ -99,8 +139,8 @@ fun DateConvertContent(
                 ) {
                     Text("🔄", fontSize = 28.sp)
                     Column {
-                        Text("បំលែងថ្ងៃខែ", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                        Text("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ · គ្រប់ឆ្នាំ", fontSize = 10.sp, color = SkyBlue)
+                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Text(tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"), fontSize = 10.sp, color = SkyBlue)
                     }
                 }
             }
@@ -125,7 +165,7 @@ fun DateConvertContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "ថ្ងៃខែគ្រីស្ដសករាជ",
+                            tr("ថ្ងៃខែគ្រីស្ដសករាជ", "Gregorian Date"),
                             fontSize = 10.sp,
                             color = SkyBlue,
                             fontWeight = FontWeight.Bold,
@@ -144,14 +184,14 @@ fun DateConvertContent(
                                 }
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Text("📅 ថ្ងៃនេះ", fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
+                            Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
                         }
                     }
 
                     // Day / Month / Year fields
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("ថ្ងៃ (Day)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ថ្ងៃ (Day)", "Day"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inDay,
@@ -179,7 +219,7 @@ fun DateConvertContent(
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("ខែ (Month)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ខែ (Month)", "Month"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inMonth,
@@ -207,11 +247,11 @@ fun DateConvertContent(
                             )
                         }
                         Column(modifier = Modifier.weight(1.6f)) {
-                            Text("ឆ្នាំ (Year)", fontSize = 9.sp, color = DimColor)
+                            Text(tr("ឆ្នាំ (Year)", "Year"), fontSize = 9.sp, color = DimColor)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(
                                 value = inYear,
-                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 6) inYear = v },
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) inYear = v },
                                 textStyle = TextStyle(
                                     color = SandText,
                                     fontSize = 20.sp,
@@ -252,6 +292,15 @@ fun DateConvertContent(
                         }
                     }
 
+                    // Year range hint
+                    Text(
+                        tr("ឆ្នាំដែលគ្រប: ២០២០ – ២០៣៥", "Supported years: 2020 – 2035"),
+                        fontSize = 9.sp,
+                        color = DimColor,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.End
+                    )
+
                     // Convert button
                     Button(
                         onClick = { if (validate()) onConvert(inYear, inMonth, inDay) },
@@ -267,7 +316,7 @@ fun DateConvertContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("⇅", fontSize = 18.sp, color = NightBlack)
-                            Text("បំលែងជាចន្ទគតិ", color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
@@ -291,7 +340,7 @@ fun DateConvertContent(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "លទ្ធផលថ្ងៃចន្ទគតិ",
+                                tr("លទ្ធផលថ្ងៃចន្ទគតិ", "Lunar Date Result"),
                                 fontSize = 10.sp,
                                 color = TraditionalGold,
                                 fontWeight = FontWeight.Bold,
@@ -312,7 +361,10 @@ fun DateConvertContent(
                         ) {
                             Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(SkyBlue))
                             Text(
-                                "ថ្ងៃ${convertedDate.dayOfWeek} ទី${convertedDate.day} ${khMonths[mIdx]} ${convertedDate.year}",
+                                text = if (lang == AppLanguage.EN)
+                                    "${convertedDate.dayOfWeekEn}, ${convertedDate.day} ${gregMonth(lang, mIdx)} ${convertedDate.year}"
+                                else
+                                    "ថ្ងៃ${convertedDate.dayOfWeek} ទី${num(lang, convertedDate.day)} ${gregMonth(lang, mIdx)} ${num(lang, convertedDate.year)}",
                                 fontSize = 12.sp,
                                 color = GoldSubText
                             )
@@ -322,7 +374,10 @@ fun DateConvertContent(
 
                         // Main lunar result — large
                         Text(
-                            text = "${convertedDate.lunarDayName} ខែ${convertedDate.lunarMonthName}",
+                            text = if (lang == AppLanguage.EN)
+                                "${lunarDayLabel(lang, convertedDate)} ${lunarMonth(lang, convertedDate.lunarMonthName)}"
+                            else
+                                "${lunarDayLabel(lang, convertedDate)} ខែ${convertedDate.lunarMonthName}",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = MoonWheat
@@ -341,7 +396,7 @@ fun DateConvertContent(
                                     .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("ព.ស. ${convertedDate.BE}", fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                                Text(tr("ព.ស. ${num(lang, convertedDate.BE)}", "BE ${convertedDate.BE}"), fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                             }
                             Box(
                                 modifier = Modifier
@@ -349,7 +404,7 @@ fun DateConvertContent(
                                     .border(1.dp, LotusPink.copy(0.3f), RoundedCornerShape(20.dp))
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text(convertedDate.zodiac, fontSize = 10.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                                Text(zodiac(lang, convertedDate.zodiac), fontSize = 10.sp, color = LotusPink, fontWeight = FontWeight.Bold)
                             }
                             Box(
                                 modifier = Modifier
@@ -358,7 +413,11 @@ fun DateConvertContent(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    "${convertedDate.moonEmoji} ${if (convertedDate.isWaxing) "កើត" else "រោច"}",
+                                    "${convertedDate.moonEmoji} " + if (lang == AppLanguage.EN) {
+                                        if (convertedDate.isWaxing) "Waxing" else "Waning"
+                                    } else {
+                                        if (convertedDate.isWaxing) "កើត" else "រោច"
+                                    },
                                     fontSize = 10.sp,
                                     color = SkyBlue,
                                     fontWeight = FontWeight.Bold
@@ -380,8 +439,8 @@ fun DateConvertContent(
                             ) {
                                 Text("🎉", fontSize = 16.sp)
                                 Column {
-                                    Text("ថ្ងៃបុណ្យ", fontSize = 9.sp, color = LotusPink.copy(0.7f))
-                                    Text(convertedDate.holiday!!, fontSize = 12.sp, color = LotusPink, fontWeight = FontWeight.Bold)
+                                    Text(tr("ថ្ងៃបុណ្យ", "Holiday"), fontSize = 9.sp, color = LotusPink.copy(0.7f))
+                                    Text(localizeDual(lang, convertedDate.holiday!!), fontSize = 12.sp, color = LotusPink, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -400,9 +459,9 @@ fun DateConvertContent(
                             ) {
                                 Text("🌿", fontSize = 16.sp)
                                 Column {
-                                    Text("ថ្ងៃមង្គល", fontSize = 9.sp, color = JadeGreen.copy(0.7f))
+                                    Text(tr("ថ្ងៃមង្គល", "Auspicious"), fontSize = 9.sp, color = JadeGreen.copy(0.7f))
                                     Text(
-                                        convertedDate.auspiciousType ?: "ថ្ងៃល្អ",
+                                        localizeDual(lang, convertedDate.auspiciousType ?: tr(lang, "ថ្ងៃល្អ", "Good day")),
                                         fontSize = 12.sp,
                                         color = JadeGreen,
                                         fontWeight = FontWeight.Bold
