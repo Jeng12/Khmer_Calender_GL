@@ -1,4 +1,4 @@
-package com.example
+package com.example.calendar
 
 import kotlin.math.floor
 import kotlin.math.sin
@@ -125,7 +125,8 @@ object KhmerCalendarHelper {
 
     // ─── Dynamic milestone builder ─────────────────────────────────────────────
 
-    private val milestones: List<Milestone> by lazy { buildMilestones(2019, 2036) }
+    // Pre-built for 1900–2200; covers all practical dates without restriction
+    private val milestones: List<Milestone> by lazy { buildMilestones(1900, 2200) }
 
     private fun buildMilestones(firstGregorianYear: Int, lastGregorianYear: Int): List<Milestone> {
         // Collect all new moons whose Cambodia date falls in (firstGregorianYear-1)..(lastGregorianYear+1)

@@ -2,6 +2,15 @@ package com.example
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import com.example.calendar.KhmerCalendarHelper
+import com.example.ui.auth.ForgotScreenContent
+import com.example.ui.auth.LoginScreenContent
+import com.example.ui.auth.OTPScreenContent
+import com.example.ui.auth.OnboardingScreenContent
+import com.example.ui.auth.RegisterScreenContent
+import com.example.ui.auth.SplashScreenContent
+import com.example.ui.navigation.AppTab
+import com.example.ui.navigation.MainAppLayout
 import com.example.ui.theme.MyApplicationTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
