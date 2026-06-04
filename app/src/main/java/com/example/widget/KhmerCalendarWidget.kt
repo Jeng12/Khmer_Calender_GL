@@ -192,21 +192,21 @@ private fun MiniLayout(data: WidgetData) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = GlanceModifier.defaultWeight()) {
-            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 9.sp))
+            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
             Text(
                 toKhmerNumeral(t.day),
-                style = TextStyle(color = cp(TEXT), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(TEXT), fontSize = 36.sp, fontWeight = FontWeight.Bold)
             )
             Text(
                 "${GREG_MONTHS_KM[t.month - 1]} ${toKhmerNumeral(t.year)}",
-                style = TextStyle(color = cp(SUB), fontSize = 9.sp)
+                style = TextStyle(color = cp(SUB), fontSize = 11.sp)
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(t.moonEmoji, style = TextStyle(fontSize = 26.sp))
-            Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 8.sp))
+            Text(t.moonEmoji, style = TextStyle(fontSize = 32.sp))
+            Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 10.sp))
             if (t.holiday != null) {
-                Text("🔴", style = TextStyle(fontSize = 7.sp))
+                Text("🔴", style = TextStyle(fontSize = 9.sp))
             }
         }
     }
@@ -218,23 +218,23 @@ private fun SquareLayout(data: WidgetData) {
     val t = data.today
     Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 9.sp),
+            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 11.sp),
                 modifier = GlanceModifier.defaultWeight())
-            Text(t.moonEmoji, style = TextStyle(fontSize = 20.sp))
+            Text(t.moonEmoji, style = TextStyle(fontSize = 24.sp))
         }
         Spacer(GlanceModifier.defaultWeight())
         Column(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 toKhmerNumeral(t.day),
-                style = TextStyle(color = cp(TEXT), fontSize = 46.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(TEXT), fontSize = 54.sp, fontWeight = FontWeight.Bold)
             )
-            Text(GREG_MONTHS_KM[t.month - 1], style = TextStyle(color = cp(SUB), fontSize = 10.sp))
+            Text(GREG_MONTHS_KM[t.month - 1], style = TextStyle(color = cp(SUB), fontSize = 12.sp))
         }
         Spacer(GlanceModifier.defaultWeight())
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("ថ្ងៃ${t.lunarDayName}", style = TextStyle(color = cp(DIM), fontSize = 8.sp),
+            Text("ថ្ងៃ${t.lunarDayName}", style = TextStyle(color = cp(DIM), fontSize = 10.sp),
                 modifier = GlanceModifier.defaultWeight())
-            Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 8.sp))
+            Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 10.sp))
         }
     }
 }
@@ -246,19 +246,19 @@ private fun MediumLayout(data: WidgetData) {
     Row(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
         // Left: date block
         Column(modifier = GlanceModifier.width(96.dp)) {
-            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 9.sp))
+            Text("ថ្ងៃ${t.dayOfWeek}", style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
             Text(
                 toKhmerNumeral(t.day),
-                style = TextStyle(color = cp(TEXT), fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(TEXT), fontSize = 52.sp, fontWeight = FontWeight.Bold)
             )
-            Text(GREG_MONTHS_KM[t.month - 1], style = TextStyle(color = cp(SUB), fontSize = 10.sp))
+            Text(GREG_MONTHS_KM[t.month - 1], style = TextStyle(color = cp(SUB), fontSize = 12.sp))
             Spacer(GlanceModifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(t.moonEmoji, style = TextStyle(fontSize = 18.sp))
+                Text(t.moonEmoji, style = TextStyle(fontSize = 22.sp))
                 Spacer(GlanceModifier.width(5.dp))
                 Column {
-                    Text("ថ្ងៃ${t.lunarDayName}", style = TextStyle(color = cp(SUB), fontSize = 8.sp))
-                    Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 8.sp))
+                    Text("ថ្ងៃ${t.lunarDayName}", style = TextStyle(color = cp(SUB), fontSize = 10.sp))
+                    Text(t.zodiac, style = TextStyle(color = cp(GOLD), fontSize = 10.sp))
                 }
             }
         }
@@ -273,10 +273,10 @@ private fun MediumLayout(data: WidgetData) {
             Spacer(GlanceModifier.height(8.dp))
             Divider()
             Spacer(GlanceModifier.height(6.dp))
-            Text("ថ្ងៃបុណ្យខាងមុខ", style = TextStyle(color = cp(GOLD), fontSize = 8.sp))
+            Text("ថ្ងៃបុណ្យខាងមុខ", style = TextStyle(color = cp(GOLD), fontSize = 10.sp))
             Spacer(GlanceModifier.height(3.dp))
             if (data.upcoming.isEmpty()) {
-                Text("គ្មានថ្ងៃបុណ្យ", style = TextStyle(color = cp(DIM), fontSize = 8.sp))
+                Text("គ្មានថ្ងៃបុណ្យ", style = TextStyle(color = cp(DIM), fontSize = 10.sp))
             } else {
                 data.upcoming.take(2).forEach { h ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.padding(bottom = 3.dp)) {
@@ -284,7 +284,7 @@ private fun MediumLayout(data: WidgetData) {
                         Spacer(GlanceModifier.width(5.dp))
                         Text(
                             "${toKhmerNumeral(h.day)} ${GREG_MONTHS_KM[h.month - 1]} · ${h.name}",
-                            style = TextStyle(color = cp(SUB), fontSize = 8.sp),
+                            style = TextStyle(color = cp(SUB), fontSize = 10.sp),
                             maxLines = 1
                         )
                     }
@@ -300,7 +300,7 @@ private fun WeekStrip(data: WidgetData) {
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         headers.forEach { h ->
             Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
-                Text(h, style = TextStyle(color = cp(DIM), fontSize = 7.sp))
+                Text(h, style = TextStyle(color = cp(DIM), fontSize = 9.sp))
             }
         }
     }
@@ -314,12 +314,12 @@ private fun WeekStrip(data: WidgetData) {
                         modifier = GlanceModifier.size(20.dp).background(ImageProvider(R.drawable.widget_today_circle)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(toKhmerNumeral(day!!), style = TextStyle(color = cp(DARK), fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                        Text(toKhmerNumeral(day!!), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
                     }
                 } else {
                     Text(
                         day?.let { toKhmerNumeral(it) } ?: "",
-                        style = TextStyle(color = cp(SUB), fontSize = 10.sp)
+                        style = TextStyle(color = cp(SUB), fontSize = 12.sp)
                     )
                 }
             }
@@ -337,16 +337,16 @@ private fun LargeLayout(data: WidgetData) {
             Column(modifier = GlanceModifier.defaultWeight()) {
                 Text(
                     "${GREG_MONTHS_KM[data.month - 1]} ${toKhmerNumeral(data.year)}",
-                    style = TextStyle(color = cp(TEXT), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    style = TextStyle(color = cp(TEXT), fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 )
                 Text(
                     "${t.lunarMonthName} · ${t.zodiac}",
-                    style = TextStyle(color = cp(SUB), fontSize = 9.sp)
+                    style = TextStyle(color = cp(SUB), fontSize = 11.sp)
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(t.moonEmoji, style = TextStyle(fontSize = 24.sp))
-                Text("ថ្ងៃ${toKhmerNumeral(t.lunarDayVal)}", style = TextStyle(color = cp(DIM), fontSize = 8.sp))
+                Text(t.moonEmoji, style = TextStyle(fontSize = 28.sp))
+                Text("ថ្ងៃ${toKhmerNumeral(t.lunarDayVal)}", style = TextStyle(color = cp(DIM), fontSize = 10.sp))
             }
         }
         Spacer(GlanceModifier.height(10.dp))
@@ -360,7 +360,7 @@ private fun LargeLayout(data: WidgetData) {
                         6 -> Color(0xFF5599FF)
                         else -> DIM
                     }
-                    Text(h, style = TextStyle(color = cp(color), fontSize = 9.sp))
+                    Text(h, style = TextStyle(color = cp(color), fontSize = 11.sp))
                 }
             }
         }
@@ -407,7 +407,7 @@ private fun androidx.glance.layout.RowScope.GridCell(data: WidgetData, day: Int?
                 toKhmerNumeral(day),
                 style = TextStyle(
                     color = cp(dayColor),
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                 )
             )
@@ -415,7 +415,7 @@ private fun androidx.glance.layout.RowScope.GridCell(data: WidgetData, day: Int?
                 val lunarHighlight = kd.lunarDayVal == 1 || kd.lunarDayVal == 15
                 Text(
                     toKhmerNumeral(kd.lunarDayVal),
-                    style = TextStyle(color = cp(if (lunarHighlight) GOLD else DIM), fontSize = 7.sp)
+                    style = TextStyle(color = cp(if (lunarHighlight) GOLD else DIM), fontSize = 9.sp)
                 )
             }
             if (kd?.holiday != null) {
