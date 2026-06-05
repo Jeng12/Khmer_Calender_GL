@@ -170,10 +170,10 @@ object KhmerCalendarHelper {
         newMoons.sortBy { it.sd }
 
         // Identify Chaitra new moons: month that contains Khmer New Year ≈ Apr 14
-        // Rule: new moon falls between Mar 15 and Apr 14 (inclusive)
+        // Rule: new moon falls between Mar 27 and Apr 26 (inclusive)
         val chaitraIndices = newMoons.indices.filter { i ->
             val nm = newMoons[i]
-            (nm.month == 3 && nm.day >= 15) || (nm.month == 4 && nm.day <= 14)
+            (nm.month == 3 && nm.day >= 27) || (nm.month == 4 && nm.day <= 26)
         }
 
         val result = mutableListOf<Milestone>()

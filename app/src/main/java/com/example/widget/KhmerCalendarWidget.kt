@@ -1,7 +1,6 @@
 package com.example.widget
 
 import android.content.Context
-import android.content.Intent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -90,9 +89,6 @@ private fun dowText(lang: AppLanguage, d: KhmerDate) =
 
 private fun lunarDayText(lang: AppLanguage, d: KhmerDate) =
     if (lang == AppLanguage.EN) lunarDayLabel(lang, d) else "ថ្ងៃ ${d.lunarDayName}"
-
-private fun lunarMonthText(lang: AppLanguage, d: KhmerDate) =
-    if (lang == AppLanguage.EN) lunarMonth(lang, d.lunarMonthName) else "ខែ ${d.lunarMonthName}"
 
 private fun upcomingHeader(lang: AppLanguage) =
     if (lang == AppLanguage.EN) "Upcoming holidays" else "ថ្ងៃបុណ្យខាងមុខ"
@@ -329,27 +325,6 @@ private fun IconLine(icon: String, label: String, s: WidgetStyle) {
     }
 }
 
-/** Gold section header with a leading icon (Holiday / Note / Event). */
-@androidx.compose.runtime.Composable
-private fun SectionHeader(icon: String, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(icon, style = TextStyle(fontSize = 11.sp))
-        Spacer(GlanceModifier.width(4.dp))
-        Text(label, style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold))
-    }
-}
-
-/** A compact one-line agenda entry under a [SectionHeader]. */
-@androidx.compose.runtime.Composable
-private fun AgendaLine(label: String, s: WidgetStyle) {
-    Text(
-        "·  $label",
-        style = TextStyle(color = cp(s.sub), fontSize = 12.sp),
-        maxLines = 1,
-        modifier = GlanceModifier.padding(top = 1.dp)
-    )
-}
-
 @androidx.compose.runtime.Composable
 private fun WeekStrip(ui: WidgetUi) {
     val s = ui.style
@@ -371,7 +346,7 @@ private fun WeekStrip(ui: WidgetUi) {
                             modifier = GlanceModifier.size(20.dp).background(ImageProvider(R.drawable.widget_today_circle)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(num(ui.lang, day!!), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                            Text(num(ui.lang, day), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
                         }
                     } else {
                         Text(
