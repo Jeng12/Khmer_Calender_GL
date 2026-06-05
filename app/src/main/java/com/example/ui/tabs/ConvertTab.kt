@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -81,6 +82,20 @@ fun DateConvertContent(
     var inDay by remember { mutableStateOf(day) }
     var inputError by remember { mutableStateOf<String?>(null) }
 
+    // Conversion direction: false = Gregorian→Khmer (default), true = Khmer→Gregorian.
+    var khmerToGreg by rememberSaveable { mutableStateOf(false) }
+
+    // Khmer (lunar) inputs, used only in reverse mode.
+    var inBe by remember { mutableStateOf("2570") }
+    var inLunarMonth by remember { mutableStateOf(KhmerCalendarHelper.lunarMonthNames.first()) }
+    var inLunarDay by remember { mutableStateOf("15") }
+    var inWaxing by remember { mutableStateOf(true) }
+    var monthMenuOpen by remember { mutableStateOf(false) }
+
+    // Result of a reverse (Khmer→Gregorian) conversion, shown via the same card.
+    var reverseResult by remember { mutableStateOf<KhmerDate?>(null) }
+    val resultDate = if (khmerToGreg) reverseResult else convertedDate
+
     // Drives the "converting…" → "result" animation. Bumped on every successful
     // convert so the styled transition replays even for the same date.
     var convertSeq by remember { mutableStateOf(0) }
@@ -137,7 +152,7 @@ fun DateConvertContent(
     // Play the styled conversion sequence whenever a convert is triggered.
     LaunchedEffect(convertSeq) {
         if (convertSeq == 0) {
-            showResult = convertedDate != null
+            showResult = resultDate != null
             return@LaunchedEffect
         }
         isConverting = true
@@ -147,11 +162,34 @@ fun DateConvertContent(
         showResult = true
     }
 
-    fun triggerConvert() {
-        if (validate()) {
-            onConvert(inYear, inMonth, inDay)
-            convertSeq++
+    fun reverseConvert(): Boolean {
+        val be = inBe.toIntOrNull()
+        val ld = inLunarDay.toIntOrNull()
+        when {
+            be == null || ld == null -> {
+                inputError = tr(lang, "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)", "Please enter numbers only")
+                return false
+            }
+            ld !in 1..15 -> {
+                inputError = tr(lang, "ថ្ងៃខែចន្ទគតិ ១–១៥ (Lunar day 1–15)", "Lunar day must be 1–15")
+                return false
+            }
         }
+        val g = KhmerCalendarHelper.getGregorianDate(be!!, inLunarMonth, ld!!, inWaxing)
+        if (g == null) {
+            inputError = tr(lang, "រកថ្ងៃត្រូវគ្នាមិនឃើញ (no matching date)", "No matching Gregorian date")
+            return false
+        }
+        inputError = null
+        reverseResult = KhmerCalendarHelper.getKhmerDate(g.first, g.second, g.third)
+        return true
+    }
+
+    fun triggerConvert() {
+        val ok = if (khmerToGreg) reverseConvert() else validate().also {
+            if (it) onConvert(inYear, inMonth, inDay)
+        }
+        if (ok) convertSeq++
     }
 
     LazyColumn(
@@ -181,7 +219,13 @@ fun DateConvertContent(
                     Text("🔄", fontSize = 28.sp, modifier = Modifier.rotate(if (isConverting) spin else 0f))
                     Column {
                         Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                        Text(tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"), fontSize = 10.sp, color = SkyBlue)
+                        Text(
+                            if (khmerToGreg)
+                                tr("ពីចន្ទគតិខ្មែរ → គ្រីស្ដសករាជ", "Khmer Lunar → Gregorian")
+                            else
+                                tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"),
+                            fontSize = 10.sp, color = SkyBlue
+                        )
                     }
                 }
             }
@@ -199,62 +243,161 @@ fun DateConvertContent(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Label row + Today button
+                    // Direction toggle: Gregorian→Khmer  /  Khmer→Gregorian
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(NightBlack.copy(0.4f), RoundedCornerShape(10.dp))
+                            .padding(3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
+                        DirectionChip(
+                            label = tr("គ្រី → ខ្មែរ", "G → Khmer"),
+                            selected = !khmerToGreg,
+                            onClick = { if (khmerToGreg) { khmerToGreg = false; inputError = null } },
+                            modifier = Modifier.weight(1f)
+                        )
+                        DirectionChip(
+                            label = tr("ខ្មែរ → គ្រី", "Khmer → G"),
+                            selected = khmerToGreg,
+                            onClick = { if (!khmerToGreg) { khmerToGreg = true; inputError = null } },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (!khmerToGreg) {
+                        // ── Gregorian input ──
+                        // Label row + Today button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                tr("ថ្ងៃខែគ្រីស្ដសករាជ", "Gregorian Date"),
+                                fontSize = 10.sp,
+                                color = SkyBlue,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(SkyBlue.copy(0.15f), RoundedCornerShape(20.dp))
+                                    .border(1.dp, SkyBlue.copy(0.4f), RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        val now = java.util.Calendar.getInstance()
+                                        inDay = now.get(java.util.Calendar.DAY_OF_MONTH).toString()
+                                        inMonth = (now.get(java.util.Calendar.MONTH) + 1).toString()
+                                        inYear = now.get(java.util.Calendar.YEAR).toString()
+                                        inputError = null
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Day / Month / Year fields
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DateNumberField(
+                                label = tr("ថ្ងៃ (Day)", "Day"),
+                                value = inDay,
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) inDay = v },
+                                placeholder = "DD",
+                                maxLen = 2,
+                                weight = 1f
+                            )
+                            DateNumberField(
+                                label = tr("ខែ (Month)", "Month"),
+                                value = inMonth,
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) inMonth = v },
+                                placeholder = "MM",
+                                maxLen = 2,
+                                weight = 1f
+                            )
+                            DateNumberField(
+                                label = tr("ឆ្នាំ (Year)", "Year"),
+                                value = inYear,
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) inYear = v },
+                                placeholder = "YYYY",
+                                maxLen = 4,
+                                weight = 1.6f
+                            )
+                        }
+                    } else {
+                        // ── Khmer (lunar) input ──
                         Text(
-                            tr("ថ្ងៃខែគ្រីស្ដសករាជ", "Gregorian Date"),
+                            tr("ថ្ងៃខែចន្ទគតិខ្មែរ", "Khmer Lunar Date"),
                             fontSize = 10.sp,
                             color = SkyBlue,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp
                         )
-                        Box(
-                            modifier = Modifier
-                                .background(SkyBlue.copy(0.15f), RoundedCornerShape(20.dp))
-                                .border(1.dp, SkyBlue.copy(0.4f), RoundedCornerShape(20.dp))
-                                .clickable {
-                                    val now = java.util.Calendar.getInstance()
-                                    inDay = now.get(java.util.Calendar.DAY_OF_MONTH).toString()
-                                    inMonth = (now.get(java.util.Calendar.MONTH) + 1).toString()
-                                    inYear = now.get(java.util.Calendar.YEAR).toString()
-                                    inputError = null
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(tr("📅 ថ្ងៃនេះ", "📅 Today"), fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
-                        }
-                    }
 
-                    // Day / Month / Year fields
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DateNumberField(
-                            label = tr("ថ្ងៃ (Day)", "Day"),
-                            value = inDay,
-                            onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) inDay = v },
-                            placeholder = "DD",
-                            maxLen = 2,
-                            weight = 1f
-                        )
-                        DateNumberField(
-                            label = tr("ខែ (Month)", "Month"),
-                            value = inMonth,
-                            onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) inMonth = v },
-                            placeholder = "MM",
-                            maxLen = 2,
-                            weight = 1f
-                        )
-                        DateNumberField(
-                            label = tr("ឆ្នាំ (Year)", "Year"),
-                            value = inYear,
-                            onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) inYear = v },
-                            placeholder = "YYYY",
-                            maxLen = 4,
-                            weight = 1.6f
-                        )
+                        // BE year + lunar day
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DateNumberField(
+                                label = tr("ឆ្នាំ ព.ស. (BE Year)", "BE Year"),
+                                value = inBe,
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 4) inBe = v },
+                                placeholder = "BE",
+                                maxLen = 4,
+                                weight = 1.6f
+                            )
+                            DateNumberField(
+                                label = tr("ថ្ងៃ ១–១៥ (Day)", "Day 1–15"),
+                                value = inLunarDay,
+                                onValueChange = { v -> if (v.all { it.isDigit() } && v.length <= 2) inLunarDay = v },
+                                placeholder = "1–15",
+                                maxLen = 2,
+                                weight = 1f
+                            )
+                        }
+
+                        // Lunar month dropdown
+                        Text(tr("ខែ (Lunar Month)", "Lunar Month"), fontSize = 9.sp, color = DimColor)
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(PlumCard, RoundedCornerShape(10.dp))
+                                    .border(1.dp, DeepBorder, RoundedCornerShape(10.dp))
+                                    .clickable { monthMenuOpen = true }
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(inLunarMonth, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = SandText)
+                                Text("▾", fontSize = 16.sp, color = SkyBlue)
+                            }
+                            DropdownMenu(
+                                expanded = monthMenuOpen,
+                                onDismissRequest = { monthMenuOpen = false }
+                            ) {
+                                KhmerCalendarHelper.lunarMonthNames.forEach { name ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = { inLunarMonth = name; monthMenuOpen = false }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Waxing / waning toggle (កើត / រោច)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            DirectionChip(
+                                label = tr("🌔 កើត (Waxing)", "🌔 Waxing"),
+                                selected = inWaxing,
+                                onClick = { inWaxing = true },
+                                modifier = Modifier.weight(1f)
+                            )
+                            DirectionChip(
+                                label = tr("🌖 រោច (Waning)", "🌖 Waning"),
+                                selected = !inWaxing,
+                                onClick = { inWaxing = false },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
 
                     // Error banner
@@ -278,13 +421,15 @@ fun DateConvertContent(
                     }
 
                     // Year range hint
-                    Text(
-                        tr("ឆ្នាំដែលគ្រប: ១៩០០ – ២២០០", "Supported years: 1900 – 2200"),
-                        fontSize = 9.sp,
-                        color = DimColor,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.End
-                    )
+                    if (!khmerToGreg) {
+                        Text(
+                            tr("ឆ្នាំដែលគ្រប: ១៩០០ – ២២០០", "Supported years: 1900 – 2200"),
+                            fontSize = 9.sp,
+                            color = DimColor,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End
+                        )
+                    }
 
                     // Convert button — shows a spinner + label while converting
                     Button(
@@ -313,7 +458,11 @@ fun DateConvertContent(
                                 Text(tr("កំពុងបំលែង…", "Converting…"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             } else {
                                 Text("⇅", fontSize = 18.sp, color = NightBlack)
-                                Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    if (khmerToGreg) tr("បំលែងជាគ្រីស្ដសករាជ", "Convert to Gregorian")
+                                    else tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"),
+                                    color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp
+                                )
                             }
                         }
                     }
@@ -324,15 +473,42 @@ fun DateConvertContent(
         // Animated result — fades, slides up and scales in once conversion finishes
         item {
             AnimatedVisibility(
-                visible = showResult && !isConverting && convertedDate != null,
+                visible = showResult && !isConverting && resultDate != null,
                 enter = fadeIn(tween(420)) +
                         slideInVertically(tween(420)) { it / 3 } +
                         scaleIn(tween(420), initialScale = 0.92f),
                 exit = fadeOut(tween(150))
             ) {
-                convertedDate?.let { ConversionResultCard(it) }
+                resultDate?.let { ConversionResultCard(it) }
             }
         }
+    }
+}
+
+/** A pill-style segmented toggle button used for direction and waxing/waning. */
+@Composable
+private fun DirectionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalAppColors.current
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) SkyBlue else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) Color(0xFF101218) else colors.subText,
+            maxLines = 1
+        )
     }
 }
 
