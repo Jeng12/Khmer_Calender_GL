@@ -117,6 +117,10 @@ fun DateConvertContent(
                 inputError = tr(lang, "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)", "Day must be 1–31")
                 false
             }
+            !KhmerCalendarHelper.isValidDate(y, m, d) -> {
+                inputError = tr(lang, "ថ្ងៃខែនេះមិនមានពិតប្រាកដ (no such date)", "That date does not exist")
+                false
+            }
             else -> {
                 inputError = null
                 true

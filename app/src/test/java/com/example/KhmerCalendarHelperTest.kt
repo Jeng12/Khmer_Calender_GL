@@ -497,4 +497,103 @@ class KhmerCalendarHelperTest {
         assertTrue("BE year should be ≥ previous BE after new year",
             afterNewYear.BE >= beforeNewYear.BE)
     }
+
+    // ─── Input Validation ────────────────────────────────────────────────────
+
+    @Test
+    fun isValidDate_acceptsRealDates() {
+        assertTrue(KhmerCalendarHelper.isValidDate(2026, 5, 25))
+        assertTrue(KhmerCalendarHelper.isValidDate(2024, 2, 29)) // leap year
+        assertTrue(KhmerCalendarHelper.isValidDate(2026, 12, 31))
+    }
+
+    @Test
+    fun isValidDate_rejectsImpossibleDates() {
+        assertFalse("Feb 30 is impossible", KhmerCalendarHelper.isValidDate(2026, 2, 30))
+        assertFalse("Feb 29 in a non-leap year", KhmerCalendarHelper.isValidDate(2025, 2, 29))
+        assertFalse("April has 30 days", KhmerCalendarHelper.isValidDate(2026, 4, 31))
+        assertFalse("Month 0", KhmerCalendarHelper.isValidDate(2026, 0, 1))
+        assertFalse("Month 13", KhmerCalendarHelper.isValidDate(2026, 13, 1))
+        assertFalse("Day 0", KhmerCalendarHelper.isValidDate(2026, 5, 0))
+    }
+
+    @Test
+    fun daysInGregorianMonth_knownCounts() {
+        assertEquals(31, KhmerCalendarHelper.daysInGregorianMonth(2026, 1))
+        assertEquals(28, KhmerCalendarHelper.daysInGregorianMonth(2025, 2))
+        assertEquals(29, KhmerCalendarHelper.daysInGregorianMonth(2024, 2))
+        assertEquals(30, KhmerCalendarHelper.daysInGregorianMonth(2026, 4))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun getSerialDay_throwsOnImpossibleDate() {
+        KhmerCalendarHelper.getSerialDay(2026, 2, 30)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun getKhmerDate_throwsOnImpossibleDate() {
+        KhmerCalendarHelper.getKhmerDate(2026, 2, 30)
+    }
+
+    // ─── Khmer → Gregorian Reverse Conversion ─────────────────────────────────
+
+    @Test
+    fun lunarMonthNames_containsCoreAndLeapMonths() {
+        val names = KhmerCalendarHelper.lunarMonthNames
+        assertTrue("Should list ពិសាខ", names.contains("ពិសាខ"))
+        assertTrue("Should list both Asadha variants",
+            names.contains("អាសាឍ ១") && names.contains("អាសាឍ ២"))
+    }
+
+    @Test
+    fun getGregorianDate_roundTrips_acrossNormalYear() {
+        // Every day of 2026 (a normal Khmer year) should survive a
+        // Gregorian → Khmer → Gregorian round trip.
+        for (month in 1..12) {
+            for (kd in KhmerCalendarHelper.getGregorianMonthDays(2026, month)) {
+                val g = KhmerCalendarHelper.getGregorianDate(
+                    kd.BE, kd.lunarMonthName, kd.lunarDayVal, kd.isWaxing
+                )
+                assertNotNull("Reverse of ${kd.year}-${kd.month}-${kd.day} returned null", g)
+                assertEquals("Round-trip mismatch for ${kd.year}-${kd.month}-${kd.day}",
+                    Triple(kd.year, kd.month, kd.day), g)
+            }
+        }
+    }
+
+    @Test
+    fun getGregorianDate_roundTrips_acrossLeapYear() {
+        // 2027 is a Khmer lunar leap year (split Asadha) — exercises the leap path.
+        for (month in 1..12) {
+            for (kd in KhmerCalendarHelper.getGregorianMonthDays(2027, month)) {
+                val g = KhmerCalendarHelper.getGregorianDate(
+                    kd.BE, kd.lunarMonthName, kd.lunarDayVal, kd.isWaxing
+                )
+                assertNotNull("Reverse of ${kd.year}-${kd.month}-${kd.day} returned null", g)
+                assertEquals(Triple(kd.year, kd.month, kd.day), g)
+            }
+        }
+    }
+
+    @Test
+    fun getGregorianDate_returnsNullForOutOfRangeInput() {
+        // Lunar day must be 1..15
+        assertNull(KhmerCalendarHelper.getGregorianDate(2570, "ពិសាខ", 16, true))
+        assertNull(KhmerCalendarHelper.getGregorianDate(2570, "ពិសាខ", 0, true))
+        // Unknown month name
+        assertNull(KhmerCalendarHelper.getGregorianDate(2570, "មិនមាន", 1, true))
+        // BE year far outside the supported milestone range
+        assertNull(KhmerCalendarHelper.getGregorianDate(9999, "ពិសាខ", 1, true))
+    }
+
+    @Test
+    fun serialToGregorian_invertsGetSerialDay() {
+        for (triple in listOf(
+            Triple(1900, 1, 1), Triple(2000, 2, 29), Triple(2026, 5, 25), Triple(2100, 12, 31)
+        )) {
+            val (y, m, d) = triple
+            val sd = KhmerCalendarHelper.getSerialDay(y, m, d)
+            assertEquals(triple, KhmerCalendarHelper.serialToGregorian(sd))
+        }
+    }
 }

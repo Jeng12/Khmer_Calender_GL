@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -74,8 +75,8 @@ enum class AppTab {
 
 @Composable
 fun KhmerCalendarApp() {
-    var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
-    var currentTab by remember { mutableStateOf(AppTab.CALENDAR) }
+    var screenState by rememberSaveable { mutableStateOf(AppScreen.SPLASH) }
+    var currentTab by rememberSaveable { mutableStateOf(AppTab.CALENDAR) }
 
     // App-wide language, persisted across launches. Defaults to Khmer.
     val context = LocalContext.current
@@ -91,21 +92,21 @@ fun KhmerCalendarApp() {
     val today = remember { java.util.Calendar.getInstance() }
 
     // State for interactive dates — initialised to the current day
-    var calendarYear by remember { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
-    var calendarMonth by remember { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
-    var selectedDayIndex by remember { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
+    var calendarYear by rememberSaveable { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
+    var calendarMonth by rememberSaveable { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
+    var selectedDayIndex by rememberSaveable { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
 
     // Conversion calculator state
-    var convertYear by remember { mutableStateOf("2026") }
-    var convertMonth by remember { mutableStateOf("5") }
-    var convertDay by remember { mutableStateOf("25") }
+    var convertYear by rememberSaveable { mutableStateOf("2026") }
+    var convertMonth by rememberSaveable { mutableStateOf("5") }
+    var convertDay by rememberSaveable { mutableStateOf("25") }
     var convertedKhDate by remember { mutableStateOf<KhmerDate?>(null) }
 
     // Auspicious filter state
-    var selectedAuspiciousFilter by remember { mutableStateOf("ទាំងអស់") }
+    var selectedAuspiciousFilter by rememberSaveable { mutableStateOf("ទាំងអស់") }
 
     // Holiday filter state
-    var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
+    var selectedHolidayFilter by rememberSaveable { mutableStateOf("ទាំងអស់") }
 
     // Splash Timer — go straight to the main app (login flow skipped)
     LaunchedEffect(screenState) {

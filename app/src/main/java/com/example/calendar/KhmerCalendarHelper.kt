@@ -204,7 +204,28 @@ object KhmerCalendarHelper {
 
     // ─── Public API ────────────────────────────────────────────────────────────
 
+    /** Number of days in a Gregorian month, honouring the full leap-year rule. */
+    fun daysInGregorianMonth(year: Int, month: Int): Int = when (month) {
+        1, 3, 5, 7, 8, 10, 12 -> 31
+        4, 6, 9, 11           -> 30
+        2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
+        else -> 0   // out-of-range month → no valid days
+    }
+
+    /**
+     * True when [year]/[month]/[day] is a real Gregorian date. Used to reject
+     * impossible input (e.g. Feb 30) before the engine computes a wrong result.
+     */
+    fun isValidDate(year: Int, month: Int, day: Int): Boolean {
+        if (month !in 1..12) return false
+        val dim = daysInGregorianMonth(year, month)
+        return day in 1..dim
+    }
+
     fun getSerialDay(year: Int, month: Int, day: Int): Int {
+        require(isValidDate(year, month, day)) {
+            "Invalid Gregorian date: $year-$month-$day"
+        }
         var y = year
         var m = month
         if (m <= 2) { y -= 1; m += 12 }
@@ -303,15 +324,51 @@ object KhmerCalendarHelper {
     fun getGregorianMonthDays(year: Int, month: Int): List<KhmerDate> {
         val key = monthCacheKey(year, month)
         monthCache[key]?.let { return it }
-        val daysInMonth = when (month) {
-            1, 3, 5, 7, 8, 10, 12 -> 31
-            4, 6, 9, 11            -> 30
-            2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
-            else -> 30
-        }
+        val daysInMonth = daysInGregorianMonth(year, month)
         val result = (1..daysInMonth).map { getKhmerDate(year, month, it) }
         monthCache[key] = result
         return result
+    }
+
+    // ─── Khmer → Gregorian reverse conversion ────────────────────────────────────
+
+    /**
+     * Distinct lunar month names a user can pick from when converting a Khmer
+     * date back to Gregorian. Includes both Asadha variants for leap years.
+     */
+    val lunarMonthNames: List<String> =
+        (MONTH_NAMES_NORMAL + MONTH_NAMES_LEAP).distinct()
+
+    /**
+     * Invert [getSerialDay]: turn a continuous serial day back into a Gregorian
+     * (year, month, day). Anchors on a known date and walks the difference with
+     * [java.time.LocalDate], which uses the same proleptic-Gregorian rules as the
+     * serial-day formula, so the day offset is exact across the whole range.
+     */
+    fun serialToGregorian(serialDay: Int): Triple<Int, Int, Int> {
+        val anchorSerial = getSerialDay(2000, 1, 1)
+        val date = java.time.LocalDate.of(2000, 1, 1)
+            .plusDays((serialDay - anchorSerial).toLong())
+        return Triple(date.year, date.monthValue, date.dayOfMonth)
+    }
+
+    /**
+     * Khmer lunar date → Gregorian date. Locates the lunar month for the given
+     * Buddhist-Era year and month name, adds the day offset, and inverts the
+     * serial-day count. Returns `null` when the month is outside the supported
+     * range or the requested lunar day cannot exist in that month — this is the
+     * one place [Milestone.length] matters: a 29-day month has no `15 រោច`.
+     *
+     * @param lunarDay 1-15 within the half-month
+     * @param isWaxing true = កើต (waxing), false = រោច (waning)
+     */
+    fun getGregorianDate(be: Int, lunarMonthName: String, lunarDay: Int, isWaxing: Boolean): Triple<Int, Int, Int>? {
+        if (lunarDay !in 1..15) return null
+        val ms = milestones.firstOrNull { it.be == be && it.khmerMonthName == lunarMonthName } ?: return null
+        // 0-based offset from the new moon (= 1 កើត) that starts the month.
+        val offset = if (isWaxing) lunarDay - 1 else lunarDay + 14
+        if (offset >= ms.length) return null   // e.g. 15 រោច in a 29-day month
+        return serialToGregorian(ms.serialDay + offset)
     }
 
     // Force lazy milestone init off the main thread
