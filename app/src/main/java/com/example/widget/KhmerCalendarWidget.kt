@@ -302,16 +302,16 @@ private fun MediumLayout(ui: WidgetUi) {
             
             Column {
                 Spacer(GlanceModifier.height(6.dp))
-                Text("ថ្ងៃបុណ្យខាងមុខ", style = TextStyle(color = cp(GOLD), fontSize = 13.sp))
+                Text("⛱️ ថ្ងៃបុណ្យខាងមុខ", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
                 ui.data.upcoming.take(1).forEach { h ->
-                    IconLine("⛱️", "${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}", s)
+                    IconLine("", "${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}", s)
                 }
                 Spacer(GlanceModifier.height(6.dp))
-                Text("កំណត់ចំណាំ", style = TextStyle(color = cp(GOLD), fontSize = 13.sp))
-                ui.data.notes.take(1).forEach { n -> IconLine("📝", agendaLineLabel(lang, n), s) }
+                Text("📝 កំណត់ចំណាំ", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
+                ui.data.notes.take(1).forEach { n -> IconLine("", agendaLineLabel(lang, n), s) }
                 Spacer(GlanceModifier.height(6.dp))
-                Text("ព្រឹត្តិការណ៍", style = TextStyle(color = cp(GOLD), fontSize = 13.sp))
-                ui.data.events.take(1).forEach { e -> IconLine("⏰", agendaLineLabel(lang, e), s) }
+                Text("⏰ ព្រឹត្តិការណ៍", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
+                ui.data.events.take(1).forEach { e -> IconLine("", agendaLineLabel(lang, e), s) }
             }
         }
     }
@@ -323,7 +323,7 @@ private fun IconLine(icon: String, label: String, s: WidgetStyle) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.padding(top = 1.dp)) {
         Text(icon, style = TextStyle(fontSize = 9.sp))
         Spacer(GlanceModifier.width(4.dp))
-        Text(label, style = TextStyle(color = cp(s.sub), fontSize = 9.sp), maxLines = 1)
+        Text(label, style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
     }
 }
 
@@ -368,7 +368,7 @@ private fun WeekStrip(ui: WidgetUi) {
                         modifier = GlanceModifier.size(20.dp).background(ImageProvider(R.drawable.widget_today_circle)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(num(ui.lang, day!!), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                        Text(num(ui.lang, day), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
                     }
                 } else {
                     Text(
