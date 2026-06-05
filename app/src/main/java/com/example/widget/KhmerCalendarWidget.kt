@@ -16,6 +16,8 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.lazy.LazyColumn
+import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -53,11 +55,6 @@ import java.util.Calendar
 
 // Responsive breakpoints — one widget, four layouts. Glance picks the largest
 // size that fits the slot the user dropped/resized the widget into.
-//
-// Tuned for large high-density grids like the Vivo X200 Ultra (~411dp wide,
-// ~100dp×140dp cells in OriginOS). The heights matter most: Large requires a
-// 3-row-tall slot so a short, wide 4×2 lands on Medium (not the full calendar),
-// and Square requires a 2-row slot so a 2×1 lands on Mini.
 private val SIZE_MINI = DpSize(170.dp, 110.dp)   // 2×1  (short & wide)
 private val SIZE_SQUARE = DpSize(170.dp, 170.dp) // 2×2  (square)
 private val SIZE_MEDIUM = DpSize(300.dp, 120.dp) // 4×2  (wide & short)
@@ -109,7 +106,7 @@ private fun noteHeader(lang: AppLanguage) =
 private fun eventHeader(lang: AppLanguage) =
     if (lang == AppLanguage.EN) "Event" else "ព្រឹត្តិការណ៍"
 
-/** "5 Jun · text" for a note, "5 Jun 09:00 · title" for an event. */
+/** \"5 Jun · text\" for a note, \"5 Jun 09:00 · title\" for an event. */
 private fun agendaLineLabel(lang: AppLanguage, item: AgendaItem): String = buildString {
     append("${num(lang, item.day)} ${gregMonth(lang, item.month - 1)}")
     if (item.isEvent && item.hour >= 0) append(" ${numStr(lang, "%02d:%02d".format(item.hour, item.minute))}")
@@ -166,7 +163,14 @@ class KhmerCalendarWidget : GlanceAppWidget() {
             if (day in 1..daysInMonth) day else null
         }
 
+        // Show all agenda items for the entire month
         val agenda = AgendaRepository.loadForMonth(context, y, m)
+
+        // All holidays in the current month
+        val holidays = monthDays.mapIndexedNotNull { index, kd ->
+            kd.holiday?.let { UpHoliday(index + 1, m, it) }
+        }
+
         return WidgetData(
             today = today,
             year = y,
@@ -175,32 +179,10 @@ class KhmerCalendarWidget : GlanceAppWidget() {
             firstDow = firstDow,
             monthDays = monthDays,
             currentWeek = currentWeek,
-            upcoming = computeUpcoming(y, m, d),
+            upcoming = holidays,
             notes = agenda.filter { !it.isEvent },
             events = agenda.filter { it.isEvent }
         )
-    }
-
-    /** Scan forward up to a year, collecting the next distinct public holidays. */
-    private fun computeUpcoming(y: Int, m: Int, d: Int, limit: Int = 3): List<UpHoliday> {
-        val cal = Calendar.getInstance().apply { set(y, m - 1, d, 12, 0, 0) }
-        val out = ArrayList<UpHoliday>(limit)
-        val seen = HashSet<String>()
-        var i = 0
-        while (i < 366 && out.size < limit) {
-            val kd = KhmerCalendarHelper.getKhmerDate(
-                cal.get(Calendar.YEAR),
-                cal.get(Calendar.MONTH) + 1,
-                cal.get(Calendar.DAY_OF_MONTH)
-            )
-            val h = kd.holiday
-            if (h != null && seen.add(h)) {
-                out.add(UpHoliday(cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.MONTH) + 1, h))
-            }
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-            i++
-        }
-        return out
     }
 }
 
@@ -215,21 +197,21 @@ private fun MiniLayout(ui: WidgetUi) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = GlanceModifier.defaultWeight()) {
-            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
+            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
             Text(
                 num(lang, t.day),
-                style = TextStyle(color = cp(s.text), fontSize = 36.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(s.text), fontSize = 42.sp, fontWeight = FontWeight.Bold)
             )
             Text(
                 "${gregMonth(lang, t.month - 1)} ${num(lang, t.year)}",
-                style = TextStyle(color = cp(s.sub), fontSize = 11.sp)
+                style = TextStyle(color = cp(s.sub), fontSize = 12.sp)
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(t.moonEmoji, style = TextStyle(fontSize = 32.sp))
-            Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 10.sp))
+            Text(t.moonEmoji, style = TextStyle(fontSize = 36.sp))
+            Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
             if (t.holiday != null) {
-                Text("🔴", style = TextStyle(fontSize = 9.sp))
+                Text("🔴", style = TextStyle(fontSize = 10.sp))
             }
         }
     }
@@ -243,23 +225,23 @@ private fun SquareLayout(ui: WidgetUi) {
     val s = ui.style
     Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 11.sp),
+            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 12.sp),
                 modifier = GlanceModifier.defaultWeight())
-            Text(t.moonEmoji, style = TextStyle(fontSize = 24.sp))
+            Text(t.moonEmoji, style = TextStyle(fontSize = 28.sp))
         }
         Spacer(GlanceModifier.defaultWeight())
         Column(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 num(lang, t.day),
-                style = TextStyle(color = cp(s.text), fontSize = 54.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(s.text), fontSize = 60.sp, fontWeight = FontWeight.Bold)
             )
-            Text(gregMonth(lang, t.month - 1), style = TextStyle(color = cp(s.sub), fontSize = 13.sp))
+            Text(gregMonth(lang, t.month - 1), style = TextStyle(color = cp(s.sub), fontSize = 15.sp))
         }
         Spacer(GlanceModifier.defaultWeight())
         Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.dim), fontSize = 11.sp),
+            Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.dim), fontSize = 12.sp),
                 modifier = GlanceModifier.defaultWeight())
-            Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
+            Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
         }
     }
 }
@@ -272,20 +254,20 @@ private fun MediumLayout(ui: WidgetUi) {
     val s = ui.style
     Row(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
         // Left: date block
-        Column(modifier = GlanceModifier.width(96.dp)) {
-            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
+        Column(modifier = GlanceModifier.width(100.dp)) {
+            Text(dowText(lang, t), style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
             Text(
                 num(lang, t.day),
-                style = TextStyle(color = cp(s.text), fontSize = 52.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = cp(s.text), fontSize = 56.sp, fontWeight = FontWeight.Bold)
             )
-            Text(gregMonth(lang, t.month - 1), style = TextStyle(color = cp(s.sub), fontSize = 13.sp))
+            Text(gregMonth(lang, t.month - 1), style = TextStyle(color = cp(s.sub), fontSize = 15.sp))
             Spacer(GlanceModifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(t.moonEmoji, style = TextStyle(fontSize = 22.sp))
+                Text(t.moonEmoji, style = TextStyle(fontSize = 24.sp))
                 Spacer(GlanceModifier.width(5.dp))
                 Column {
-                    Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.sub), fontSize = 11.sp))
-                    Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 11.sp))
+                    Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.sub), fontSize = 12.sp))
+                    Text(zodiac(lang, t.zodiac), style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
                 }
             }
         }
@@ -295,23 +277,43 @@ private fun MediumLayout(ui: WidgetUi) {
         Spacer(GlanceModifier.width(12.dp))
 
         // Right: mini week calendar on top, then compact Holiday / Note / Event lines
-        Column(modifier = GlanceModifier.defaultWeight()) {
+        Column(modifier = GlanceModifier.defaultWeight().fillMaxHeight()) {
             WeekStrip(ui)
             Spacer(GlanceModifier.height(5.dp))
             GlassDivider(s.hairline)
             
-            Column {
-                Spacer(GlanceModifier.height(6.dp))
-                Text("⛱️ ថ្ងៃបុណ្យខាងមុខ", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
-                ui.data.upcoming.take(1).forEach { h ->
-                    IconLine("", "${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}", s)
+            LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                item { Spacer(GlanceModifier.height(6.dp)) }
+                
+                // Holidays
+                item { Text(upcomingHeader(lang), style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold)) }
+                if (ui.data.upcoming.isEmpty()) {
+                    item { Text(noHolidaysText(lang), style = TextStyle(color = cp(s.dim), fontSize = 10.sp)) }
+                } else {
+                    items(ui.data.upcoming) { h ->
+                        IconLine("⛱️", "${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}", s)
+                    }
                 }
-                Spacer(GlanceModifier.height(6.dp))
-                Text("📝 កំណត់ចំណាំ", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
-                ui.data.notes.take(1).forEach { n -> IconLine("", agendaLineLabel(lang, n), s) }
-                Spacer(GlanceModifier.height(6.dp))
-                Text("⏰ ព្រឹត្តិការណ៍", style = TextStyle(color = cp(GOLD), fontSize = 12.sp))
-                ui.data.events.take(1).forEach { e -> IconLine("", agendaLineLabel(lang, e), s) }
+                
+                item { Spacer(GlanceModifier.height(6.dp)) }
+                
+                // Notes
+                item { Text(noteHeader(lang), style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold)) }
+                if (ui.data.notes.isEmpty()) {
+                    item { Text("-", style = TextStyle(color = cp(s.dim), fontSize = 10.sp)) }
+                } else {
+                    items(ui.data.notes) { n -> IconLine("📝", agendaLineLabel(lang, n), s) }
+                }
+                
+                item { Spacer(GlanceModifier.height(6.dp)) }
+                
+                // Events
+                item { Text(eventHeader(lang), style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold)) }
+                if (ui.data.events.isEmpty()) {
+                    item { Text("-", style = TextStyle(color = cp(s.dim), fontSize = 10.sp)) }
+                } else {
+                    items(ui.data.events) { e -> IconLine("⏰", agendaLineLabel(lang, e), s) }
+                }
             }
         }
     }
@@ -321,9 +323,9 @@ private fun MediumLayout(ui: WidgetUi) {
 @androidx.compose.runtime.Composable
 private fun IconLine(icon: String, label: String, s: WidgetStyle) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = GlanceModifier.padding(top = 1.dp)) {
-        Text(icon, style = TextStyle(fontSize = 9.sp))
+        Text(icon, style = TextStyle(fontSize = 10.sp))
         Spacer(GlanceModifier.width(4.dp))
-        Text(label, style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
+        Text(label, style = TextStyle(color = cp(s.sub), fontSize = 10.sp), maxLines = 1)
     }
 }
 
@@ -331,9 +333,9 @@ private fun IconLine(icon: String, label: String, s: WidgetStyle) {
 @androidx.compose.runtime.Composable
 private fun SectionHeader(icon: String, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(icon, style = TextStyle(fontSize = 10.sp))
+        Text(icon, style = TextStyle(fontSize = 11.sp))
         Spacer(GlanceModifier.width(4.dp))
-        Text(label, style = TextStyle(color = cp(GOLD), fontSize = 11.sp, fontWeight = FontWeight.Bold))
+        Text(label, style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold))
     }
 }
 
@@ -342,7 +344,7 @@ private fun SectionHeader(icon: String, label: String) {
 private fun AgendaLine(label: String, s: WidgetStyle) {
     Text(
         "·  $label",
-        style = TextStyle(color = cp(s.sub), fontSize = 11.sp),
+        style = TextStyle(color = cp(s.sub), fontSize = 12.sp),
         maxLines = 1,
         modifier = GlanceModifier.padding(top = 1.dp)
     )
@@ -351,30 +353,32 @@ private fun AgendaLine(label: String, s: WidgetStyle) {
 @androidx.compose.runtime.Composable
 private fun WeekStrip(ui: WidgetUi) {
     val s = ui.style
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
-        weekdayLabels(ui.lang).forEach { h ->
-            Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
-                Text(h, style = TextStyle(color = cp(s.dim), fontSize = 11.sp))
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        Row(modifier = GlanceModifier.fillMaxWidth()) {
+            weekdayLabels(ui.lang).forEach { h ->
+                Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
+                    Text(h, style = TextStyle(color = cp(s.dim), fontSize = 11.sp))
+                }
             }
         }
-    }
-    Spacer(GlanceModifier.height(2.dp))
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
-        ui.data.currentWeek.forEach { day ->
-            Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
-                val isToday = day != null && day == ui.data.today.day
-                if (isToday) {
-                    Box(
-                        modifier = GlanceModifier.size(20.dp).background(ImageProvider(R.drawable.widget_today_circle)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(num(ui.lang, day), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+        Spacer(GlanceModifier.height(2.dp))
+        Row(modifier = GlanceModifier.fillMaxWidth()) {
+            ui.data.currentWeek.forEach { day ->
+                Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
+                    val isToday = day != null && day == ui.data.today.day
+                    if (isToday) {
+                        Box(
+                            modifier = GlanceModifier.size(20.dp).background(ImageProvider(R.drawable.widget_today_circle)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(num(ui.lang, day!!), style = TextStyle(color = cp(DARK), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                        }
+                    } else {
+                        Text(
+                            day?.let { num(ui.lang, it) } ?: "",
+                            style = TextStyle(color = cp(s.sub), fontSize = 12.sp)
+                        )
                     }
-                } else {
-                    Text(
-                        day?.let { num(ui.lang, it) } ?: "",
-                        style = TextStyle(color = cp(s.sub), fontSize = 12.sp)
-                    )
                 }
             }
         }
@@ -393,16 +397,16 @@ private fun LargeLayout(ui: WidgetUi) {
             Column(modifier = GlanceModifier.defaultWeight()) {
                 Text(
                     "${gregMonth(lang, ui.data.month - 1)} ${num(lang, ui.data.year)}",
-                    style = TextStyle(color = cp(s.text), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    style = TextStyle(color = cp(s.text), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 )
                 Text(
                     "${lunarMonth(lang, t.lunarMonthName)} · ${zodiac(lang, t.zodiac)}",
-                    style = TextStyle(color = cp(s.sub), fontSize = 11.sp)
+                    style = TextStyle(color = cp(s.sub), fontSize = 12.sp)
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(t.moonEmoji, style = TextStyle(fontSize = 28.sp))
-                Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.dim), fontSize = 10.sp))
+                Text(t.moonEmoji, style = TextStyle(fontSize = 32.sp))
+                Text(lunarDayText(lang, t), style = TextStyle(color = cp(s.dim), fontSize = 11.sp))
             }
         }
         Spacer(GlanceModifier.height(10.dp))
@@ -416,7 +420,7 @@ private fun LargeLayout(ui: WidgetUi) {
                         6 -> SAT_BLUE
                         else -> s.dim
                     }
-                    Text(h, style = TextStyle(color = cp(color), fontSize = 11.sp))
+                    Text(h, style = TextStyle(color = cp(color), fontSize = 12.sp, fontWeight = FontWeight.Bold))
                 }
             }
         }
@@ -440,21 +444,24 @@ private fun LargeLayout(ui: WidgetUi) {
             }
         }
 
-        // Footer: next note + next event, beneath the grid
-        val note = ui.data.notes.firstOrNull()
-        val event = ui.data.events.firstOrNull()
-        if (note != null || event != null) {
-            Column {
-                Spacer(GlanceModifier.height(5.dp))
-                GlassDivider(s.hairline)
-                Spacer(GlanceModifier.height(4.dp))
-                if (note != null) {
-                    Text("📝 ${agendaLineLabel(lang, note)}",
-                        style = TextStyle(color = cp(s.sub), fontSize = 10.sp), maxLines = 1)
+        // Footer: all holidays + all notes + all events, beneath the grid
+        if (ui.data.upcoming.isNotEmpty() || ui.data.notes.isNotEmpty() || ui.data.events.isNotEmpty()) {
+            LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+                item { Spacer(GlanceModifier.height(6.dp)) }
+                item { GlassDivider(s.hairline) }
+                item { Spacer(GlanceModifier.height(4.dp)) }
+                
+                items(ui.data.upcoming) { h ->
+                    Text("⛱️ ${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}",
+                        style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
                 }
-                if (event != null) {
+                items(ui.data.notes) { note ->
+                    Text("📝 ${agendaLineLabel(lang, note)}",
+                        style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
+                }
+                items(ui.data.events) { event ->
                     Text("⏰ ${agendaLineLabel(lang, event)}",
-                        style = TextStyle(color = cp(s.sub), fontSize = 10.sp), maxLines = 1)
+                        style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
                 }
             }
         }
@@ -485,15 +492,15 @@ private fun androidx.glance.layout.RowScope.GridCell(ui: WidgetUi, day: Int?, co
                 num(ui.lang, day),
                 style = TextStyle(
                     color = cp(dayColor),
-                    fontSize = 13.sp,
+                    fontSize = 14.sp,
                     fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                 )
             )
             if (kd != null) {
-                val lunarHighlight = kd.lunarDayVal == 1 || kd.lunarDayVal == 15
+                val lunarHighlight = kd.lunarDayVal == 1 || kd.lunarDayVal == 15 || kd.lunarDayVal == 8
                 Text(
                     num(ui.lang, kd.lunarDayVal),
-                    style = TextStyle(color = cp(if (lunarHighlight) GOLD else s.dim), fontSize = 9.sp)
+                    style = TextStyle(color = cp(if (lunarHighlight) GOLD else s.dim), fontSize = 10.sp)
                 )
             }
             if (kd?.holiday != null) {
