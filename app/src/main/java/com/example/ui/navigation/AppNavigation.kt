@@ -120,6 +120,11 @@ fun KhmerCalendarApp() {
         convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25)
     }
 
+    // Refresh home-screen widgets every time the app starts, so notes/events stay current.
+    LaunchedEffect(Unit) {
+        com.example.widget.WidgetPrefs.refresh(context)
+    }
+
     // Outer edge-to-edge container
     CompositionLocalProvider(
         LocalAppLanguage provides appLanguage,

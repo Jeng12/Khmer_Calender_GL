@@ -63,6 +63,7 @@ import com.example.ui.components.*
 import com.example.ui.navigation.*
 import com.example.ui.auth.*
 import com.example.ui.tabs.*
+import com.example.widget.WidgetPrefs
 
 // 6. PROFILE, SETTINGS & DEMO CONTROLLER
 @Composable
@@ -78,6 +79,11 @@ fun ProfileSettingsContent(
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
+
+    // Widget settings + a scope to push live updates to placed widgets.
+    val scope = rememberCoroutineScope()
+    var widgetLang by remember { mutableStateOf(WidgetPrefs.langSetting(context)) }
+    var widgetTheme by remember { mutableStateOf(WidgetPrefs.themeSetting(context)) }
 
     LazyColumn(
         modifier = Modifier
@@ -148,7 +154,10 @@ fun ProfileSettingsContent(
                                         if (isActive) TraditionalGold else DeepBorder,
                                         RoundedCornerShape(20.dp)
                                     )
-                                    .clickable { onLanguageChange(langOption) }
+                                    .clickable {
+                                        onLanguageChange(langOption)
+                                        scope.launch { WidgetPrefs.refresh(context) }
+                                    }
                                     .padding(horizontal = 12.dp, vertical = 5.dp)
                             ) {
                                 Text(
@@ -201,9 +210,92 @@ fun ProfileSettingsContent(
                 }
                 Switch(
                     checked = isDarkMode,
-                    onCheckedChange = { onDarkModeToggle(it) },
+                    onCheckedChange = {
+                        onDarkModeToggle(it)
+                        scope.launch { WidgetPrefs.refresh(context) }
+                    },
                     colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                 )
+            }
+        }
+
+        // Widget settings
+        item {
+            Text(tr("ផ្ទាំង Widget (WIDGET)", "WIDGET"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+            ) {
+                // Widget language
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr("ភាសា Widget (Language)", "Widget Language"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SettingChip(tr("តាមកម្មវិធី", "Follow"), widgetLang == WidgetPrefs.FOLLOW) {
+                            widgetLang = WidgetPrefs.FOLLOW; WidgetPrefs.setLang(context, widgetLang); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                        SettingChip("ខ្មែរ", widgetLang == "km") {
+                            widgetLang = "km"; WidgetPrefs.setLang(context, "km"); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                        SettingChip("EN", widgetLang == "en") {
+                            widgetLang = "en"; WidgetPrefs.setLang(context, "en"); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                // Widget theme
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr("ស្បែក Widget (Theme)", "Widget Theme"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SettingChip(tr("តាមកម្មវិធី", "Follow"), widgetTheme == WidgetPrefs.FOLLOW) {
+                            widgetTheme = WidgetPrefs.FOLLOW; WidgetPrefs.setTheme(context, widgetTheme); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                        SettingChip("🌙", widgetTheme == "dark") {
+                            widgetTheme = "dark"; WidgetPrefs.setTheme(context, "dark"); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                        SettingChip("☀️", widgetTheme == "light") {
+                            widgetTheme = "light"; WidgetPrefs.setTheme(context, "light"); scope.launch { WidgetPrefs.refresh(context) }
+                        }
+                    }
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                // Refresh now
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(tr("ផ្ទុក Widget ឡើងវិញ", "Refresh widget"), fontSize = 11.sp, color = SandText, modifier = Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SkyBlue.copy(0.15f))
+                            .border(1.dp, SkyBlue.copy(0.4f), RoundedCornerShape(20.dp))
+                            .clickable {
+                                scope.launch {
+                                    WidgetPrefs.refresh(context)
+                                    Toast.makeText(
+                                        context,
+                                        tr(lang, "បានផ្ទុក Widget ឡើងវិញ", "Widget refreshed"),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(tr("↻ ផ្ទុកឡើងវិញ", "↻ Refresh"), fontSize = 10.sp, color = SkyBlue, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 
@@ -222,5 +314,26 @@ fun ProfileSettingsContent(
                 Text(tr("ចាកចេញពីគណនី (Log Out)", "Log Out"), color = SandText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
+    }
+}
+
+/** A small pill toggle used by the Widget settings rows. */
+@Composable
+private fun SettingChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val (NightBlack, _, _, PlumCard, DeepBorder, _, SandText, _, _) = LocalAppColors.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (active) TraditionalGold else PlumCard)
+            .border(1.dp, if (active) TraditionalGold else DeepBorder, RoundedCornerShape(20.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+    ) {
+        Text(
+            label,
+            fontSize = 10.sp,
+            color = if (active) NightBlack else SandText,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

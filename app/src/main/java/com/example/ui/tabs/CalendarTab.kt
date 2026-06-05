@@ -63,6 +63,7 @@ import com.example.ui.components.*
 import com.example.ui.navigation.*
 import com.example.ui.auth.*
 import com.example.ui.tabs.*
+import com.example.widget.WidgetPrefs
 
 // 2. CALENDAR TAB CONTAINER
 @Composable
@@ -77,9 +78,12 @@ fun CalendarTabContent(
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
+    val widgetScope = rememberCoroutineScope()
     var swipeOffset by remember { mutableStateOf(0f) }
     // Focus on the current day each time the Calendar tab is opened
     LaunchedEffect(Unit) { onGoToToday() }
+    // Keep the home-screen widgets in sync whenever this tab is shown
+    LaunchedEffect(Unit) { WidgetPrefs.refresh(context) }
 
     // The actual current Gregorian date, used to highlight "today" in the grid
     val todayCal = remember { java.util.Calendar.getInstance() }
@@ -124,6 +128,7 @@ fun CalendarTabContent(
                 context,
                 { _, hour, minute ->
                     scheduleAlarm(context, year, month, selectedDay, hour, minute, pendingAlarmTitle, selectedKhmerDate, lang)
+                    widgetScope.launch { WidgetPrefs.refresh(context) }
                     val timeStr = "$hour:${String.format("%02d", minute)}"
                     reminderMessage = if (lang == AppLanguage.EN) "✓ Reminder set for $timeStr"
                     else "✓ ការរំលឹកត្រូវបានកំណត់ម៉ោង $timeStr"
@@ -519,6 +524,7 @@ fun CalendarTabContent(
                                     val trimmed = editNoteText.trim()
                                     notesPrefs.edit().putString(noteKey, trimmed).apply()
                                     currentNote = trimmed
+                                    widgetScope.launch { WidgetPrefs.refresh(context) }
                                     isEditingNote = false
                                     notesVersion++
                                 },

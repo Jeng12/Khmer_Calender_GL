@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Khmer Calendar</string>
     <string name="widget_description">ថ្ងៃខែចន្ទគតិខ្មែរថ្ងៃនេះ · Today\'s Khmer lunar date</string>
+    <string name="widget_agenda_description">កំណត់ត្រា និងព្រឹត្តិការណ៍ · Notes &amp; events agenda</string>
 </resources>
