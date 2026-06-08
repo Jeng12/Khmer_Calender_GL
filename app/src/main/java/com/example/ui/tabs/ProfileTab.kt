@@ -1,12 +1,22 @@
 package com.example.ui.tabs
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.app.TimePickerDialog
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,17 +26,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -37,33 +47,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.Manifest
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.app.TimePickerDialog
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
-import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
+import coil.compose.AsyncImage
+import com.example.alarm.*
+import com.example.calendar.*
+import com.example.core.*
+import com.example.data.*
+import com.example.ui.auth.*
+import com.example.ui.components.*
+import com.example.ui.navigation.*
+import com.example.ui.tabs.*
+import com.example.ui.theme.*
 import com.example.ui.theme.MyApplicationTheme
+import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import com.example.calendar.*
-import com.example.core.*
-import com.example.alarm.*
-import com.example.data.*
-import com.example.ui.theme.*
-import com.example.ui.components.*
-import com.example.ui.navigation.*
-import com.example.ui.auth.*
-import com.example.ui.tabs.*
-import com.example.widget.WidgetPrefs
+import java.io.File
+import java.io.FileOutputStream
 
 // 6. PROFILE, SETTINGS & DEMO CONTROLLER
 @Composable
@@ -78,12 +79,93 @@ fun ProfileSettingsContent(
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
+    var userName by remember { mutableStateOf(prefs.getString("user_name", "Sophanit") ?: "Sophanit") }
+    var showEditNameDialog by remember { mutableStateOf(false) }
+    var profileImageUri by remember { mutableStateOf(prefs.getString("profile_image_uri", null)?.let { Uri.parse(it) }) }
+
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
+
+    // Helper to copy selected gallery URI to internal storage for persistence
+    fun saveImageToInternalStorage(uri: Uri): Uri? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val file = File(context.filesDir, "profile_picture.jpg")
+            val outputStream = FileOutputStream(file)
+            inputStream?.use { input ->
+                outputStream.use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            uri?.let {
+                val savedUri = saveImageToInternalStorage(it)
+                if (savedUri != null) {
+                    profileImageUri = savedUri
+                    prefs.edit().putString("profile_image_uri", savedUri.toString()).apply()
+                }
+            }
+        }
+    )
 
     // Widget settings + a scope to push live updates to placed widgets.
     val scope = rememberCoroutineScope()
     var widgetLang by remember { mutableStateOf(WidgetPrefs.langSetting(context)) }
     var widgetTheme by remember { mutableStateOf(WidgetPrefs.themeSetting(context)) }
+
+    // Edit Name Dialog
+    if (showEditNameDialog) {
+        var tempName by remember { mutableStateOf(userName) }
+        AlertDialog(
+            onDismissRequest = { showEditNameDialog = false },
+            title = { Text(tr("ប្តូរឈ្មោះ", "Change Name"), color = SandText) },
+            text = {
+                TextField(
+                    value = tempName,
+                    onValueChange = { tempName = it },
+                    label = { Text(tr("ឈ្មោះ", "Name")) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = SandText,
+                        unfocusedTextColor = SandText,
+                        focusedContainerColor = PlumCard,
+                        unfocusedContainerColor = PlumCard,
+                        cursorColor = TraditionalGold,
+                        focusedIndicatorColor = TraditionalGold,
+                        unfocusedIndicatorColor = DeepBorder
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (tempName.isNotBlank()) {
+                            userName = tempName
+                            prefs.edit().putString("user_name", tempName).apply()
+                        }
+                        showEditNameDialog = false
+                    }
+                ) {
+                    Text(tr("យល់ព្រម", "OK"), color = TraditionalGold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditNameDialog = false }) {
+                    Text(tr("បោះបង់", "Cancel"), color = GoldSubText)
+                }
+            },
+            containerColor = PlumSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -105,22 +187,57 @@ fun ProfileSettingsContent(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .background(
-                            GoldLotusBrush,
-                            CircleShape
-                        ),
+                        .clip(CircleShape)
+                        .background(GoldLotusBrush)
+                        .clickable {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("S", fontSize = 24.sp, color = NightBlack, fontWeight = FontWeight.Bold)
+                    if (profileImageUri != null) {
+                        AsyncImage(
+                            model = profileImageUri,
+                            contentDescription = "Profile Picture",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            userName.take(1).uppercase(),
+                            fontSize = 24.sp,
+                            color = NightBlack,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    // Overlay edit icon
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.BottomEnd
+                    ) {
+                        Text("📷", fontSize = 10.sp, modifier = Modifier.padding(4.dp))
+                    }
                 }
-                Column {
-                    Text("Sophanit", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showEditNameDialog = true }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(userName, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("✏️", fontSize = 12.sp)
+                    }
                     Text("jengah6@gmail.com · ${tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024")}", fontSize = 10.sp, color = GoldSubText)
                 }
             }
         }
 
-        // Notification Settings Panel list item
+        // Edit Name Dialog
+        // [MOVED DOWN] Notification Settings Panel list item
         item {
             Text(tr("ភាសា និង ការជូនដំណឹង (LANGUAGES & ALERTS)", "LANGUAGE & ALERTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))

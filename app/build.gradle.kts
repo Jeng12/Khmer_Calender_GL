@@ -97,7 +97,7 @@ dependencies {
   // Room — not yet used in runtime code; re-enable when entities/DAOs are added
   // implementation(libs.androidx.room.ktx)
   // implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
+  implementation(libs.coil.compose)
   // Retrofit/Moshi/OkHttp — not yet used; re-enable when network layer is added
   // implementation(libs.converter.moshi)
   // implementation(libs.moshi.kotlin)
