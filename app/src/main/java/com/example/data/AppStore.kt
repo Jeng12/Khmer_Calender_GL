@@ -261,23 +261,27 @@ object AppStore {
 
     /**
      * The user's rotating-shift configuration. [systemType] is 2 or 3; [shifts]
-     * holds the (editable) shift templates; [weekAssignments] has exactly 4
-     * entries — the list of shift ids worked in each week of the cycle (empty =
-     * an off week). A week may hold **multiple** shifts (e.g. the first week
-     * working both day and night), in which case the week's days are split
-     * between them in order. The same weekly pattern repeats every cycle.
+     * holds the (editable) shift templates; [dayAssignments] has [CYCLE_SLOTS]
+     * entries — the shift id worked on each day of the cycle (indexed by the
+     * day's offset from the cycle start), or null for a day off. Every working
+     * day is fully customisable. The same day pattern repeats every cycle.
      */
     data class ShiftCycle(
         val systemType: Int,
         val shifts: List<ShiftDef>,
-        val weekAssignments: List<List<String>>,
+        val dayAssignments: List<String?>,
         val remind: Boolean,
         val reminderMinutesBefore: Int
     ) {
         fun shiftById(id: String?): ShiftDef? = id?.let { shifts.firstOrNull { s -> s.id == it } }
-        fun shiftIdsForWeek(idx: Int): List<String> = weekAssignments.getOrElse(idx) { emptyList() }
+        fun shiftIdForDay(offset: Int): String? = dayAssignments.getOrNull(offset)
         val isConfigured: Boolean get() = shifts.isNotEmpty()
     }
+
+    /** Max number of day slots in a cycle (longest 26th→25th span is 31 days). */
+    const val CYCLE_SLOTS = 31
+
+    fun emptyDayAssignments(): List<String?> = List(CYCLE_SLOTS) { null }
 
     /** Built-in presets matching the standard 2- and 3-shift systems. */
     fun presetShifts(systemType: Int): List<ShiftDef> = if (systemType == 3) listOf(
@@ -303,26 +307,42 @@ object AppStore {
                     endHour = s.optInt("endHour"), endMin = s.optInt("endMin")
                 )
             }
-            val waArr = o.optJSONArray("weekAssignments") ?: JSONArray()
-            // Accept both the new array-of-arrays format and the legacy
-            // array-of-strings (single shift per week) format.
-            val wa = (0 until 4).map { i ->
-                when (val el = if (i < waArr.length()) waArr.opt(i) else null) {
-                    is JSONArray -> (0 until el.length()).mapNotNull { j -> el.optString(j).ifBlank { null } }
-                    is String -> if (el.isBlank()) emptyList() else listOf(el)
-                    else -> emptyList()
-                }
-            }
+            val dayAssignments = parseDayAssignments(o)
             ShiftCycle(
                 systemType = o.optInt("systemType", 2),
                 shifts = shifts,
-                weekAssignments = wa,
+                dayAssignments = dayAssignments,
                 remind = o.optBoolean("remind", true),
                 reminderMinutesBefore = o.optInt("reminderMinutesBefore", 30)
             )
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Read the per-day assignment list, migrating older formats where needed:
+     *  - "dayAssignments": array of 31 shift ids ("" = off)   ← current
+     *  - "weekAssignments": array-of-arrays or array-of-strings (per week)
+     *    is expanded across each week's 7 days as a sensible starting point.
+     */
+    private fun parseDayAssignments(o: JSONObject): List<String?> {
+        o.optJSONArray("dayAssignments")?.let { daArr ->
+            return (0 until CYCLE_SLOTS).map { i ->
+                if (i < daArr.length()) daArr.optString(i).ifBlank { null } else null
+            }
+        }
+        // Legacy weekly format → expand to days.
+        val waArr = o.optJSONArray("weekAssignments")
+        val weekShift: (Int) -> String? = wa@{ wi ->
+            val el = waArr?.opt(wi) ?: return@wa null
+            when (el) {
+                is JSONArray -> (0 until el.length()).map { el.optString(it) }.firstOrNull { it.isNotBlank() }
+                is String -> el.ifBlank { null }
+                else -> null
+            }
+        }
+        return (0 until CYCLE_SLOTS).map { d -> weekShift((d / 7).coerceIn(0, 3)) }
     }
 
     fun saveShiftCycle(c: Context, cycle: ShiftCycle) {
@@ -337,10 +357,8 @@ object AppStore {
                     })
                 }
             })
-            put("weekAssignments", JSONArray().apply {
-                cycle.weekAssignments.forEach { ids ->
-                    put(JSONArray().apply { ids.forEach { put(it) } })
-                }
+            put("dayAssignments", JSONArray().apply {
+                cycle.dayAssignments.forEach { put(it ?: "") }
             })
             put("remind", cycle.remind)
             put("reminderMinutesBefore", cycle.reminderMinutesBefore)

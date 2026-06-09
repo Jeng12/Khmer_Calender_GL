@@ -91,7 +91,7 @@ fun ScheduleTabContent() {
                             title = tr("ប្រព័ន្ធ ២ វេន", "2-shift system"),
                             subtitle = tr("ថ្ងៃ ០៧:៣០–១៩:៣០ · យប់ ១៩:៣០–០៧:៣០", "Day 07:30–19:30 · Night 19:30–07:30"),
                             onClick = {
-                                cycle = AppStore.ShiftCycle(2, AppStore.presetShifts(2), List(4) { emptyList() }, true, 30)
+                                cycle = AppStore.ShiftCycle(2, AppStore.presetShifts(2), AppStore.emptyDayAssignments(), true, 30)
                             }
                         )
                         SystemSetupCard(
@@ -99,7 +99,7 @@ fun ScheduleTabContent() {
                             title = tr("ប្រព័ន្ធ ៣ វេន", "3-shift system"),
                             subtitle = tr("បីវេនស្មើគ្នា ៨ ម៉ោង", "Three equal 8-hour shifts"),
                             onClick = {
-                                cycle = AppStore.ShiftCycle(3, AppStore.presetShifts(3), List(4) { emptyList() }, true, 30)
+                                cycle = AppStore.ShiftCycle(3, AppStore.presetShifts(3), AppStore.emptyDayAssignments(), true, 30)
                             }
                         )
                     }
@@ -173,7 +173,7 @@ fun ScheduleTabContent() {
                                     .background(if (active) TraditionalGold else plumSurface)
                                     .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
                                     .clickable {
-                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), weekAssignments = List(4) { emptyList() })
+                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), dayAssignments = AppStore.emptyDayAssignments())
                                     }
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -210,56 +210,69 @@ fun ScheduleTabContent() {
                     }
                 }
 
-                // ── Weekly rotation ───────────────────────────────────────────
+                // ── Per-day schedule (fully customisable) ─────────────────────
+                val cycleStartCal = WorkCycleEngine.cycleStart(tY, tM, tD)
+                val cycleEndCal = (cycleStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
+                val cycleLen = (((cycleEndCal.timeInMillis - cycleStartCal.timeInMillis) / 86_400_000L) + 1).toInt().coerceIn(1, AppStore.CYCLE_SLOTS)
+                val blockedDays = WorkCycleEngine.buildWorkDays(c, cycleStartCal, cycleEndCal)
+                    .filter { it.blocked }
+                    .map { it.year * 10000 + it.month * 100 + it.day }
+                    .toSet()
                 item {
-                    val start = WorkCycleEngine.cycleStart(tY, tM, tD)
-                    val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
-                    SectionLabel(tr("វេនប្រចាំសប្តាហ៍ (WEEKLY ROTATION)", "WEEKLY ROTATION"))
+                    SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
                     Text(
-                        tr(lang, "ខួបបច្ចុប្បន្ន៖ ${fmtDate(start)} – ${fmtDate(end)}", "This cycle: ${fmtDate(start)} – ${fmtDate(end)}"),
+                        tr(lang, "ខួប៖ ${fmtDate(cycleStartCal)} – ${fmtDate(cycleEndCal)} · ប្ដូរវេនបានគ្រប់ថ្ងៃ", "Cycle: ${fmtDate(cycleStartCal)} – ${fmtDate(cycleEndCal)} · tap any day to set its shift"),
                         fontSize = 10.sp, color = dimColor, modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                items((0..3).toList()) { wi ->
-                    val (ws, we) = WorkCycleEngine.weekRange(tY, tM, tD, wi)
-                    val currentIds = c.shiftIdsForWeek(wi)
-                    val isCurrentWeek = WorkCycleEngine.weekIndex(tY, tM, tD) == wi
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(plumCard, RoundedCornerShape(12.dp))
-                            .border(1.dp, if (isCurrentWeek) TraditionalGold.copy(0.6f) else deepBorder, RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(tr(lang, "សប្តាហ៍ ${num(lang, wi + 1)}", "Week ${wi + 1}"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = sandText)
-                            Spacer(Modifier.width(8.dp))
-                            Text("${fmtDate(ws)} – ${fmtDate(we)}", fontSize = 10.sp, color = goldSubText)
-                            if (isCurrentWeek) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(tr(lang, "• ឥឡូវ", "• now"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        // Hint: a week can hold more than one shift (e.g. both day & night).
-                        if (currentIds.size > 1) {
+                items((0 until cycleLen).toList()) { offset ->
+                    val cal = (cycleStartCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, offset) }
+                    val y = cal.get(Calendar.YEAR); val m = cal.get(Calendar.MONTH) + 1; val d = cal.get(Calendar.DAY_OF_MONTH)
+                    val dow = cal.get(Calendar.DAY_OF_WEEK)
+                    val isToday = y == tY && m == tM && d == tD
+                    val isWeekend = dow == Calendar.SUNDAY || dow == Calendar.SATURDAY
+                    val currentId = c.shiftIdForDay(offset)
+                    val blocked = (y * 10000 + m * 100 + d) in blockedDays
+
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        // Week separator label above the first day of each week.
+                        if (offset % 7 == 0) {
+                            val wk = (offset / 7) + 1
                             Text(
-                                tr(lang, "ចែកថ្ងៃតាមលំដាប់វេន", "days split between shifts in order"),
-                                fontSize = 9.sp, color = dimColor, modifier = Modifier.padding(top = 2.dp)
+                                tr(lang, "— សប្តាហ៍ ${num(lang, wk)} —", "— Week $wk —"),
+                                fontSize = 9.sp, color = goldSubText, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.fillMaxWidth().padding(top = if (offset == 0) 0.dp else 6.dp)
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(if (isToday) TraditionalGold.copy(0.10f) else plumCard, RoundedCornerShape(12.dp))
+                                .border(1.dp, if (isToday) TraditionalGold.copy(0.6f) else deepBorder, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ShiftChip(tr(lang, "ឈប់", "Off"), currentIds.isEmpty(), dimColor) {
-                                cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = emptyList() })
+                            Column(modifier = Modifier.width(54.dp)) {
+                                Text(
+                                    weekdayLabels(lang).getOrElse(dow - 1) { "" },
+                                    fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                                    color = if (isWeekend) CrimsonHoliday else sandText
+                                )
+                                Text("${num(lang, d)} ${gregMonth(lang, m - 1).take(3)}", fontSize = 9.sp, color = goldSubText)
+                                if (blocked) Text("⛔", fontSize = 9.sp, color = CrimsonHoliday)
                             }
-                            c.shifts.forEach { s ->
-                                val selected = s.id in currentIds
-                                ShiftChip(s.name, selected, TraditionalGold) {
-                                    val next = if (selected) currentIds - s.id else currentIds + s.id
-                                    cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = next })
+                            Spacer(Modifier.width(8.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                            ) {
+                                ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
+                                    cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = null })
+                                }
+                                c.shifts.forEach { s ->
+                                    ShiftChip(s.name, currentId == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
+                                        cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = s.id })
+                                    }
                                 }
                             }
                         }

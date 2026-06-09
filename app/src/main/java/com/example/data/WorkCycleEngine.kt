@@ -45,13 +45,6 @@ object WorkCycleEngine {
         else midnight(year, month, ANCHOR_DAY).apply { add(Calendar.MONTH, -1) }
     }
 
-    /** Total days in the cycle containing the given date (26th → 26th next month). */
-    private fun cycleLengthDays(year: Int, month: Int, day: Int): Int {
-        val start = cycleStart(year, month, day)
-        val next = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1) }
-        return ((next.timeInMillis - start.timeInMillis) / DAY_MS).toInt()
-    }
-
     private fun daysSinceStart(year: Int, month: Int, day: Int): Int {
         val start = cycleStart(year, month, day).timeInMillis
         val today = midnight(year, month, day).timeInMillis
@@ -62,26 +55,12 @@ object WorkCycleEngine {
     fun weekIndex(year: Int, month: Int, day: Int): Int =
         (daysSinceStart(year, month, day) / 7).coerceIn(0, 3)
 
-    /** Number of days in the given week of the cycle containing the date. */
-    fun daysInWeek(year: Int, month: Int, day: Int, weekIdx: Int): Int =
-        if (weekIdx < 3) 7 else (cycleLengthDays(year, month, day) - 21).coerceAtLeast(1)
+    /** Day offset (0-based) of the given date from the start of its cycle. */
+    fun dayOffset(year: Int, month: Int, day: Int): Int = daysSinceStart(year, month, day)
 
-    /**
-     * The shift worked on a given date. For a multi-shift week the days are
-     * split into contiguous blocks, one per assigned shift, in order.
-     */
-    fun shiftForDate(cycle: AppStore.ShiftCycle, year: Int, month: Int, day: Int): AppStore.ShiftDef? {
-        val wi = weekIndex(year, month, day)
-        val ids = cycle.shiftIdsForWeek(wi)
-        if (ids.isEmpty()) return null
-        if (ids.size == 1) return cycle.shiftById(ids[0])
-
-        val diw = daysInWeek(year, month, day, wi)
-        val dayInWeek = (daysSinceStart(year, month, day) - wi * 7).coerceAtLeast(0)
-        val blockSize = (diw + ids.size - 1) / ids.size       // ceil
-        val idx = (dayInWeek / blockSize).coerceIn(0, ids.size - 1)
-        return cycle.shiftById(ids[idx])
-    }
+    /** The shift worked on a given date — looked up per-day from the cycle's day assignments. */
+    fun shiftForDate(cycle: AppStore.ShiftCycle, year: Int, month: Int, day: Int): AppStore.ShiftDef? =
+        cycle.shiftById(cycle.shiftIdForDay(daysSinceStart(year, month, day)))
 
     private fun shiftStartMs(shift: AppStore.ShiftDef, year: Int, month: Int, day: Int): Long =
         midnight(year, month, day).apply {
