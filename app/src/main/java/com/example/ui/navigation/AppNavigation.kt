@@ -69,7 +69,7 @@ enum class AppScreen {
 }
 
 enum class AppTab {
-    HOME, CALENDAR, AUSPICIOUS, HOLIDAYS, CONVERT, PROFILE
+    HOME, CALENDAR, AUSPICIOUS, HOLIDAYS, CONVERT, SCHEDULE, PROFILE
 }
 
 @Composable
@@ -123,6 +123,11 @@ fun KhmerCalendarApp() {
     // Refresh home-screen widgets every time the app starts, so notes/events stay current.
     LaunchedEffect(Unit) {
         com.example.widget.WidgetPrefs.refresh(context)
+    }
+
+    // Keep the work-schedule reminder window topped up on every launch.
+    LaunchedEffect(Unit) {
+        com.example.alarm.WorkScheduleScheduler.sync(context)
     }
 
     // Outer edge-to-edge container
@@ -290,12 +295,14 @@ fun MainAppLayout(
                         convertedDate = convertedKhDate,
                         onConvert = onConvertClick
                     )
+                    AppTab.SCHEDULE -> ScheduleTabContent()
                     AppTab.PROFILE -> ProfileSettingsContent(
                         onLogOut = onLogOut,
                         isDarkMode = isDarkMode,
                         onDarkModeToggle = onDarkModeToggle,
                         appLanguage = appLanguage,
-                        onLanguageChange = onLanguageChange
+                        onLanguageChange = onLanguageChange,
+                        onOpenSchedule = { onTabChange(AppTab.SCHEDULE) }
                     )
                 }
             }

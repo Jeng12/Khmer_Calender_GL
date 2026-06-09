@@ -72,6 +72,9 @@ fun HolidaysTabContent(
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    val context = LocalContext.current
+    var customVersion by remember { mutableIntStateOf(0) }
+    val customHolidays = remember(customVersion) { AppStore.getCustomHolidays(context).sortedWith(compareBy({ it.month }, { it.day })) }
     val NATIONAL = "ជាតិ (National)"
     val BUDDHIST = "ព្រះពុទ្ធ (Buddhist)"
     // Stable Khmer filter keys; display labels localized.
@@ -153,6 +156,46 @@ fun HolidaysTabContent(
                 Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
             }
+        }
+
+        // User-added (custom) holidays — added from the calendar day view.
+        if (customHolidays.isNotEmpty()) {
+            item {
+                Text(tr("ថ្ងៃបុណ្យផ្ទាល់ខ្លួន (My Holidays)", "My Holidays"), fontSize = 10.sp, color = GoldSubText, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            }
+            items(customHolidays) { h ->
+                val dateLabel = if (lang == AppLanguage.EN)
+                    "${"%02d".format(h.day)} ${GREG_MONTHS_EN[h.month - 1].take(3)}"
+                else
+                    "${numStr(AppLanguage.KM, "%02d".format(h.day))} ${GREG_MONTHS_KM[h.month - 1]}"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(PlumSurface, RoundedCornerShape(12.dp))
+                        .border(1.dp, JadeGreen.copy(0.3f), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(40.dp).background(JadeGreen.copy(0.12f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) { Text("🏮", fontSize = 18.sp) }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(if (lang == AppLanguage.EN) h.nameEn else h.nameKm, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
+                        Text(dateLabel, fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        "🗑️", fontSize = 16.sp,
+                        modifier = Modifier.clickable {
+                            AppStore.deleteCustomHoliday(context, h.id)
+                            customVersion++
+                        }
+                    )
+                }
+            }
+            item { HorizontalDivider(color = DeepBorder, thickness = 1.dp) }
         }
 
         // Chips

@@ -8,23 +8,44 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.example.data.AppStore
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val title   = intent.getStringExtra("title")   ?: "ការរំលឹកប្រតិទិនខ្មែរ"
         val message = intent.getStringExtra("message") ?: ""
-        showNotification(context, title, message)
+        val ringtoneUri = intent.getStringExtra("ringtoneUri")
+        val insistent = intent.getBooleanExtra("insistent", false)
+        showNotification(context, title, message, ringtoneUri, insistent)
+
+        // This was a one-shot alarm; drop it from persistence now that it fired
+        // (boot rescheduling only re-arms future alarms anyway).
+        runCatching {
+            val rc = intent.getIntExtra("requestCode", 0)
+            if (rc != 0) AppStore.removeReminder(context, rc)
+        }
     }
 
-    private fun showNotification(context: Context, title: String, message: String) {
-        val channelId = "khmer_calendar_reminders"
+    private fun showNotification(
+        context: Context,
+        title: String,
+        message: String,
+        ringtoneUriStr: String?,
+        insistent: Boolean
+    ) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        val alarmSound: Uri = ringtoneUriStr?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val vibPattern = longArrayOf(0, 600, 200, 600, 200, 600)
+
+        // A channel's sound is immutable once created, so derive a stable channel
+        // id per chosen ringtone — picking a new ringtone uses a new channel.
+        val channelId = "khmer_calendar_reminders_" + (ringtoneUriStr?.hashCode() ?: 0)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val audioAttrs = AudioAttributes.Builder()
@@ -55,7 +76,7 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, channelId)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
@@ -68,7 +89,12 @@ class AlarmReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setSound(alarmSound)
             .setVibrate(vibPattern)
-            .build()
+
+        val notification = builder.build()
+        // "Ring until dismissed" — keep alerting until the user clears it.
+        if (insistent) {
+            notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
+        }
 
         nm.notify(System.currentTimeMillis().toInt() and 0x7FFFFFFF, notification)
     }

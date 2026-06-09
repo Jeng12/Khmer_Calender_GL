@@ -245,6 +245,28 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     onClick = { onTabSelect(AppTab.CONVERT) }
                 )
             }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                QuickGridCard(
+                    modifier = Modifier.weight(1f),
+                    emoji = "💼",
+                    title = tr("កាលវិភាគ", "Schedule"),
+                    subtitle = "Work Schedule",
+                    accentColor = CrimsonHoliday,
+                    onClick = { onTabSelect(AppTab.SCHEDULE) }
+                )
+                QuickGridCard(
+                    modifier = Modifier.weight(1f),
+                    emoji = "🌿",
+                    title = tr("ថ្ងៃមង្គល", "Auspicious"),
+                    subtitle = "Auspicious",
+                    accentColor = JadeGreen,
+                    onClick = { onTabSelect(AppTab.AUSPICIOUS) }
+                )
+            }
         }
 
         // Upcoming national events in Cambodia
