@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import com.example.ui.auth.*
 import com.example.ui.tabs.*
 
 // 4. HOLIDAYS TAB CONTAINER
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HolidaysTabContent(
     selectedFilter: String,
@@ -121,9 +123,14 @@ fun HolidaysTabContent(
         return km to en
     }
 
-    // Fetch the live holidays from the public Khmer holidays API (once per entry).
-    val holidaysResult by produceState<Result<List<Holiday>>?>(initialValue = null) {
-        value = HolidayRepository.fetchHolidays()
+    // Fetch the live holidays from the public Khmer holidays API. Re-fetches
+    // whenever [refreshKey] changes — driven by pull-to-refresh below.
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
+    LaunchedEffect(refreshKey) {
+        holidaysResult = HolidayRepository.fetchHolidays()
+        isRefreshing = false
     }
     val isLoading = holidaysResult == null
     val apiHolidays = holidaysResult?.getOrNull().orEmpty()
@@ -144,10 +151,14 @@ fun HolidaysTabContent(
         fallbackHolidays
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { isRefreshing = true; refreshKey++ },
+        modifier = Modifier.fillMaxSize().background(NightBlack)
+    ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(NightBlack)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -155,6 +166,7 @@ fun HolidaysTabContent(
             Column {
                 Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
+                Text(tr("ទាញចុះក្រោមដើម្បីផ្ទុកឡើងវិញ", "Pull down to refresh"), fontSize = 9.sp, color = GoldSubText)
             }
         }
 
@@ -295,5 +307,6 @@ fun HolidaysTabContent(
                 }
             }
         }
+    }
     }
 }

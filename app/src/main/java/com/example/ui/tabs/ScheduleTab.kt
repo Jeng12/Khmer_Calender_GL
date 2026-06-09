@@ -91,7 +91,7 @@ fun ScheduleTabContent() {
                             title = tr("ប្រព័ន្ធ ២ វេន", "2-shift system"),
                             subtitle = tr("ថ្ងៃ ០៧:៣០–១៩:៣០ · យប់ ១៩:៣០–០៧:៣០", "Day 07:30–19:30 · Night 19:30–07:30"),
                             onClick = {
-                                cycle = AppStore.ShiftCycle(2, AppStore.presetShifts(2), List(4) { null }, true, 30)
+                                cycle = AppStore.ShiftCycle(2, AppStore.presetShifts(2), List(4) { emptyList() }, true, 30)
                             }
                         )
                         SystemSetupCard(
@@ -99,12 +99,66 @@ fun ScheduleTabContent() {
                             title = tr("ប្រព័ន្ធ ៣ វេន", "3-shift system"),
                             subtitle = tr("បីវេនស្មើគ្នា ៨ ម៉ោង", "Three equal 8-hour shifts"),
                             onClick = {
-                                cycle = AppStore.ShiftCycle(3, AppStore.presetShifts(3), List(4) { null }, true, 30)
+                                cycle = AppStore.ShiftCycle(3, AppStore.presetShifts(3), List(4) { emptyList() }, true, 30)
                             }
                         )
                     }
                 }
             } else {
+                // ── Today's shift banner ──────────────────────────────────────
+                item {
+                    val ctxStart = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
+                    val wdToday = WorkCycleEngine.buildWorkDays(c, ctxStart, today)
+                        .lastOrNull { it.year == tY && it.month == tM && it.day == tD }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                when {
+                                    wdToday == null -> plumSurface
+                                    wdToday.blocked -> CrimsonHoliday.copy(0.12f)
+                                    else -> TraditionalGold.copy(0.12f)
+                                },
+                                RoundedCornerShape(14.dp)
+                            )
+                            .border(
+                                1.dp,
+                                when {
+                                    wdToday == null -> deepBorder
+                                    wdToday.blocked -> CrimsonHoliday.copy(0.5f)
+                                    else -> TraditionalGold.copy(0.5f)
+                                },
+                                RoundedCornerShape(14.dp)
+                            )
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            when {
+                                wdToday == null -> "🛌"
+                                wdToday.shift.isOvernight -> "🌙"
+                                else -> "☀️"
+                            },
+                            fontSize = 26.sp
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(tr("វេនថ្ងៃនេះ (Today)", "Today's shift"), fontSize = 10.sp, color = goldSubText, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(
+                                when {
+                                    wdToday == null -> tr(lang, "ថ្ងៃឈប់សម្រាក", "Day off")
+                                    wdToday.blocked -> tr(lang, "${wdToday.shift.name} · ត្រូវបានទប់ (គ្មានសម្រាក)", "${wdToday.shift.name} · blocked (no rest)")
+                                    else -> "${wdToday.shift.name} · %02d:%02d → %02d:%02d".format(
+                                        wdToday.shift.startHour, wdToday.shift.startMin, wdToday.shift.endHour, wdToday.shift.endMin
+                                    )
+                                },
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                                color = if (wdToday?.blocked == true) CrimsonHoliday else MoonWheat
+                            )
+                        }
+                    }
+                }
+
                 // ── System type switch ────────────────────────────────────────
                 item {
                     SectionLabel(tr("ប្រព័ន្ធវេន (SHIFT SYSTEM)", "SHIFT SYSTEM"))
@@ -119,7 +173,7 @@ fun ScheduleTabContent() {
                                     .background(if (active) TraditionalGold else plumSurface)
                                     .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
                                     .clickable {
-                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), weekAssignments = List(4) { null })
+                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), weekAssignments = List(4) { emptyList() })
                                     }
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -168,7 +222,7 @@ fun ScheduleTabContent() {
                 }
                 items((0..3).toList()) { wi ->
                     val (ws, we) = WorkCycleEngine.weekRange(tY, tM, tD, wi)
-                    val currentId = c.weekAssignments.getOrNull(wi)
+                    val currentIds = c.shiftIdsForWeek(wi)
                     val isCurrentWeek = WorkCycleEngine.weekIndex(tY, tM, tD) == wi
                     Column(
                         modifier = Modifier
@@ -186,17 +240,26 @@ fun ScheduleTabContent() {
                                 Text(tr(lang, "• ឥឡូវ", "• now"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                             }
                         }
+                        // Hint: a week can hold more than one shift (e.g. both day & night).
+                        if (currentIds.size > 1) {
+                            Text(
+                                tr(lang, "ចែកថ្ងៃតាមលំដាប់វេន", "days split between shifts in order"),
+                                fontSize = 9.sp, color = dimColor, modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState())
                         ) {
-                            ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
-                                cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = null })
+                            ShiftChip(tr(lang, "ឈប់", "Off"), currentIds.isEmpty(), dimColor) {
+                                cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = emptyList() })
                             }
                             c.shifts.forEach { s ->
-                                ShiftChip(s.name, currentId == s.id, TraditionalGold) {
-                                    cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = s.id })
+                                val selected = s.id in currentIds
+                                ShiftChip(s.name, selected, TraditionalGold) {
+                                    val next = if (selected) currentIds - s.id else currentIds + s.id
+                                    cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = next })
                                 }
                             }
                         }

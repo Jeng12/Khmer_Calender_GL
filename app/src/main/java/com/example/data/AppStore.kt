@@ -241,7 +241,7 @@ object AppStore {
         getCustomHolidays(c).filter { it.month == month }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // WORK SCHEDULE — rotating shift system on a 25th→25th monthly cycle
+    // WORK SCHEDULE — rotating shift system on a 26th→25th monthly cycle
     // ─────────────────────────────────────────────────────────────────────────
 
     /** A single shift template (e.g. "Day" 07:30–19:30). Crosses midnight when [isOvernight]. */
@@ -257,24 +257,25 @@ object AppStore {
         val endMinutes: Int get() = endHour * 60 + endMin
         /** A shift whose end is at/earlier than its start runs into the next day. */
         val isOvernight: Boolean get() = endMinutes <= startMinutes
-        val durationMinutes: Int
-            get() = (((endMinutes - startMinutes) % 1440) + 1440) % 1440 // 0 → handled as full-day below
     }
 
     /**
      * The user's rotating-shift configuration. [systemType] is 2 or 3; [shifts]
      * holds the (editable) shift templates; [weekAssignments] has exactly 4
-     * entries — the shift id worked in each week of the cycle, or null for an
-     * off week. The same weekly pattern repeats every cycle.
+     * entries — the list of shift ids worked in each week of the cycle (empty =
+     * an off week). A week may hold **multiple** shifts (e.g. the first week
+     * working both day and night), in which case the week's days are split
+     * between them in order. The same weekly pattern repeats every cycle.
      */
     data class ShiftCycle(
         val systemType: Int,
         val shifts: List<ShiftDef>,
-        val weekAssignments: List<String?>,
+        val weekAssignments: List<List<String>>,
         val remind: Boolean,
         val reminderMinutesBefore: Int
     ) {
         fun shiftById(id: String?): ShiftDef? = id?.let { shifts.firstOrNull { s -> s.id == it } }
+        fun shiftIdsForWeek(idx: Int): List<String> = weekAssignments.getOrElse(idx) { emptyList() }
         val isConfigured: Boolean get() = shifts.isNotEmpty()
     }
 
@@ -303,8 +304,14 @@ object AppStore {
                 )
             }
             val waArr = o.optJSONArray("weekAssignments") ?: JSONArray()
+            // Accept both the new array-of-arrays format and the legacy
+            // array-of-strings (single shift per week) format.
             val wa = (0 until 4).map { i ->
-                if (i < waArr.length()) waArr.optString(i).ifBlank { null } else null
+                when (val el = if (i < waArr.length()) waArr.opt(i) else null) {
+                    is JSONArray -> (0 until el.length()).mapNotNull { j -> el.optString(j).ifBlank { null } }
+                    is String -> if (el.isBlank()) emptyList() else listOf(el)
+                    else -> emptyList()
+                }
             }
             ShiftCycle(
                 systemType = o.optInt("systemType", 2),
@@ -331,8 +338,9 @@ object AppStore {
                 }
             })
             put("weekAssignments", JSONArray().apply {
-                // Empty string marks an "off" week (JSONObject.NULL stringifies to "null").
-                cycle.weekAssignments.forEach { put(it ?: "") }
+                cycle.weekAssignments.forEach { ids ->
+                    put(JSONArray().apply { ids.forEach { put(it) } })
+                }
             })
             put("remind", cycle.remind)
             put("reminderMinutesBefore", cycle.reminderMinutesBefore)
