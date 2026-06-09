@@ -33,14 +33,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.alarm.scheduleAlarm
+import com.example.alarm.cancelReminder
 import com.example.calendar.KhmerCalendarHelper
 import com.example.calendar.KhmerDate
 import com.example.core.*
+import com.example.data.AppStore
+import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
+import java.util.Calendar
 
 // Data model for monthly agenda items
 data class AgendaItem(
@@ -48,7 +50,8 @@ data class AgendaItem(
     val type: AgendaType,
     val title: String,
     val subtitle: String,
-    val isPast: Boolean
+    val isPast: Boolean,
+    val icon: String? = null
 )
 
 enum class AgendaType { HOLIDAY, NOTE, REMINDER }
@@ -65,92 +68,87 @@ fun CalendarTabContent(
     val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    val widgetScope = rememberCoroutineScope()
     var swipeOffset by remember { mutableStateOf(0f) }
-    
-    // Refresh triggers
+
+    // Refresh trigger — bumping this re-reads notes/reminders/holidays from store.
     var agendaVersion by remember { mutableIntStateOf(0) }
-    
+
     LaunchedEffect(Unit) { WidgetPrefs.refresh(context) }
 
-    val todayCal = remember { java.util.Calendar.getInstance() }
-    val todayYear = todayCal.get(java.util.Calendar.YEAR)
-    val todayMonth = todayCal.get(java.util.Calendar.MONTH) + 1
-    val todayDay = todayCal.get(java.util.Calendar.DAY_OF_MONTH)
-    
+    val todayCal = remember { Calendar.getInstance() }
+    val todayYear = todayCal.get(Calendar.YEAR)
+    val todayMonth = todayCal.get(Calendar.MONTH) + 1
+    val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
+
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
     val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7
 
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
 
-    val notesPrefs = remember { context.getSharedPreferences("khmer_calendar_notes", android.content.Context.MODE_PRIVATE) }
-    val daysWithNotes = remember(year, month, agendaVersion) {
-        (1..31).filter { d -> !notesPrefs.getString("${year}_${month}_$d", "").isNullOrEmpty() }.toSet()
+    val daysWithNotes = remember(year, month, agendaVersion) { AppStore.daysWithNotes(context, year, month) }
+    val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
+    val daysWithCustomHoliday = remember(customHolidays) { customHolidays.map { it.day }.toSet() }
+
+    // Working days from the schedule (history-aware), highlighted on the grid.
+    val scheduleCycle = remember(agendaVersion) { AppStore.getShiftCycle(context) }
+    val scheduleSnaps = remember(agendaVersion) { AppStore.getCycleSnapshots(context) }
+    val workingDays: Map<Int, AppStore.ShiftDef> = remember(year, month, scheduleCycle, scheduleSnaps, daysList) {
+        val base = scheduleCycle
+        if (base == null || !base.isConfigured) emptyMap()
+        else (1..daysList.size).mapNotNull { d ->
+            val cyc = AppStore.historyAwareCycle(base, scheduleSnaps, year, month, d)
+            WorkCycleEngine.shiftForDate(cyc, year, month, d)?.let { d to it }
+        }.toMap()
     }
-    
+
     var showDayDetailDialog by remember { mutableStateOf(false) }
     var detailDialogDate by remember { mutableStateOf<KhmerDate?>(null) }
 
     // Build the Monthly Agenda
     val holidayLabel = tr("ថ្ងៃឈប់សម្រាកសាធារណៈ", "Public Holiday")
+    val customHolidayLabel = tr("ថ្ងៃបុណ្យផ្ទាល់ខ្លួន", "My Holiday")
     val noteLabel = tr("កំណត់ចំណាំ", "Note")
     val reminderFallback = tr("ការរំលឹក", "Reminder")
 
+    fun isPastDay(d: Int) = year < todayYear ||
+        (year == todayYear && month < todayMonth) ||
+        (year == todayYear && month == todayMonth && d < todayDay)
+
     val monthlyAgenda = remember(year, month, agendaVersion, lang) {
         val list = mutableListOf<AgendaItem>()
-        
-        // 1. Add Holidays
+
+        // 1. Built-in holidays
         daysList.forEachIndexed { index, khDate ->
             val d = index + 1
             if (khDate.holiday != null) {
-                list.add(AgendaItem(
-                    day = d,
-                    type = AgendaType.HOLIDAY,
-                    title = localizeDual(lang, khDate.holiday!!),
-                    subtitle = holidayLabel,
-                    isPast = year < todayYear || (year == todayYear && month < todayMonth) || (year == todayYear && month == todayMonth && d < todayDay)
-                ))
+                list.add(AgendaItem(d, AgendaType.HOLIDAY, localizeDual(lang, khDate.holiday!!), holidayLabel, isPastDay(d)))
             }
         }
-        
-        // 2. Add Notes
+
+        // 2. Custom (user) holidays
+        customHolidays.forEach { h ->
+            list.add(AgendaItem(h.day, AgendaType.HOLIDAY, if (lang == AppLanguage.EN) h.nameEn else h.nameKm, customHolidayLabel, isPastDay(h.day)))
+        }
+
+        // 3. Notes (multiple per day)
         for (d in 1..31) {
-            val note = notesPrefs.getString("${year}_${month}_$d", "")
-            if (!note.isNullOrBlank()) {
-                list.add(AgendaItem(
-                    day = d,
-                    type = AgendaType.NOTE,
-                    title = note,
-                    subtitle = noteLabel,
-                    isPast = year < todayYear || (year == todayYear && month < todayMonth) || (year == todayYear && month == todayMonth && d < todayDay)
-                ))
+            AppStore.getNotes(context, year, month, d).forEach { note ->
+                list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
             }
         }
-        
-        // 3. Add Reminders
-        val alarmsPrefs = context.getSharedPreferences("khmer_calendar_alarms", android.content.Context.MODE_PRIVATE)
-        val arr = try { JSONArray(alarmsPrefs.getString("alarms", "[]") ?: "[]") } catch (e: Exception) { JSONArray() }
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i)
-            if (o != null) {
-                val requestCode = o.optInt("requestCode") // format: YYYYMMDD
-                val rYear = requestCode / 10000
-                val rMonth = (requestCode % 10000) / 100
-                val rDay = requestCode % 100
-                
-                if (rYear == year && rMonth == month) {
-                    list.add(AgendaItem(
-                        day = rDay,
-                        type = AgendaType.REMINDER,
-                        title = o.optString("title").ifBlank { reminderFallback },
-                        subtitle = o.optString("message"),
-                        isPast = year < todayYear || (year == todayYear && month < todayMonth) || (year == todayYear && month == todayMonth && rDay < todayDay)
-                    ))
-                }
+
+        // 4. Reminders / events (keyed off trigger time)
+        AppStore.getReminders(context).forEach { r ->
+            val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
+            if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
+                val d = c.get(Calendar.DAY_OF_MONTH)
+                val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+                val icon = if (r.kind == "shift") "💼" else null
+                list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, "$time · ${r.message}", isPastDay(d), icon))
             }
         }
-        
+
         list.sortedWith(compareBy({ it.day }, { it.type }))
     }
 
@@ -316,9 +314,12 @@ fun CalendarTabContent(
                                     val dateInfo  = animDays[dayNumber - 1]
                                     val isSelected = dayNumber == selectedDay && animYear == year && animMonth == month
                                     val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
-                                    val isHoliday  = dateInfo.holiday != null
+                                    val isHoliday  = dateInfo.holiday != null ||
+                                        (animYear == year && animMonth == month && dayNumber in daysWithCustomHoliday)
                                     val isWeekend  = col == 0 || col == 6
                                     val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithNotes
+                                    val workShift  = if (animYear == year && animMonth == month) workingDays[dayNumber] else null
+                                    val workColor  = if (workShift?.isOvernight == true) LotusPink else LightGold
 
                                     Box(
                                         modifier = Modifier
@@ -329,6 +330,7 @@ fun CalendarTabContent(
                                                 when {
                                                     isSelected -> TraditionalGold.copy(0.2f)
                                                     isToday    -> LotusPink.copy(0.12f)
+                                                    workShift != null -> workColor.copy(0.13f)
                                                     else       -> Color.Transparent
                                                 }
                                             )
@@ -388,6 +390,12 @@ fun CalendarTabContent(
                                                         .clip(RoundedCornerShape(2.dp))
                                                         .background(SkyBlue)
                                                 )
+                                                if (workShift != null) Box(
+                                                    modifier = Modifier
+                                                        .size(4.dp)
+                                                        .clip(CircleShape)
+                                                        .background(workColor)
+                                                )
                                             }
                                         }
                                     }
@@ -397,6 +405,16 @@ fun CalendarTabContent(
                     }
                 }
             }
+        }
+
+        // Hint
+        item {
+            Text(
+                text = tr("បន្ថែម · សង្កត់​ឲ្យ​យូរ​លើ​ថ្ងៃ​ណាមួយ​ដើម្បី​បន្ថែម​កំណត់ចំណាំ ការរំលឹក ឬ​ថ្ងៃបុណ្យ",
+                          "Tip · long-press any day to add notes, reminders or a holiday"),
+                fontSize = 9.sp, color = dimColor, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         // Monthly Agenda Section
@@ -423,7 +441,7 @@ fun CalendarTabContent(
                     AgendaType.NOTE -> SkyBlue
                     AgendaType.REMINDER -> TraditionalGold
                 }
-                val icon = when (item.type) {
+                val icon = item.icon ?: when (item.type) {
                     AgendaType.HOLIDAY -> "🏮"
                     AgendaType.NOTE -> "📝"
                     AgendaType.REMINDER -> "⏰"
@@ -448,7 +466,7 @@ fun CalendarTabContent(
                 LegendIndicator(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious"))
                 LegendIndicator(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"))
                 LegendIndicator(SkyBlue, tr("ចំណាំ", "Note"))
-                LegendIndicator(TraditionalGold, tr("សកម្ម", "Active"))
+                LegendIndicator(LightGold, tr("ការងារ", "Work"))
             }
         }
     }
@@ -493,45 +511,60 @@ private fun LegendIndicator(color: Color, label: String) {
 
 @Composable
 private fun DayDetailDialog(
-    date: KhmerDate, 
-    lang: AppLanguage, 
+    date: KhmerDate,
+    lang: AppLanguage,
     onDismiss: () -> Unit,
     onDataChange: () -> Unit
 ) {
     val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
     val context = LocalContext.current
     val widgetScope = rememberCoroutineScope()
-    
-    // Day-specific states inside dialog
-    val noteKey = "${date.year}_${date.month}_${date.day}"
-    val notesPrefs = remember { context.getSharedPreferences("khmer_calendar_notes", android.content.Context.MODE_PRIVATE) }
-    var currentNote by remember(noteKey) { mutableStateOf(notesPrefs.getString(noteKey, "") ?: "") }
-    var editNoteText by remember { mutableStateOf(currentNote) }
-    var isEditingNote by remember { mutableStateOf(false) }
-    
+
+    // Local refresh counter so the dialog re-reads the store as the user edits.
+    var localVersion by remember { mutableIntStateOf(0) }
+    fun bump() { localVersion++; onDataChange() }
+
+    val notes = remember(localVersion) { AppStore.getNotes(context, date.year, date.month, date.day) }
+    val dayReminders = remember(localVersion) {
+        AppStore.getReminders(context).filter {
+            val c = Calendar.getInstance().apply { timeInMillis = it.triggerMs }
+            c.get(Calendar.YEAR) == date.year && c.get(Calendar.MONTH) + 1 == date.month && c.get(Calendar.DAY_OF_MONTH) == date.day
+        }.sortedBy { it.triggerMs }
+    }
+    val dayHolidays = remember(localVersion) {
+        AppStore.getCustomHolidays(context).filter { it.month == date.month && it.day == date.day }
+    }
+
+    var newNoteText by remember { mutableStateOf("") }
+    var editingNoteId by remember { mutableStateOf<String?>(null) }
+    var editingNoteText by remember { mutableStateOf("") }
+
     var alarmTitleText by remember { mutableStateOf("") }
     var showAlarmForm by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    
+
+    var showHolidayForm by remember { mutableStateOf(false) }
+    var holidayNameKm by remember { mutableStateOf("") }
+    var holidayNameEn by remember { mutableStateOf("") }
+
     val notifPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) showTimePicker = true }
 
     if (showTimePicker) {
-        val cal = remember { java.util.Calendar.getInstance() }
+        val defMin = AppStore.getDefaultReminderMinutes(context)
         val dlg = TimePickerDialog(
             context,
             { _, hour, minute ->
                 scheduleAlarm(context, date.year, date.month, date.day, hour, minute, alarmTitleText, date, lang)
                 widgetScope.launch { WidgetPrefs.refresh(context) }
-                onDataChange()
+                alarmTitleText = ""
+                bump()
                 Toast.makeText(context, tr(lang, "បានកំណត់ការរំលឹក", "Reminder set"), Toast.LENGTH_SHORT).show()
                 showTimePicker = false
                 showAlarmForm = false
             },
-            cal.get(java.util.Calendar.HOUR_OF_DAY),
-            cal.get(java.util.Calendar.MINUTE),
-            true
+            defMin / 60, defMin % 60, true
         )
         dlg.setOnCancelListener { showTimePicker = false }
         dlg.show()
@@ -570,89 +603,157 @@ private fun DayDetailDialog(
                         DetailRow(tr("ថ្ងៃគ្រីស្ដ", "Gregorian"), "${date.dayOfWeekEn}, ${date.day} ${gregMonth(AppLanguage.EN, date.month-1)}", sandText, goldSubText)
                         DetailRow(tr("ពុទ្ធសករាជ", "Buddhist Era"), num(lang, date.BE), sandText, goldSubText)
                         DetailRow(tr("ឆ្នាំ", "Zodiac"), zodiac(lang, date.zodiac), sandText, goldSubText)
-                        
+
                         if (date.isAuspicious) {
-                            DetailRow(
-                                tr("ថ្ងៃមង្គល", "Auspicious"),
-                                localizeDual(lang, date.auspiciousType ?: "General"),
-                                JadeGreen,
-                                goldSubText
-                            )
+                            DetailRow(tr("ថ្ងៃមង្គល", "Auspicious"), localizeDual(lang, date.auspiciousType ?: "General"), JadeGreen, goldSubText)
                         }
                         if (date.holiday != null) {
-                            DetailRow(
-                                tr("ថ្ងៃបុណ្យ", "Holiday"),
-                                localizeDual(lang, date.holiday!!),
-                                LotusPink,
-                                goldSubText
-                            )
+                            DetailRow(tr("ថ្ងៃបុណ្យ", "Holiday"), localizeDual(lang, date.holiday!!), LotusPink, goldSubText)
                         }
                     }
                 }
 
                 item { HorizontalDivider(color = deepBorder, thickness = 1.dp) }
 
-                // Note Editor Section
+                // ── Notes (multiple) ──────────────────────────────────────────
                 item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(tr("📝 កំណត់ចំណាំ", "📝 Note"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = sandText)
-                            TextButton(onClick = { if(!isEditingNote) editNoteText = currentNote; isEditingNote = !isEditingNote }) {
-                                Text(if(isEditingNote) tr("បោះបង់", "Cancel") else if(currentNote.isEmpty()) tr("+ បន្ថែម", "+ Add") else tr("✏️ កែ", "✏️ Edit"), color = SkyBlue, fontSize = 11.sp)
-                            }
-                        }
-                        if (isEditingNote) {
+                    SectionHeader(
+                        title = tr("📝 កំណត់ចំណាំ", "📝 Notes"),
+                        actionLabel = null, color = sandText, onAction = null
+                    )
+                }
+                items(notes) { note ->
+                    if (editingNoteId == note.id) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
-                                value = editNoteText,
-                                onValueChange = { editNoteText = it },
+                                value = editingNoteText,
+                                onValueChange = { editingNoteText = it },
                                 modifier = Modifier.fillMaxWidth(),
                                 textStyle = TextStyle(fontSize = 12.sp, color = sandText),
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SkyBlue)
                             )
-                            Button(
-                                onClick = {
-                                    notesPrefs.edit().putString(noteKey, editNoteText.trim()).apply()
-                                    currentNote = editNoteText.trim()
-                                    isEditingNote = false
-                                    onDataChange()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
-                                },
-                                modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = SkyBlue)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                horizontalArrangement = Arrangement.End
                             ) {
-                                Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                TextButton(onClick = { editingNoteId = null }) {
+                                    Text(tr("បោះបង់", "Cancel"), color = goldSubText, fontSize = 11.sp)
+                                }
+                                Button(
+                                    onClick = {
+                                        AppStore.updateNote(context, date.year, date.month, date.day, note.id, editingNoteText)
+                                        editingNoteId = null
+                                        bump()
+                                        widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = SkyBlue)
+                                ) {
+                                    Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
                             }
-                        } else if (currentNote.isNotEmpty()) {
-                            Text(currentNote, fontSize = 12.sp, color = sandText, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(plumSurface, RoundedCornerShape(10.dp))
+                                .border(1.dp, SkyBlue.copy(0.25f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(note.text, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f))
+                            Text(
+                                "✏️", fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clickable { editingNoteId = note.id; editingNoteText = note.text }
+                                    .padding(horizontal = 4.dp)
+                            )
+                            Text(
+                                "🗑️", fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        AppStore.deleteNote(context, date.year, date.month, date.day, note.id)
+                                        bump()
+                                        widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    }
+                                    .padding(horizontal = 4.dp)
+                            )
+                        }
+                    }
+                }
+                item {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newNoteText,
+                            onValueChange = { newNoteText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text(tr("បន្ថែមកំណត់ចំណាំ…", "Add a note…"), fontSize = 12.sp) },
+                            textStyle = TextStyle(fontSize = 12.sp, color = sandText),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SkyBlue)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (AppStore.addNote(context, date.year, date.month, date.day, newNoteText)) {
+                                    newNoteText = ""
+                                    bump()
+                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(tr("បន្ថែម", "Add"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
                 }
 
                 item { HorizontalDivider(color = deepBorder, thickness = 1.dp) }
 
-                // Reminder Section
+                // ── Reminders (multiple, deletable) ───────────────────────────
                 item {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(tr("🔔 ការរំលឹក", "🔔 Reminder"), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = sandText)
-                            TextButton(onClick = { showAlarmForm = !showAlarmForm }) {
-                                Text(if(showAlarmForm) tr("បោះបង់", "Cancel") else tr("+ កំណត់", "+ Set"), color = TraditionalGold, fontSize = 11.sp)
-                            }
-                        }
-                        if (showAlarmForm) {
+                    SectionHeader(
+                        title = tr("🔔 ការរំលឹក", "🔔 Reminders"),
+                        actionLabel = if (showAlarmForm) tr("បោះបង់", "Cancel") else tr("+ កំណត់", "+ Set"),
+                        color = sandText,
+                        actionColor = TraditionalGold,
+                        onAction = { showAlarmForm = !showAlarmForm }
+                    )
+                }
+                items(dayReminders) { r ->
+                    val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
+                    val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumSurface, RoundedCornerShape(10.dp))
+                            .border(1.dp, TraditionalGold.copy(0.25f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("⏰ $time", fontSize = 12.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(10.dp))
+                        Text(r.title, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text(
+                            "🗑️", fontSize = 14.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    cancelReminder(context, r.requestCode)
+                                    bump()
+                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                }
+                                .padding(start = 6.dp)
+                        )
+                    }
+                }
+                if (showAlarmForm) {
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = alarmTitleText,
                                 onValueChange = { alarmTitleText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text(tr("ចំណងជើង...", "Title..."), fontSize = 12.sp) },
+                                placeholder = { Text(tr("ចំណងជើង…", "Title…"), fontSize = 12.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TraditionalGold)
                             )
                             Button(
@@ -675,6 +776,74 @@ private fun DayDetailDialog(
                     }
                 }
 
+                item { HorizontalDivider(color = deepBorder, thickness = 1.dp) }
+
+                // ── Custom holiday ────────────────────────────────────────────
+                item {
+                    SectionHeader(
+                        title = tr("🏮 ថ្ងៃបុណ្យផ្ទាល់ខ្លួន", "🏮 My Holiday"),
+                        actionLabel = if (showHolidayForm) tr("បោះបង់", "Cancel") else tr("+ បន្ថែម", "+ Add"),
+                        color = sandText,
+                        actionColor = LotusPink,
+                        onAction = { showHolidayForm = !showHolidayForm }
+                    )
+                }
+                items(dayHolidays) { h ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumSurface, RoundedCornerShape(10.dp))
+                            .border(1.dp, LotusPink.copy(0.25f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (lang == AppLanguage.EN) h.nameEn else h.nameKm, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f))
+                        Text(
+                            "🗑️", fontSize = 14.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    AppStore.deleteCustomHoliday(context, h.id)
+                                    bump()
+                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                }
+                                .padding(start = 6.dp)
+                        )
+                    }
+                }
+                if (showHolidayForm) {
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = holidayNameKm,
+                                onValueChange = { holidayNameKm = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text(tr("ឈ្មោះថ្ងៃបុណ្យ (ខ្មែរ)", "Holiday name (Khmer)"), fontSize = 12.sp) },
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LotusPink)
+                            )
+                            OutlinedTextField(
+                                value = holidayNameEn,
+                                onValueChange = { holidayNameEn = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text(tr("ឈ្មោះ (English) — ស្រេចចិត្ត", "Name (English) — optional"), fontSize = 12.sp) },
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LotusPink)
+                            )
+                            Button(
+                                onClick = {
+                                    AppStore.addCustomHoliday(context, date.month, date.day, holidayNameKm, holidayNameEn)
+                                    holidayNameKm = ""; holidayNameEn = ""
+                                    showHolidayForm = false
+                                    bump()
+                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                                colors = ButtonDefaults.buttonColors(containerColor = LotusPink)
+                            ) {
+                                Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
                 item {
                     Button(
                         onClick = onDismiss,
@@ -686,6 +855,28 @@ private fun DayDetailDialog(
                         Text(tr("បិទ", "Close"), color = sandText, fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    actionLabel: String?,
+    color: Color,
+    actionColor: Color = SkyBlue,
+    onAction: (() -> Unit)?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = color)
+        if (actionLabel != null && onAction != null) {
+            TextButton(onClick = onAction) {
+                Text(actionLabel, color = actionColor, fontSize = 11.sp)
             }
         }
     }

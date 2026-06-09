@@ -1,0 +1,454 @@
+package com.example.data
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Calendar
+
+/**
+ * Central lightweight persistence layer built on SharedPreferences + JSON.
+ *
+ * The project stages Room in the build but keeps it disabled; until that is
+ * wired up this object is the single source of truth for the features that
+ * need real storage:
+ *
+ *  - **Notes** — multiple notes per day (with delete). Stored in the existing
+ *    `khmer_calendar_notes` file. The structured list lives under a
+ *    `Y_M_D__notes` key; a legacy `Y_M_D` → joined-text mirror is kept in sync
+ *    so the home-screen widget keeps working unchanged.
+ *  - **Reminders / events** — multiple per day (with delete). Stored in
+ *    `khmer_calendar_alarms` → `alarms` (a JSON array) with a unique request
+ *    code per reminder so they never collide.
+ *  - **Custom holidays** — user-added holidays, stored in
+ *    `khmer_calendar_custom_holidays`.
+ *  - **Work schedule** — recurring weekly shifts with optional reminders.
+ *  - **Alarm settings** — custom ringtone, insistent ("ring until dismissed")
+ *    and default reminder lead time.
+ */
+object AppStore {
+
+    // ── Pref file names ──────────────────────────────────────────────────────
+    private const val NOTES_FILE = "khmer_calendar_notes"
+    private const val ALARMS_FILE = "khmer_calendar_alarms"
+    private const val HOLIDAYS_FILE = "khmer_calendar_custom_holidays"
+    private const val SCHEDULE_FILE = "khmer_calendar_schedule"
+    const val SETTINGS_FILE = "khmer_calendar_prefs"
+
+    private fun notesPrefs(c: Context) = c.getSharedPreferences(NOTES_FILE, Context.MODE_PRIVATE)
+    private fun alarmsPrefs(c: Context) = c.getSharedPreferences(ALARMS_FILE, Context.MODE_PRIVATE)
+    private fun holidaysPrefs(c: Context) = c.getSharedPreferences(HOLIDAYS_FILE, Context.MODE_PRIVATE)
+    private fun schedulePrefs(c: Context) = c.getSharedPreferences(SCHEDULE_FILE, Context.MODE_PRIVATE)
+    private fun settings(c: Context) = c.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE)
+
+    fun dateKey(year: Int, month: Int, day: Int) = "${year}_${month}_$day"
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // NOTES — multiple per day
+    // ─────────────────────────────────────────────────────────────────────────
+    data class Note(val id: String, val text: String, val ts: Long)
+
+    private fun notesListKey(year: Int, month: Int, day: Int) = "${dateKey(year, month, day)}__notes"
+
+    /** All notes for a given day, newest last. Migrates a legacy single-string note transparently. */
+    fun getNotes(c: Context, year: Int, month: Int, day: Int): List<Note> {
+        val p = notesPrefs(c)
+        val raw = p.getString(notesListKey(year, month, day), null)
+        if (raw != null) {
+            return parseNotes(raw)
+        }
+        // Legacy fallback: a single plain-string note under "Y_M_D".
+        val legacy = p.getString(dateKey(year, month, day), null)?.trim().orEmpty()
+        if (legacy.isEmpty()) return emptyList()
+        val migrated = listOf(Note(newId(), legacy, System.currentTimeMillis()))
+        writeNotes(c, year, month, day, migrated)
+        return migrated
+    }
+
+    private fun parseNotes(raw: String): List<Note> = try {
+        val arr = JSONArray(raw)
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val text = o.optString("text").trim()
+            if (text.isEmpty()) null
+            else Note(o.optString("id").ifBlank { newId() }, text, o.optLong("ts", 0L))
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun addNote(c: Context, year: Int, month: Int, day: Int, text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isEmpty()) return false
+        val updated = getNotes(c, year, month, day) + Note(newId(), clean, System.currentTimeMillis())
+        writeNotes(c, year, month, day, updated)
+        return true
+    }
+
+    fun updateNote(c: Context, year: Int, month: Int, day: Int, id: String, text: String) {
+        val clean = text.trim()
+        val updated = getNotes(c, year, month, day).map {
+            if (it.id == id) it.copy(text = clean) else it
+        }.filter { it.text.isNotEmpty() }
+        writeNotes(c, year, month, day, updated)
+    }
+
+    fun deleteNote(c: Context, year: Int, month: Int, day: Int, id: String) {
+        val updated = getNotes(c, year, month, day).filterNot { it.id == id }
+        writeNotes(c, year, month, day, updated)
+    }
+
+    private fun writeNotes(c: Context, year: Int, month: Int, day: Int, notes: List<Note>) {
+        val p = notesPrefs(c)
+        val e = p.edit()
+        if (notes.isEmpty()) {
+            e.remove(notesListKey(year, month, day))
+            e.remove(dateKey(year, month, day)) // clear legacy mirror too
+        } else {
+            val arr = JSONArray()
+            notes.forEach { n ->
+                arr.put(JSONObject().apply {
+                    put("id", n.id); put("text", n.text); put("ts", n.ts)
+                })
+            }
+            e.putString(notesListKey(year, month, day), arr.toString())
+            // Keep a joined-text mirror so the widget + legacy readers still work.
+            e.putString(dateKey(year, month, day), notes.joinToString("\n") { it.text })
+        }
+        e.apply()
+    }
+
+    /** Days (1..31) of the given month that have at least one note. */
+    fun daysWithNotes(c: Context, year: Int, month: Int): Set<Int> =
+        (1..31).filter { getNotes(c, year, month, it).isNotEmpty() }.toSet()
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // REMINDERS / EVENTS — multiple per day, unique request code
+    // ─────────────────────────────────────────────────────────────────────────
+    data class Reminder(
+        val requestCode: Int,
+        val triggerMs: Long,
+        val title: String,
+        val message: String,
+        val ringtoneUri: String?,
+        val insistent: Boolean,
+        val kind: String,        // "reminder" | "shift"
+        val shiftId: String?
+    )
+
+    fun getReminders(c: Context): List<Reminder> = try {
+        val arr = JSONArray(alarmsPrefs(c).getString("alarms", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            Reminder(
+                requestCode = o.optInt("requestCode"),
+                triggerMs = o.optLong("triggerMs", 0L),
+                title = o.optString("title"),
+                message = o.optString("message"),
+                ringtoneUri = o.optString("ringtoneUri").ifBlank { null },
+                insistent = o.optBoolean("insistent", false),
+                kind = o.optString("kind").ifBlank { "reminder" },
+                shiftId = o.optString("shiftId").ifBlank { null }
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun saveReminders(c: Context, reminders: List<Reminder>) {
+        val arr = JSONArray()
+        reminders.forEach { r ->
+            arr.put(JSONObject().apply {
+                put("requestCode", r.requestCode)
+                put("triggerMs", r.triggerMs)
+                put("title", r.title)
+                put("message", r.message)
+                r.ringtoneUri?.let { put("ringtoneUri", it) }
+                put("insistent", r.insistent)
+                put("kind", r.kind)
+                r.shiftId?.let { put("shiftId", it) }
+            })
+        }
+        alarmsPrefs(c).edit().putString("alarms", arr.toString()).apply()
+    }
+
+    fun upsertReminder(c: Context, r: Reminder) {
+        val updated = getReminders(c).filterNot { it.requestCode == r.requestCode } + r
+        saveReminders(c, updated)
+    }
+
+    fun removeReminder(c: Context, requestCode: Int) {
+        saveReminders(c, getReminders(c).filterNot { it.requestCode == requestCode })
+    }
+
+    /** A fresh, monotonically increasing request code so reminders never collide. */
+    fun nextRequestCode(c: Context): Int {
+        val s = settings(c)
+        val next = s.getInt("next_request_code", 100_000) + 1
+        s.edit().putInt("next_request_code", next).apply()
+        return next
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CUSTOM HOLIDAYS — user added, recurring yearly on a Gregorian month/day
+    // ─────────────────────────────────────────────────────────────────────────
+    data class CustomHoliday(
+        val id: String,
+        val month: Int,    // 1..12
+        val day: Int,      // 1..31
+        val nameKm: String,
+        val nameEn: String
+    )
+
+    fun getCustomHolidays(c: Context): List<CustomHoliday> = try {
+        val arr = JSONArray(holidaysPrefs(c).getString("holidays", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            CustomHoliday(
+                id = o.optString("id").ifBlank { newId() },
+                month = o.optInt("month"),
+                day = o.optInt("day"),
+                nameKm = o.optString("nameKm"),
+                nameEn = o.optString("nameEn").ifBlank { o.optString("nameKm") }
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private fun saveCustomHolidays(c: Context, list: List<CustomHoliday>) {
+        val arr = JSONArray()
+        list.forEach { h ->
+            arr.put(JSONObject().apply {
+                put("id", h.id); put("month", h.month); put("day", h.day)
+                put("nameKm", h.nameKm); put("nameEn", h.nameEn)
+            })
+        }
+        holidaysPrefs(c).edit().putString("holidays", arr.toString()).apply()
+    }
+
+    fun addCustomHoliday(c: Context, month: Int, day: Int, nameKm: String, nameEn: String) {
+        val km = nameKm.trim().ifBlank { nameEn.trim() }
+        val en = nameEn.trim().ifBlank { km }
+        if (km.isEmpty()) return
+        saveCustomHolidays(c, getCustomHolidays(c) + CustomHoliday(newId(), month, day, km, en))
+    }
+
+    fun deleteCustomHoliday(c: Context, id: String) {
+        saveCustomHolidays(c, getCustomHolidays(c).filterNot { it.id == id })
+    }
+
+    fun customHolidaysForMonth(c: Context, month: Int): List<CustomHoliday> =
+        getCustomHolidays(c).filter { it.month == month }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // WORK SCHEDULE — rotating shift system on a 26th→25th monthly cycle
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** A single shift template (e.g. "Day" 07:30–19:30). Crosses midnight when [isOvernight]. */
+    data class ShiftDef(
+        val id: String,
+        val name: String,
+        val startHour: Int,
+        val startMin: Int,
+        val endHour: Int,
+        val endMin: Int
+    ) {
+        val startMinutes: Int get() = startHour * 60 + startMin
+        val endMinutes: Int get() = endHour * 60 + endMin
+        /** A shift whose end is at/earlier than its start runs into the next day. */
+        val isOvernight: Boolean get() = endMinutes <= startMinutes
+    }
+
+    /**
+     * The user's rotating-shift configuration. [systemType] is 2 or 3; [shifts]
+     * holds the (editable) shift templates; [dayAssignments] has [CYCLE_SLOTS]
+     * entries — the shift id worked on each day of the cycle (indexed by the
+     * day's offset from the cycle start), or null for a day off. Every working
+     * day is fully customisable. The same day pattern repeats every cycle.
+     */
+    data class ShiftCycle(
+        val systemType: Int,
+        val shifts: List<ShiftDef>,
+        val dayAssignments: List<String?>,
+        val remind: Boolean,
+        val reminderMinutesBefore: Int
+    ) {
+        fun shiftById(id: String?): ShiftDef? = id?.let { shifts.firstOrNull { s -> s.id == it } }
+        fun shiftIdForDay(offset: Int): String? = dayAssignments.getOrNull(offset)
+        val isConfigured: Boolean get() = shifts.isNotEmpty()
+    }
+
+    /** Max number of day slots in a cycle (longest 26th→25th span is 31 days). */
+    const val CYCLE_SLOTS = 31
+
+    fun emptyDayAssignments(): List<String?> = List(CYCLE_SLOTS) { null }
+
+    /** Built-in presets matching the standard 2- and 3-shift systems. */
+    fun presetShifts(systemType: Int): List<ShiftDef> = if (systemType == 3) listOf(
+        ShiftDef("s1", "Shift 1", 7, 30, 15, 30),
+        ShiftDef("s2", "Shift 2", 15, 30, 23, 30),
+        ShiftDef("s3", "Shift 3", 23, 30, 7, 30)
+    ) else listOf(
+        ShiftDef("day", "Day", 7, 30, 19, 30),
+        ShiftDef("night", "Night", 19, 30, 7, 30)
+    )
+
+    fun getShiftCycle(c: Context): ShiftCycle? {
+        val raw = schedulePrefs(c).getString("cycle", null) ?: return null
+        return try {
+            val o = JSONObject(raw)
+            val shiftsArr = o.optJSONArray("shifts") ?: JSONArray()
+            val shifts = (0 until shiftsArr.length()).mapNotNull { i ->
+                val s = shiftsArr.optJSONObject(i) ?: return@mapNotNull null
+                ShiftDef(
+                    id = s.optString("id").ifBlank { newId() },
+                    name = s.optString("name"),
+                    startHour = s.optInt("startHour"), startMin = s.optInt("startMin"),
+                    endHour = s.optInt("endHour"), endMin = s.optInt("endMin")
+                )
+            }
+            val dayAssignments = parseDayAssignments(o)
+            ShiftCycle(
+                systemType = o.optInt("systemType", 2),
+                shifts = shifts,
+                dayAssignments = dayAssignments,
+                remind = o.optBoolean("remind", true),
+                reminderMinutesBefore = o.optInt("reminderMinutesBefore", 30)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Read the per-day assignment list, migrating older formats where needed:
+     *  - "dayAssignments": array of 31 shift ids ("" = off)   ← current
+     *  - "weekAssignments": array-of-arrays or array-of-strings (per week)
+     *    is expanded across each week's 7 days as a sensible starting point.
+     */
+    private fun parseDayAssignments(o: JSONObject): List<String?> {
+        o.optJSONArray("dayAssignments")?.let { daArr ->
+            return (0 until CYCLE_SLOTS).map { i ->
+                if (i < daArr.length()) daArr.optString(i).ifBlank { null } else null
+            }
+        }
+        // Legacy weekly format → expand to days.
+        val waArr = o.optJSONArray("weekAssignments")
+        val weekShift: (Int) -> String? = wa@{ wi ->
+            val el = waArr?.opt(wi) ?: return@wa null
+            when (el) {
+                is JSONArray -> (0 until el.length()).map { el.optString(it) }.firstOrNull { it.isNotBlank() }
+                is String -> el.ifBlank { null }
+                else -> null
+            }
+        }
+        return (0 until CYCLE_SLOTS).map { d -> weekShift((d / 7).coerceIn(0, 3)) }
+    }
+
+    fun saveShiftCycle(c: Context, cycle: ShiftCycle) {
+        val o = JSONObject().apply {
+            put("systemType", cycle.systemType)
+            put("shifts", JSONArray().apply {
+                cycle.shifts.forEach { s ->
+                    put(JSONObject().apply {
+                        put("id", s.id); put("name", s.name)
+                        put("startHour", s.startHour); put("startMin", s.startMin)
+                        put("endHour", s.endHour); put("endMin", s.endMin)
+                    })
+                }
+            })
+            put("dayAssignments", JSONArray().apply {
+                cycle.dayAssignments.forEach { put(it ?: "") }
+            })
+            put("remind", cycle.remind)
+            put("reminderMinutesBefore", cycle.reminderMinutesBefore)
+        }
+        schedulePrefs(c).edit().putString("cycle", o.toString()).apply()
+    }
+
+    fun clearShiftCycle(c: Context) {
+        schedulePrefs(c).edit().remove("cycle").apply()
+    }
+
+    // ── Per-cycle history snapshots ──────────────────────────────────────────
+    // The day pattern repeats, but once a month passes we freeze the worked
+    // schedule so past months can be reviewed even if the template later
+    // changes. Snapshots are keyed by the cycle's start (e.g. "2026-6").
+
+    /** Stable key for the cycle that contains the given date (its 26th-anchored start). */
+    fun cycleKey(year: Int, month: Int, day: Int): String {
+        val s = WorkCycleEngine.cycleStart(year, month, day)
+        return "${s.get(Calendar.YEAR)}-${s.get(Calendar.MONTH) + 1}"
+    }
+
+    fun getCycleSnapshots(c: Context): Map<String, List<String?>> = try {
+        val o = JSONObject(schedulePrefs(c).getString("snapshots", "{}") ?: "{}")
+        buildMap {
+            o.keys().forEach { k ->
+                val arr = o.optJSONArray(k) ?: return@forEach
+                put(k, (0 until arr.length()).map { arr.optString(it).ifBlank { null } })
+            }
+        }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    private fun saveCycleSnapshots(c: Context, map: Map<String, List<String?>>) {
+        val o = JSONObject()
+        map.forEach { (k, list) ->
+            o.put(k, JSONArray().apply { list.forEach { put(it ?: "") } })
+        }
+        schedulePrefs(c).edit().putString("snapshots", o.toString()).apply()
+    }
+
+    /** Freeze the current cycle's day pattern so it survives later template edits. */
+    fun snapshotCurrentCycle(c: Context) {
+        val cyc = getShiftCycle(c) ?: return
+        if (!cyc.isConfigured) return
+        val now = Calendar.getInstance()
+        val key = cycleKey(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
+        val map = getCycleSnapshots(c).toMutableMap()
+        map[key] = cyc.dayAssignments
+        saveCycleSnapshots(c, map)
+    }
+
+    /**
+     * The cycle to use for a given date: a frozen snapshot when one exists for
+     * that date's (past) cycle, otherwise the live [base] template.
+     */
+    fun historyAwareCycle(base: ShiftCycle, snapshots: Map<String, List<String?>>, year: Int, month: Int, day: Int): ShiftCycle {
+        val snap = snapshots[cycleKey(year, month, day)]
+        return if (snap != null) base.copy(dayAssignments = snap) else base
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ALARM SETTINGS — custom ringtone + behaviour
+    // ─────────────────────────────────────────────────────────────────────────
+    fun getRingtoneUri(c: Context): String? = settings(c).getString("reminder_ringtone_uri", null)
+    fun setRingtoneUri(c: Context, uri: String?) {
+        settings(c).edit().apply {
+            if (uri == null) remove("reminder_ringtone_uri") else putString("reminder_ringtone_uri", uri)
+        }.apply()
+    }
+
+    fun getRingtoneTitle(c: Context): String? = settings(c).getString("reminder_ringtone_title", null)
+    fun setRingtoneTitle(c: Context, title: String?) {
+        settings(c).edit().apply {
+            if (title == null) remove("reminder_ringtone_title") else putString("reminder_ringtone_title", title)
+        }.apply()
+    }
+
+    fun isInsistent(c: Context): Boolean = settings(c).getBoolean("reminder_insistent", false)
+    fun setInsistent(c: Context, value: Boolean) {
+        settings(c).edit().putBoolean("reminder_insistent", value).apply()
+    }
+
+    /** Default time-of-day a new reminder is pre-filled with (minutes from midnight). */
+    fun getDefaultReminderMinutes(c: Context): Int = settings(c).getInt("reminder_default_minutes", 8 * 60)
+    fun setDefaultReminderMinutes(c: Context, minutes: Int) {
+        settings(c).edit().putInt("reminder_default_minutes", minutes).apply()
+    }
+
+    // ── util ─────────────────────────────────────────────────────────────────
+    private fun newId(): String = "${System.currentTimeMillis()}_${(Math.random() * 100000).toInt()}"
+}

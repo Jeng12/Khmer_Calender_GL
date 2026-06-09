@@ -7,6 +7,7 @@ import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -73,12 +74,42 @@ fun ProfileSettingsContent(
     isDarkMode: Boolean = true,
     onDarkModeToggle: (Boolean) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.KM,
-    onLanguageChange: (AppLanguage) -> Unit = {}
+    onLanguageChange: (AppLanguage) -> Unit = {},
+    onOpenSchedule: () -> Unit = {}
 ) {
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var silaNotifyEnabled by remember { mutableStateOf(prefs.getBoolean("sila_notify", true)) }
+
+    // Reminder / alarm settings (custom ringtone, ring behaviour, default time)
+    val defaultRingtoneLabel = tr("លំនាំដើម", "Default")
+    var ringtoneTitle by remember { mutableStateOf(AppStore.getRingtoneTitle(context) ?: defaultRingtoneLabel) }
+    var insistent by remember { mutableStateOf(AppStore.isInsistent(context)) }
+    var defaultReminderMinutes by remember { mutableIntStateOf(AppStore.getDefaultReminderMinutes(context)) }
+
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            @Suppress("DEPRECATION")
+            val uri: Uri? = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            AppStore.setRingtoneUri(context, uri?.toString())
+            val title = uri?.let { runCatching { RingtoneManager.getRingtone(context, it)?.getTitle(context) }.getOrNull() }
+            AppStore.setRingtoneTitle(context, title)
+            ringtoneTitle = title ?: defaultRingtoneLabel
+        }
+    }
+    fun openRingtonePicker() {
+        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_NOTIFICATION)
+            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select reminder sound")
+            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, AppStore.getRingtoneUri(context)?.let { Uri.parse(it) })
+        }
+        ringtoneLauncher.launch(intent)
+    }
     var userName by remember { mutableStateOf(prefs.getString("user_name", "Sophanit") ?: "Sophanit") }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var profileImageUri by remember { mutableStateOf(prefs.getString("profile_image_uri", null)?.let { Uri.parse(it) }) }
@@ -302,6 +333,95 @@ fun ProfileSettingsContent(
                             silaNotifyEnabled = enabled
                             prefs.edit().putBoolean("sila_notify", enabled).apply()
                         },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                    )
+                }
+            }
+        }
+
+        // Work schedule entry
+        item {
+            Text(tr("កាលវិភាគ (SCHEDULE)", "SCHEDULE"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                    .clickable { onOpenSchedule() }
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("💼", fontSize = 16.sp)
+                    Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 11.sp, color = SandText)
+                }
+                Text("›", fontSize = 20.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Reminder / alarm settings
+        item {
+            Text(tr("ការរំលឹក និងសំឡេងរោទ៍ (REMINDERS & ALARM)", "REMINDERS & ALARM"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+            ) {
+                // Ringtone picker
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { openRingtonePicker() }.padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("🎵", fontSize = 16.sp)
+                        Text(tr("សំឡេងរោទ៍ (Ringtone)", "Alarm ringtone"), fontSize = 11.sp, color = SandText)
+                    }
+                    Text(ringtoneTitle, fontSize = 10.sp, color = TraditionalGold, fontWeight = FontWeight.Bold, maxLines = 1)
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                // Default reminder time
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            android.app.TimePickerDialog(
+                                context,
+                                { _, h, m ->
+                                    defaultReminderMinutes = h * 60 + m
+                                    AppStore.setDefaultReminderMinutes(context, defaultReminderMinutes)
+                                },
+                                defaultReminderMinutes / 60, defaultReminderMinutes % 60, true
+                            ).show()
+                        }
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("⏰", fontSize = 16.sp)
+                        Text(tr("ម៉ោងរំលឹកលំនាំដើម (Default time)", "Default reminder time"), fontSize = 11.sp, color = SandText)
+                    }
+                    Text("%02d:%02d".format(defaultReminderMinutes / 60, defaultReminderMinutes % 60), fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                // Ring until dismissed (insistent)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Text("🔁", fontSize = 16.sp)
+                        Text(tr("រោទ៍រហូតដល់បិទ (Ring until dismissed)", "Ring until dismissed"), fontSize = 11.sp, color = SandText)
+                    }
+                    Switch(
+                        checked = insistent,
+                        onCheckedChange = { insistent = it; AppStore.setInsistent(context, it) },
                         colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                     )
                 }
