@@ -241,73 +241,108 @@ object AppStore {
         getCustomHolidays(c).filter { it.month == month }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // WORK SCHEDULE — recurring weekly shifts
+    // WORK SCHEDULE — rotating shift system on a 25th→25th monthly cycle
     // ─────────────────────────────────────────────────────────────────────────
-    data class WorkShift(
+
+    /** A single shift template (e.g. "Day" 07:30–19:30). Crosses midnight when [isOvernight]. */
+    data class ShiftDef(
         val id: String,
-        val label: String,
-        val daysOfWeek: List<Int>,   // Calendar.SUNDAY(1)..SATURDAY(7)
+        val name: String,
         val startHour: Int,
         val startMin: Int,
         val endHour: Int,
-        val endMin: Int,
+        val endMin: Int
+    ) {
+        val startMinutes: Int get() = startHour * 60 + startMin
+        val endMinutes: Int get() = endHour * 60 + endMin
+        /** A shift whose end is at/earlier than its start runs into the next day. */
+        val isOvernight: Boolean get() = endMinutes <= startMinutes
+        val durationMinutes: Int
+            get() = (((endMinutes - startMinutes) % 1440) + 1440) % 1440 // 0 → handled as full-day below
+    }
+
+    /**
+     * The user's rotating-shift configuration. [systemType] is 2 or 3; [shifts]
+     * holds the (editable) shift templates; [weekAssignments] has exactly 4
+     * entries — the shift id worked in each week of the cycle, or null for an
+     * off week. The same weekly pattern repeats every cycle.
+     */
+    data class ShiftCycle(
+        val systemType: Int,
+        val shifts: List<ShiftDef>,
+        val weekAssignments: List<String?>,
         val remind: Boolean,
         val reminderMinutesBefore: Int
+    ) {
+        fun shiftById(id: String?): ShiftDef? = id?.let { shifts.firstOrNull { s -> s.id == it } }
+        val isConfigured: Boolean get() = shifts.isNotEmpty()
+    }
+
+    /** Built-in presets matching the standard 2- and 3-shift systems. */
+    fun presetShifts(systemType: Int): List<ShiftDef> = if (systemType == 3) listOf(
+        ShiftDef("s1", "Shift 1", 7, 30, 15, 30),
+        ShiftDef("s2", "Shift 2", 15, 30, 23, 30),
+        ShiftDef("s3", "Shift 3", 23, 30, 7, 30)
+    ) else listOf(
+        ShiftDef("day", "Day", 7, 30, 19, 30),
+        ShiftDef("night", "Night", 19, 30, 7, 30)
     )
 
-    fun getShifts(c: Context): List<WorkShift> = try {
-        val arr = JSONArray(schedulePrefs(c).getString("shifts", "[]") ?: "[]")
-        (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            val daysArr = o.optJSONArray("days") ?: JSONArray()
-            val days = (0 until daysArr.length()).map { daysArr.optInt(it) }
-            WorkShift(
-                id = o.optString("id").ifBlank { newId() },
-                label = o.optString("label"),
-                daysOfWeek = days,
-                startHour = o.optInt("startHour"),
-                startMin = o.optInt("startMin"),
-                endHour = o.optInt("endHour"),
-                endMin = o.optInt("endMin"),
+    fun getShiftCycle(c: Context): ShiftCycle? {
+        val raw = schedulePrefs(c).getString("cycle", null) ?: return null
+        return try {
+            val o = JSONObject(raw)
+            val shiftsArr = o.optJSONArray("shifts") ?: JSONArray()
+            val shifts = (0 until shiftsArr.length()).mapNotNull { i ->
+                val s = shiftsArr.optJSONObject(i) ?: return@mapNotNull null
+                ShiftDef(
+                    id = s.optString("id").ifBlank { newId() },
+                    name = s.optString("name"),
+                    startHour = s.optInt("startHour"), startMin = s.optInt("startMin"),
+                    endHour = s.optInt("endHour"), endMin = s.optInt("endMin")
+                )
+            }
+            val waArr = o.optJSONArray("weekAssignments") ?: JSONArray()
+            val wa = (0 until 4).map { i ->
+                if (i < waArr.length()) waArr.optString(i).ifBlank { null } else null
+            }
+            ShiftCycle(
+                systemType = o.optInt("systemType", 2),
+                shifts = shifts,
+                weekAssignments = wa,
                 remind = o.optBoolean("remind", true),
                 reminderMinutesBefore = o.optInt("reminderMinutesBefore", 30)
             )
+        } catch (_: Exception) {
+            null
         }
-    } catch (_: Exception) {
-        emptyList()
     }
 
-    private fun saveShifts(c: Context, list: List<WorkShift>) {
-        val arr = JSONArray()
-        list.forEach { s ->
-            arr.put(JSONObject().apply {
-                put("id", s.id)
-                put("label", s.label)
-                put("days", JSONArray().apply { s.daysOfWeek.forEach { put(it) } })
-                put("startHour", s.startHour); put("startMin", s.startMin)
-                put("endHour", s.endHour); put("endMin", s.endMin)
-                put("remind", s.remind)
-                put("reminderMinutesBefore", s.reminderMinutesBefore)
+    fun saveShiftCycle(c: Context, cycle: ShiftCycle) {
+        val o = JSONObject().apply {
+            put("systemType", cycle.systemType)
+            put("shifts", JSONArray().apply {
+                cycle.shifts.forEach { s ->
+                    put(JSONObject().apply {
+                        put("id", s.id); put("name", s.name)
+                        put("startHour", s.startHour); put("startMin", s.startMin)
+                        put("endHour", s.endHour); put("endMin", s.endMin)
+                    })
+                }
             })
+            put("weekAssignments", JSONArray().apply {
+                // Empty string marks an "off" week (JSONObject.NULL stringifies to "null").
+                cycle.weekAssignments.forEach { put(it ?: "") }
+            })
+            put("remind", cycle.remind)
+            put("reminderMinutesBefore", cycle.reminderMinutesBefore)
         }
-        schedulePrefs(c).edit().putString("shifts", arr.toString()).apply()
+        schedulePrefs(c).edit().putString("cycle", o.toString()).apply()
     }
 
-    fun upsertShift(c: Context, shift: WorkShift) {
-        val list = getShifts(c)
-        val updated = if (list.any { it.id == shift.id })
-            list.map { if (it.id == shift.id) shift else it }
-        else list + shift
-        saveShifts(c, updated)
+    fun clearShiftCycle(c: Context) {
+        schedulePrefs(c).edit().remove("cycle").apply()
     }
-
-    fun deleteShift(c: Context, id: String) {
-        saveShifts(c, getShifts(c).filterNot { it.id == id })
-    }
-
-    /** Shifts that occur on the given Calendar day-of-week (1=Sun .. 7=Sat). */
-    fun shiftsForDayOfWeek(c: Context, dayOfWeek: Int): List<WorkShift> =
-        getShifts(c).filter { dayOfWeek in it.daysOfWeek }
 
     // ─────────────────────────────────────────────────────────────────────────
     // ALARM SETTINGS — custom ringtone + behaviour

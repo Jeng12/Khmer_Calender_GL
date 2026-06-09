@@ -11,7 +11,6 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat
 import com.example.alarm.WorkScheduleScheduler
 import com.example.core.*
 import com.example.data.AppStore
+import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
@@ -41,42 +42,28 @@ fun ScheduleTabContent() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var version by remember { mutableIntStateOf(0) }
-    val shifts = remember(version) { AppStore.getShifts(context) }
+    var cycle by remember { mutableStateOf(AppStore.getShiftCycle(context)) }
+    var editingShift by remember { mutableStateOf<AppStore.ShiftDef?>(null) }
 
-    var showEditor by remember { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<AppStore.WorkShift?>(null) }
+    val today = remember { Calendar.getInstance() }
+    val tY = today.get(Calendar.YEAR); val tM = today.get(Calendar.MONTH) + 1; val tD = today.get(Calendar.DAY_OF_MONTH)
 
     val notifPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* result handled implicitly — alarm still schedules either way */ }
+    ) { }
 
-    fun resync() {
-        WorkScheduleScheduler.sync(context)
-        version++
-        scope.launch { WidgetPrefs.refresh(context) }
-    }
+    fun fmtDate(cal: Calendar) =
+        "${num(lang, cal.get(Calendar.DAY_OF_MONTH))} ${gregMonth(lang, cal.get(Calendar.MONTH))}"
 
-    if (showEditor) {
-        ShiftEditorDialog(
-            initial = editing,
+    // Edit-shift dialog
+    editingShift?.let { shift ->
+        ShiftTimeEditor(
+            shift = shift,
             lang = lang,
-            onDismiss = { showEditor = false },
-            onSave = { shift ->
-                AppStore.upsertShift(context, shift)
-                if (shift.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-                showEditor = false
-                resync()
-                Toast.makeText(context, tr(lang, "បានរក្សាទុកវេនការងារ", "Shift saved"), Toast.LENGTH_SHORT).show()
-            },
-            onDelete = { id ->
-                AppStore.deleteShift(context, id)
-                showEditor = false
-                resync()
+            onDismiss = { editingShift = null },
+            onSave = { updated ->
+                cycle = cycle?.let { c -> c.copy(shifts = c.shifts.map { if (it.id == updated.id) updated else it }) }
+                editingShift = null
             }
         )
     }
@@ -89,138 +76,318 @@ fun ScheduleTabContent() {
             item {
                 Column {
                     Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text(tr("កំណត់វេន និងទទួលការរំលឹកមុនពេលចូលធ្វើការ", "Set weekly shifts and get reminders before work"), fontSize = 10.sp, color = LotusPink)
+                    Text(tr("ប្រព័ន្ធវេនវិលជុំ · ខួប ២៥ ដល់ ២៥", "Rotating shifts · 25th-to-25th cycle"), fontSize = 10.sp, color = LotusPink)
                 }
             }
 
-            if (shifts.isEmpty()) {
+            val c = cycle
+            if (c == null || !c.isConfigured) {
+                // ── First-time setup ──────────────────────────────────────────
                 item {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("🗓️", fontSize = 40.sp)
-                        Text(tr("មិនទាន់មានវេនការងារ", "No shifts yet"), fontSize = 13.sp, color = sandText, fontWeight = FontWeight.Bold)
-                        Text(tr("ចុចប៊ូតុង + ដើម្បីបន្ថែមវេនដំបូង", "Tap + to add your first shift"), fontSize = 11.sp, color = dimColor)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(tr("ជ្រើសរើសប្រព័ន្ធវេន", "Choose a shift system"), fontSize = 12.sp, color = goldSubText, fontWeight = FontWeight.Bold)
+                        SystemSetupCard(
+                            emoji = "🌗",
+                            title = tr("ប្រព័ន្ធ ២ វេន", "2-shift system"),
+                            subtitle = tr("ថ្ងៃ ០៧:៣០–១៩:៣០ · យប់ ១៩:៣០–០៧:៣០", "Day 07:30–19:30 · Night 19:30–07:30"),
+                            onClick = {
+                                cycle = AppStore.ShiftCycle(2, AppStore.presetShifts(2), List(4) { null }, true, 30)
+                            }
+                        )
+                        SystemSetupCard(
+                            emoji = "🕗",
+                            title = tr("ប្រព័ន្ធ ៣ វេន", "3-shift system"),
+                            subtitle = tr("បីវេនស្មើគ្នា ៨ ម៉ោង", "Three equal 8-hour shifts"),
+                            onClick = {
+                                cycle = AppStore.ShiftCycle(3, AppStore.presetShifts(3), List(4) { null }, true, 30)
+                            }
+                        )
                     }
                 }
             } else {
-                items(shifts) { shift ->
-                    ShiftCard(
-                        shift = shift,
-                        lang = lang,
-                        onClick = { editing = shift; showEditor = true },
-                        onToggleRemind = { enabled ->
-                            AppStore.upsertShift(context, shift.copy(remind = enabled))
-                            resync()
+                // ── System type switch ────────────────────────────────────────
+                item {
+                    SectionLabel(tr("ប្រព័ន្ធវេន (SHIFT SYSTEM)", "SHIFT SYSTEM"))
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(2 to tr("២ វេន", "2 shifts"), 3 to tr("៣ វេន", "3 shifts")).forEach { (t, label) ->
+                            val active = c.systemType == t
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) TraditionalGold else plumSurface)
+                                    .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), weekAssignments = List(4) { null })
+                                    }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(label, fontSize = 12.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold)
+                            }
                         }
+                    }
+                }
+
+                // ── Editable shift templates ──────────────────────────────────
+                item { SectionLabel(tr("វេន (SHIFTS · ចុចដើម្បីកែម៉ោង)", "SHIFTS · tap to edit time")) }
+                items(c.shifts) { shift ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, TraditionalGold.copy(0.25f), RoundedCornerShape(12.dp))
+                            .clickable { editingShift = shift }
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(if (shift.isOvernight) "🌙" else "☀️", fontSize = 20.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(shift.name.ifBlank { tr(lang, "វេន", "Shift") }, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = sandText)
+                            Text(
+                                "%02d:%02d → %02d:%02d".format(shift.startHour, shift.startMin, shift.endHour, shift.endMin) +
+                                    if (shift.isOvernight) tr(lang, " (ឆ្លងយប់)", " (overnight)") else "",
+                                fontSize = 12.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Text("✏️", fontSize = 16.sp)
+                    }
+                }
+
+                // ── Weekly rotation ───────────────────────────────────────────
+                item {
+                    val start = WorkCycleEngine.cycleStart(tY, tM, tD)
+                    val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
+                    SectionLabel(tr("វេនប្រចាំសប្តាហ៍ (WEEKLY ROTATION)", "WEEKLY ROTATION"))
+                    Text(
+                        tr(lang, "ខួបបច្ចុប្បន្ន៖ ${fmtDate(start)} – ${fmtDate(end)}", "This cycle: ${fmtDate(start)} – ${fmtDate(end)}"),
+                        fontSize = 10.sp, color = dimColor, modifier = Modifier.padding(top = 4.dp)
                     )
                 }
+                items((0..3).toList()) { wi ->
+                    val (ws, we) = WorkCycleEngine.weekRange(tY, tM, tD, wi)
+                    val currentId = c.weekAssignments.getOrNull(wi)
+                    val isCurrentWeek = WorkCycleEngine.weekIndex(tY, tM, tD) == wi
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumCard, RoundedCornerShape(12.dp))
+                            .border(1.dp, if (isCurrentWeek) TraditionalGold.copy(0.6f) else deepBorder, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(tr(lang, "សប្តាហ៍ ${num(lang, wi + 1)}", "Week ${wi + 1}"), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = sandText)
+                            Spacer(Modifier.width(8.dp))
+                            Text("${fmtDate(ws)} – ${fmtDate(we)}", fontSize = 10.sp, color = goldSubText)
+                            if (isCurrentWeek) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(tr(lang, "• ឥឡូវ", "• now"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
+                                cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = null })
+                            }
+                            c.shifts.forEach { s ->
+                                ShiftChip(s.name, currentId == s.id, TraditionalGold) {
+                                    cycle = c.copy(weekAssignments = c.weekAssignments.toMutableList().also { it[wi] = s.id })
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Reminder settings ─────────────────────────────────────────
+                item {
+                    SectionLabel(tr("ការរំលឹក (REMINDERS)", "REMINDERS"))
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, deepBorder, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(tr("រំលឹកមុនចូលវេន", "Remind before each shift"), fontSize = 12.sp, color = sandText)
+                            Switch(
+                                checked = c.remind,
+                                onCheckedChange = { cycle = c.copy(remind = it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                            )
+                        }
+                        if (c.remind) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(15, 30, 60, 90).forEach { mins ->
+                                    ShiftChip(tr(lang, "$mins នាទី", "$mins min"), c.reminderMinutesBefore == mins, TraditionalGold) {
+                                        cycle = c.copy(reminderMinutesBefore = mins)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Upcoming worked days preview (with no-rest blocks) ────────
+                item { SectionLabel(tr("វេនខាងមុខ (UPCOMING SHIFTS)", "UPCOMING SHIFTS")) }
+                run {
+                    val from = (today.clone() as Calendar)
+                    val to = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 13) }
+                    val preview = WorkCycleEngine.buildWorkDays(c, from, to)
+                    if (preview.isEmpty()) {
+                        item {
+                            Text(
+                                tr("មិនមានវេនកំណត់ក្នុង ១៤ ថ្ងៃខាងមុខ", "No shifts assigned in the next 14 days"),
+                                fontSize = 11.sp, color = dimColor, modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(preview) { wd ->
+                            val dow = Calendar.getInstance().apply { set(wd.year, wd.month - 1, wd.day) }.get(Calendar.DAY_OF_WEEK)
+                            val dowLabel = weekdayLabels(lang).getOrElse(dow - 1) { "" }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(plumSurface, RoundedCornerShape(10.dp))
+                                    .border(1.dp, (if (wd.blocked) CrimsonHoliday else TraditionalGold).copy(0.3f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(if (wd.shift.isOvernight) "🌙" else "☀️", fontSize = 16.sp)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "$dowLabel ${num(lang, wd.day)} ${gregMonth(lang, wd.month - 1)} · ${wd.shift.name}",
+                                        fontSize = 12.sp, color = sandText, fontWeight = FontWeight.Bold,
+                                        textDecoration = if (wd.blocked) TextDecoration.LineThrough else null
+                                    )
+                                    Text(
+                                        "%02d:%02d → %02d:%02d".format(wd.shift.startHour, wd.shift.startMin, wd.shift.endHour, wd.shift.endMin),
+                                        fontSize = 10.sp, color = if (wd.blocked) CrimsonHoliday else TraditionalGold
+                                    )
+                                }
+                                if (wd.blocked) {
+                                    Text(tr(lang, "⛔ គ្មានសម្រាក", "⛔ no rest"), fontSize = 9.sp, color = CrimsonHoliday, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── Save / clear ──────────────────────────────────────────────
+                item {
+                    Spacer(Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            AppStore.saveShiftCycle(context, c)
+                            if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            WorkScheduleScheduler.sync(context)
+                            scope.launch { WidgetPrefs.refresh(context) }
+                            Toast.makeText(context, tr(lang, "បានរក្សាទុកកាលវិភាគ", "Schedule saved"), Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(tr("រក្សាទុក & បើកការរំលឹក", "Save & schedule reminders"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            AppStore.clearShiftCycle(context)
+                            WorkScheduleScheduler.sync(context)
+                            cycle = null
+                            scope.launch { WidgetPrefs.refresh(context) }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonHoliday),
+                        border = BorderStroke(1.dp, CrimsonHoliday.copy(0.5f))
+                    ) {
+                        Text(tr("លុបកាលវិភាគ", "Delete schedule"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                item { Spacer(Modifier.height(24.dp)) }
             }
-
-            item { Spacer(Modifier.height(72.dp)) }
-        }
-
-        // Add FAB
-        FloatingActionButton(
-            onClick = { editing = null; showEditor = true },
-            containerColor = TraditionalGold,
-            contentColor = nightBlack,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)
-        ) {
-            Text("+", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun ShiftCard(
-    shift: AppStore.WorkShift,
-    lang: AppLanguage,
-    onClick: () -> Unit,
-    onToggleRemind: (Boolean) -> Unit
-) {
-    val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
-    val dayLabels = weekdayLabels(lang) // Sunday-first
+private fun SectionLabel(text: String) {
+    val (_, _, _, _, _, _, _, _, dimColor) = LocalAppColors.current
+    Text(text, fontSize = 10.sp, color = dimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+}
+
+@Composable
+private fun SystemSetupCard(emoji: String, title: String, subtitle: String, onClick: () -> Unit) {
+    val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(plumSurface, RoundedCornerShape(14.dp))
-            .border(1.dp, TraditionalGold.copy(0.25f), RoundedCornerShape(14.dp))
+            .border(1.dp, TraditionalGold.copy(0.3f), RoundedCornerShape(14.dp))
             .clickable { onClick() }
-            .padding(14.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier.size(44.dp).background(TraditionalGold.copy(0.12f), RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
-        ) { Text("💼", fontSize = 20.sp) }
-
+        Text(emoji, fontSize = 28.sp)
         Column(modifier = Modifier.weight(1f)) {
-            Text(shift.label.ifBlank { tr(lang, "វេនការងារ", "Work shift") }, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = sandText)
-            Text(
-                "%02d:%02d – %02d:%02d".format(shift.startHour, shift.startMin, shift.endHour, shift.endMin),
-                fontSize = 12.sp, color = TraditionalGold, fontWeight = FontWeight.SemiBold
-            )
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (i in 0..6) {
-                    val cal = i + 1 // Calendar.SUNDAY = 1
-                    val active = cal in shift.daysOfWeek
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(if (active) TraditionalGold.copy(0.85f) else Color.Transparent)
-                            .border(1.dp, if (active) TraditionalGold else deepBorder, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(dayLabels[i].take(2), fontSize = 8.sp, color = if (active) Color.Black else dimColor, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            if (shift.remind) {
-                Text(
-                    tr(lang, "🔔 រំលឹក ${shift.reminderMinutesBefore} នាទីមុន", "🔔 Remind ${shift.reminderMinutesBefore} min before"),
-                    fontSize = 9.sp, color = goldSubText, modifier = Modifier.padding(top = 4.dp)
-                )
-            }
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = sandText)
+            Text(subtitle, fontSize = 10.sp, color = goldSubText)
         }
-
-        Switch(
-            checked = shift.remind,
-            onCheckedChange = onToggleRemind,
-            colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
-        )
+        Text("›", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun ShiftEditorDialog(
-    initial: AppStore.WorkShift?,
+private fun ShiftChip(label: String, active: Boolean, activeColor: Color, onClick: () -> Unit) {
+    val (nightBlack, _, plumSurface, _, deepBorder, _, sandText, _, _) = LocalAppColors.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (active) activeColor else plumSurface)
+            .border(1.dp, if (active) activeColor else deepBorder, RoundedCornerShape(20.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    ) {
+        Text(label, fontSize = 11.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ShiftTimeEditor(
+    shift: AppStore.ShiftDef,
     lang: AppLanguage,
     onDismiss: () -> Unit,
-    onSave: (AppStore.WorkShift) -> Unit,
-    onDelete: (String) -> Unit
+    onSave: (AppStore.ShiftDef) -> Unit
 ) {
-    val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
+    val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
     val context = LocalContext.current
 
-    var label by remember { mutableStateOf(initial?.label ?: "") }
-    var days by remember { mutableStateOf(initial?.daysOfWeek?.toSet() ?: setOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY)) }
-    var startHour by remember { mutableIntStateOf(initial?.startHour ?: 8) }
-    var startMin by remember { mutableIntStateOf(initial?.startMin ?: 0) }
-    var endHour by remember { mutableIntStateOf(initial?.endHour ?: 17) }
-    var endMin by remember { mutableIntStateOf(initial?.endMin ?: 0) }
-    var remind by remember { mutableStateOf(initial?.remind ?: true) }
-    var minutesBefore by remember { mutableIntStateOf(initial?.reminderMinutesBefore ?: 30) }
+    var name by remember { mutableStateOf(shift.name) }
+    var startHour by remember { mutableIntStateOf(shift.startHour) }
+    var startMin by remember { mutableIntStateOf(shift.startMin) }
+    var endHour by remember { mutableIntStateOf(shift.endHour) }
+    var endMin by remember { mutableIntStateOf(shift.endMin) }
 
-    val dayLabels = weekdayLabels(lang)
-
-    fun pickTime(initialHour: Int, initialMin: Int, onPicked: (Int, Int) -> Unit) {
-        TimePickerDialog(context, { _, h, m -> onPicked(h, m) }, initialHour, initialMin, true).show()
+    fun pick(h: Int, m: Int, onPicked: (Int, Int) -> Unit) {
+        TimePickerDialog(context, { _, hh, mm -> onPicked(hh, mm) }, h, m, true).show()
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -230,146 +397,30 @@ private fun ShiftEditorDialog(
             border = BorderStroke(1.dp, TraditionalGold.copy(0.4f)),
             modifier = Modifier.fillMaxWidth().padding(16.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                item {
-                    Text(
-                        if (initial == null) tr("បន្ថែមវេនការងារ", "Add Shift") else tr("កែវេនការងារ", "Edit Shift"),
-                        fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TraditionalGold
-                    )
-                }
-
-                item {
-                    OutlinedTextField(
-                        value = label,
-                        onValueChange = { label = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(tr("ឈ្មោះវេន (ឧ. វេនព្រឹក)", "Shift name (e.g. Morning)"), fontSize = 11.sp) },
-                        textStyle = TextStyle(fontSize = 13.sp, color = sandText),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TraditionalGold)
-                    )
-                }
-
-                // Day selector
-                item {
-                    Text(tr("ថ្ងៃ", "Days"), fontSize = 11.sp, color = goldSubText, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                        for (i in 0..6) {
-                            val cal = i + 1
-                            val active = cal in days
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(36.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (active) TraditionalGold else plumSurface)
-                                    .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(8.dp))
-                                    .clickable { days = if (active) days - cal else days + cal },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(dayLabels[i], fontSize = 10.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold)
-                            }
-                        }
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(tr("កែវេន", "Edit Shift"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TraditionalGold)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(tr("ឈ្មោះវេន", "Shift name"), fontSize = 11.sp) },
+                    textStyle = TextStyle(fontSize = 13.sp, color = sandText),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TraditionalGold)
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    EditorTimeField(tr("ចាប់ផ្តើម", "Start"), "%02d:%02d".format(startHour, startMin), Modifier.weight(1f)) {
+                        pick(startHour, startMin) { h, m -> startHour = h; startMin = m }
+                    }
+                    EditorTimeField(tr("បញ្ចប់", "End"), "%02d:%02d".format(endHour, endMin), Modifier.weight(1f)) {
+                        pick(endHour, endMin) { h, m -> endHour = h; endMin = m }
                     }
                 }
-
-                // Times
-                item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        TimeField(
-                            label = tr("ចាប់ផ្តើម", "Start"),
-                            time = "%02d:%02d".format(startHour, startMin),
-                            modifier = Modifier.weight(1f),
-                            onClick = { pickTime(startHour, startMin) { h, m -> startHour = h; startMin = m } }
-                        )
-                        TimeField(
-                            label = tr("បញ្ចប់", "End"),
-                            time = "%02d:%02d".format(endHour, endMin),
-                            modifier = Modifier.weight(1f),
-                            onClick = { pickTime(endHour, endMin) { h, m -> endHour = h; endMin = m } }
-                        )
-                    }
-                }
-
-                // Reminder toggle
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(tr("ការរំលឹក", "Reminder"), fontSize = 12.sp, color = sandText)
-                        Switch(
-                            checked = remind,
-                            onCheckedChange = { remind = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
-                        )
-                    }
-                }
-                if (remind) {
-                    item {
-                        Text(tr("រំលឹកមុនពេល", "Remind before"), fontSize = 11.sp, color = goldSubText, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(10, 15, 30, 60).forEach { mins ->
-                                val active = minutesBefore == mins
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(if (active) TraditionalGold else plumSurface)
-                                        .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(20.dp))
-                                        .clickable { minutesBefore = mins }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        tr(lang, "$mins នាទី", "$mins min"),
-                                        fontSize = 10.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (initial != null) {
-                            OutlinedButton(
-                                onClick = { onDelete(initial.id) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonHoliday),
-                                border = BorderStroke(1.dp, CrimsonHoliday.copy(0.6f))
-                            ) {
-                                Text(tr("លុប", "Delete"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Button(
-                            onClick = {
-                                if (days.isEmpty()) {
-                                    Toast.makeText(context, tr(lang, "សូមជ្រើសរើសយ៉ាងហោចណាស់មួយថ្ងៃ", "Pick at least one day"), Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-                                onSave(
-                                    AppStore.WorkShift(
-                                        id = initial?.id ?: "shift_${System.currentTimeMillis()}",
-                                        label = label.trim(),
-                                        daysOfWeek = days.toList().sorted(),
-                                        startHour = startHour, startMin = startMin,
-                                        endHour = endHour, endMin = endMin,
-                                        remind = remind,
-                                        reminderMinutesBefore = minutesBefore
-                                    )
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
-                        ) {
-                            Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
+                Button(
+                    onClick = { onSave(shift.copy(name = name.trim().ifBlank { shift.name }, startHour = startHour, startMin = startMin, endHour = endHour, endMin = endMin)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
+                ) {
+                    Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -377,7 +428,7 @@ private fun ShiftEditorDialog(
 }
 
 @Composable
-private fun TimeField(label: String, time: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun EditorTimeField(label: String, time: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
     Column(modifier = modifier) {
         Text(label, fontSize = 10.sp, color = goldSubText, fontWeight = FontWeight.Bold)
