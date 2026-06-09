@@ -19,7 +19,8 @@ class AlarmReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra("message") ?: ""
         val ringtoneUri = intent.getStringExtra("ringtoneUri")
         val insistent = intent.getBooleanExtra("insistent", false)
-        showNotification(context, title, message, ringtoneUri, insistent)
+        val kind = intent.getStringExtra("kind") ?: "reminder"
+        showNotification(context, title, message, ringtoneUri, insistent, kind)
 
         // This was a one-shot alarm; drop it from persistence now that it fired
         // (boot rescheduling only re-arms future alarms anyway).
@@ -34,8 +35,14 @@ class AlarmReceiver : BroadcastReceiver() {
         title: String,
         message: String,
         ringtoneUriStr: String?,
-        insistent: Boolean
+        insistent: Boolean,
+        kind: String
     ) {
+        // Work-shift reminders get a calendar/work icon; others an alarm-clock icon.
+        val smallIcon = if (kind == "shift")
+            android.R.drawable.ic_menu_my_calendar
+        else
+            android.R.drawable.ic_lock_idle_alarm
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val alarmSound: Uri = ringtoneUriStr?.let { runCatching { Uri.parse(it) }.getOrNull() }
@@ -77,7 +84,7 @@ class AlarmReceiver : BroadcastReceiver() {
         )
 
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(smallIcon)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))

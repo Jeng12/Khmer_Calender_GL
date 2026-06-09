@@ -38,6 +38,7 @@ import com.example.calendar.KhmerCalendarHelper
 import com.example.calendar.KhmerDate
 import com.example.core.*
 import com.example.data.AppStore
+import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
@@ -49,7 +50,8 @@ data class AgendaItem(
     val type: AgendaType,
     val title: String,
     val subtitle: String,
-    val isPast: Boolean
+    val isPast: Boolean,
+    val icon: String? = null
 )
 
 enum class AgendaType { HOLIDAY, NOTE, REMINDER }
@@ -87,6 +89,18 @@ fun CalendarTabContent(
     val daysWithNotes = remember(year, month, agendaVersion) { AppStore.daysWithNotes(context, year, month) }
     val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
     val daysWithCustomHoliday = remember(customHolidays) { customHolidays.map { it.day }.toSet() }
+
+    // Working days from the schedule (history-aware), highlighted on the grid.
+    val scheduleCycle = remember(agendaVersion) { AppStore.getShiftCycle(context) }
+    val scheduleSnaps = remember(agendaVersion) { AppStore.getCycleSnapshots(context) }
+    val workingDays: Map<Int, AppStore.ShiftDef> = remember(year, month, scheduleCycle, scheduleSnaps, daysList) {
+        val base = scheduleCycle
+        if (base == null || !base.isConfigured) emptyMap()
+        else (1..daysList.size).mapNotNull { d ->
+            val cyc = AppStore.historyAwareCycle(base, scheduleSnaps, year, month, d)
+            WorkCycleEngine.shiftForDate(cyc, year, month, d)?.let { d to it }
+        }.toMap()
+    }
 
     var showDayDetailDialog by remember { mutableStateOf(false) }
     var detailDialogDate by remember { mutableStateOf<KhmerDate?>(null) }
@@ -130,7 +144,8 @@ fun CalendarTabContent(
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
                 val d = c.get(Calendar.DAY_OF_MONTH)
                 val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
-                list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, "$time · ${r.message}", isPastDay(d)))
+                val icon = if (r.kind == "shift") "💼" else null
+                list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, "$time · ${r.message}", isPastDay(d), icon))
             }
         }
 
@@ -303,6 +318,8 @@ fun CalendarTabContent(
                                         (animYear == year && animMonth == month && dayNumber in daysWithCustomHoliday)
                                     val isWeekend  = col == 0 || col == 6
                                     val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithNotes
+                                    val workShift  = if (animYear == year && animMonth == month) workingDays[dayNumber] else null
+                                    val workColor  = if (workShift?.isOvernight == true) LotusPink else LightGold
 
                                     Box(
                                         modifier = Modifier
@@ -313,6 +330,7 @@ fun CalendarTabContent(
                                                 when {
                                                     isSelected -> TraditionalGold.copy(0.2f)
                                                     isToday    -> LotusPink.copy(0.12f)
+                                                    workShift != null -> workColor.copy(0.13f)
                                                     else       -> Color.Transparent
                                                 }
                                             )
@@ -372,6 +390,12 @@ fun CalendarTabContent(
                                                         .clip(RoundedCornerShape(2.dp))
                                                         .background(SkyBlue)
                                                 )
+                                                if (workShift != null) Box(
+                                                    modifier = Modifier
+                                                        .size(4.dp)
+                                                        .clip(CircleShape)
+                                                        .background(workColor)
+                                                )
                                             }
                                         }
                                     }
@@ -417,7 +441,7 @@ fun CalendarTabContent(
                     AgendaType.NOTE -> SkyBlue
                     AgendaType.REMINDER -> TraditionalGold
                 }
-                val icon = when (item.type) {
+                val icon = item.icon ?: when (item.type) {
                     AgendaType.HOLIDAY -> "🏮"
                     AgendaType.NOTE -> "📝"
                     AgendaType.REMINDER -> "⏰"
@@ -442,7 +466,7 @@ fun CalendarTabContent(
                 LegendIndicator(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious"))
                 LegendIndicator(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"))
                 LegendIndicator(SkyBlue, tr("ចំណាំ", "Note"))
-                LegendIndicator(TraditionalGold, tr("សកម្ម", "Active"))
+                LegendIndicator(LightGold, tr("ការងារ", "Work"))
             }
         }
     }

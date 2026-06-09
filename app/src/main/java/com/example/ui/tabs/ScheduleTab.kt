@@ -44,6 +44,10 @@ fun ScheduleTabContent() {
 
     var cycle by remember { mutableStateOf(AppStore.getShiftCycle(context)) }
     var editingShift by remember { mutableStateOf<AppStore.ShiftDef?>(null) }
+    // Which cycle is being viewed: 0 = current, -1 = previous month, +1 = next, …
+    var viewedOffset by remember { mutableIntStateOf(0) }
+    var savedVersion by remember { mutableIntStateOf(0) }
+    val snapshots = remember(savedVersion) { AppStore.getCycleSnapshots(context) }
 
     val today = remember { Calendar.getInstance() }
     val tY = today.get(Calendar.YEAR); val tM = today.get(Calendar.MONTH) + 1; val tD = today.get(Calendar.DAY_OF_MONTH)
@@ -76,7 +80,7 @@ fun ScheduleTabContent() {
             item {
                 Column {
                     Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
-                    Text(tr("ប្រព័ន្ធវេនវិលជុំ · ខួប ២៥ ដល់ ២៥", "Rotating shifts · 25th-to-25th cycle"), fontSize = 10.sp, color = LotusPink)
+                    Text(tr("ប្រព័ន្ធវេនវិលជុំ · ខួប ២៦ ដល់ ២៥", "Rotating shifts · 26th-to-25th cycle"), fontSize = 10.sp, color = LotusPink)
                 }
             }
 
@@ -105,8 +109,47 @@ fun ScheduleTabContent() {
                     }
                 }
             } else {
-                // ── Today's shift banner ──────────────────────────────────────
+                // Viewed cycle: 0 = current (editable); negative = past history
+                // (read-only snapshot); positive = upcoming (read-only template).
+                val viewedStartCal = (WorkCycleEngine.cycleStart(tY, tM, tD).clone() as Calendar).apply { add(Calendar.MONTH, viewedOffset) }
+                val vY = viewedStartCal.get(Calendar.YEAR)
+                val vM = viewedStartCal.get(Calendar.MONTH) + 1
+                val vD = viewedStartCal.get(Calendar.DAY_OF_MONTH)
+                val readOnly = viewedOffset != 0
+                val viewCycle = if (readOnly) c.copy(dayAssignments = snapshots[AppStore.cycleKey(vY, vM, vD)] ?: c.dayAssignments) else c
+
+                // ── Cycle navigation (review previous / next months) ──────────
                 item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, deepBorder, RoundedCornerShape(12.dp))
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("‹", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { viewedOffset -= 1 }.padding(horizontal = 14.dp, vertical = 4.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val vEnd = (viewedStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
+                            Text("${fmtDate(viewedStartCal)} – ${fmtDate(vEnd)}", fontSize = 13.sp, color = sandText, fontWeight = FontWeight.Bold)
+                            Text(
+                                when {
+                                    viewedOffset == 0 -> tr(lang, "ខួបបច្ចុប្បន្ន", "Current cycle")
+                                    viewedOffset < 0 -> tr(lang, "ប្រវត្តិ · មើលតែប៉ុណ្ណោះ", "History · view only")
+                                    else -> tr(lang, "ខាងមុខ · មើលតែប៉ុណ្ណោះ", "Upcoming · view only")
+                                },
+                                fontSize = 9.sp, color = if (readOnly) goldSubText else TraditionalGold, fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text("›", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { viewedOffset += 1 }.padding(horizontal = 14.dp, vertical = 4.dp))
+                    }
+                }
+
+                // ── Today's shift banner (current cycle only) ─────────────────
+                if (viewedOffset == 0) item {
                     val ctxStart = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
                     val wdToday = WorkCycleEngine.buildWorkDays(c, ctxStart, today)
                         .lastOrNull { it.year == tY && it.month == tM && it.day == tD }
@@ -211,17 +254,18 @@ fun ScheduleTabContent() {
                 }
 
                 // ── Per-day schedule (fully customisable) ─────────────────────
-                val cycleStartCal = WorkCycleEngine.cycleStart(tY, tM, tD)
+                val cycleStartCal = viewedStartCal
                 val cycleEndCal = (cycleStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
                 val cycleLen = (((cycleEndCal.timeInMillis - cycleStartCal.timeInMillis) / 86_400_000L) + 1).toInt().coerceIn(1, AppStore.CYCLE_SLOTS)
-                val blockedDays = WorkCycleEngine.buildWorkDays(c, cycleStartCal, cycleEndCal)
+                val blockedDays = WorkCycleEngine.buildWorkDays(viewCycle, cycleStartCal, cycleEndCal)
                     .filter { it.blocked }
                     .map { it.year * 10000 + it.month * 100 + it.day }
                     .toSet()
                 item {
                     SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
                     Text(
-                        tr(lang, "ខួប៖ ${fmtDate(cycleStartCal)} – ${fmtDate(cycleEndCal)} · ប្ដូរវេនបានគ្រប់ថ្ងៃ", "Cycle: ${fmtDate(cycleStartCal)} – ${fmtDate(cycleEndCal)} · tap any day to set its shift"),
+                        if (readOnly) tr(lang, "កំណត់ត្រាខួបនេះ (មើលតែប៉ុណ្ណោះ)", "This cycle's record (view only)")
+                        else tr(lang, "ប្ដូរវេនបានគ្រប់ថ្ងៃ", "Tap any day to set its shift"),
                         fontSize = 10.sp, color = dimColor, modifier = Modifier.padding(top = 4.dp)
                     )
                 }
@@ -231,7 +275,7 @@ fun ScheduleTabContent() {
                     val dow = cal.get(Calendar.DAY_OF_WEEK)
                     val isToday = y == tY && m == tM && d == tD
                     val isWeekend = dow == Calendar.SUNDAY || dow == Calendar.SATURDAY
-                    val currentId = c.shiftIdForDay(offset)
+                    val currentId = viewCycle.shiftIdForDay(offset)
                     val blocked = (y * 10000 + m * 100 + d) in blockedDays
 
                     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -267,11 +311,11 @@ fun ScheduleTabContent() {
                                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
                             ) {
                                 ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
-                                    cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = null })
+                                    if (!readOnly) cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = null })
                                 }
-                                c.shifts.forEach { s ->
+                                viewCycle.shifts.forEach { s ->
                                     ShiftChip(s.name, currentId == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
-                                        cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = s.id })
+                                        if (!readOnly) cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = s.id })
                                     }
                                 }
                             }
@@ -361,12 +405,14 @@ fun ScheduleTabContent() {
                     }
                 }
 
-                // ── Save / clear ──────────────────────────────────────────────
-                item {
+                // ── Save / clear (current cycle only) ─────────────────────────
+                if (!readOnly) item {
                     Spacer(Modifier.height(4.dp))
                     Button(
                         onClick = {
                             AppStore.saveShiftCycle(context, c)
+                            AppStore.snapshotCurrentCycle(context)
+                            savedVersion++
                             if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -382,7 +428,7 @@ fun ScheduleTabContent() {
                         Text(tr("រក្សាទុក & បើកការរំលឹក", "Save & schedule reminders"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-                item {
+                if (!readOnly) item {
                     OutlinedButton(
                         onClick = {
                             AppStore.clearShiftCycle(context)

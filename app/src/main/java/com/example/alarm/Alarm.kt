@@ -26,7 +26,8 @@ fun armAlarm(
     title: String,
     message: String,
     ringtoneUri: String?,
-    insistent: Boolean
+    insistent: Boolean,
+    kind: String = "reminder"
 ) {
     val alarmMgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val intent = Intent(context, AlarmReceiver::class.java).apply {
@@ -35,6 +36,7 @@ fun armAlarm(
         putExtra("message", message)
         putExtra("ringtoneUri", ringtoneUri)
         putExtra("insistent", insistent)
+        putExtra("kind", kind)
     }
     val pi = PendingIntent.getBroadcast(
         context, requestCode, intent,
@@ -84,7 +86,7 @@ fun scheduleReminder(
             shiftId = shiftId
         )
     )
-    armAlarm(context, requestCode, triggerMs, title, message, ring, loop)
+    armAlarm(context, requestCode, triggerMs, title, message, ring, loop, kind)
 }
 
 /** Cancel a scheduled reminder and forget it. */

@@ -370,6 +370,57 @@ object AppStore {
         schedulePrefs(c).edit().remove("cycle").apply()
     }
 
+    // ── Per-cycle history snapshots ──────────────────────────────────────────
+    // The day pattern repeats, but once a month passes we freeze the worked
+    // schedule so past months can be reviewed even if the template later
+    // changes. Snapshots are keyed by the cycle's start (e.g. "2026-6").
+
+    /** Stable key for the cycle that contains the given date (its 26th-anchored start). */
+    fun cycleKey(year: Int, month: Int, day: Int): String {
+        val s = WorkCycleEngine.cycleStart(year, month, day)
+        return "${s.get(Calendar.YEAR)}-${s.get(Calendar.MONTH) + 1}"
+    }
+
+    fun getCycleSnapshots(c: Context): Map<String, List<String?>> = try {
+        val o = JSONObject(schedulePrefs(c).getString("snapshots", "{}") ?: "{}")
+        buildMap {
+            o.keys().forEach { k ->
+                val arr = o.optJSONArray(k) ?: return@forEach
+                put(k, (0 until arr.length()).map { arr.optString(it).ifBlank { null } })
+            }
+        }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    private fun saveCycleSnapshots(c: Context, map: Map<String, List<String?>>) {
+        val o = JSONObject()
+        map.forEach { (k, list) ->
+            o.put(k, JSONArray().apply { list.forEach { put(it ?: "") } })
+        }
+        schedulePrefs(c).edit().putString("snapshots", o.toString()).apply()
+    }
+
+    /** Freeze the current cycle's day pattern so it survives later template edits. */
+    fun snapshotCurrentCycle(c: Context) {
+        val cyc = getShiftCycle(c) ?: return
+        if (!cyc.isConfigured) return
+        val now = Calendar.getInstance()
+        val key = cycleKey(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
+        val map = getCycleSnapshots(c).toMutableMap()
+        map[key] = cyc.dayAssignments
+        saveCycleSnapshots(c, map)
+    }
+
+    /**
+     * The cycle to use for a given date: a frozen snapshot when one exists for
+     * that date's (past) cycle, otherwise the live [base] template.
+     */
+    fun historyAwareCycle(base: ShiftCycle, snapshots: Map<String, List<String?>>, year: Int, month: Int, day: Int): ShiftCycle {
+        val snap = snapshots[cycleKey(year, month, day)]
+        return if (snap != null) base.copy(dayAssignments = snap) else base
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // ALARM SETTINGS — custom ringtone + behaviour
     // ─────────────────────────────────────────────────────────────────────────

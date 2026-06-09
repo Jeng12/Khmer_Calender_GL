@@ -18,7 +18,7 @@ class BootReceiver : BroadcastReceiver() {
             val future = AppStore.getReminders(context).filter { it.triggerMs > now }
             AppStore.saveReminders(context, future)
             future.filter { it.kind != "shift" }.forEach { r ->
-                armAlarm(context, r.requestCode, r.triggerMs, r.title, r.message, r.ringtoneUri, r.insistent)
+                armAlarm(context, r.requestCode, r.triggerMs, r.title, r.message, r.ringtoneUri, r.insistent, r.kind)
             }
 
             // Top the work-schedule reminder window back up after reboot.

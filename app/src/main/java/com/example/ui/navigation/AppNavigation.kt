@@ -125,8 +125,10 @@ fun KhmerCalendarApp() {
         com.example.widget.WidgetPrefs.refresh(context)
     }
 
-    // Keep the work-schedule reminder window topped up on every launch.
+    // Keep the work-schedule reminder window topped up on every launch, and
+    // freeze the current cycle so past months stay reviewable.
     LaunchedEffect(Unit) {
+        com.example.data.AppStore.snapshotCurrentCycle(context)
         com.example.alarm.WorkScheduleScheduler.sync(context)
     }
 
