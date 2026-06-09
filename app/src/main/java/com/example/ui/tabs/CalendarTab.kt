@@ -86,21 +86,16 @@ fun CalendarTabContent(
 
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
 
-    val daysWithNotes = remember(year, month, agendaVersion) { AppStore.daysWithNotes(context, year, month) }
     val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
-    val daysWithCustomHoliday = remember(customHolidays) { customHolidays.map { it.day }.toSet() }
 
-    // Working days from the schedule (history-aware), highlighted on the grid.
+    // Schedule data (history-aware) — used to highlight working days on the grid.
+    // The per-month highlight maps are computed inside AnimatedContent so they stay
+    // correct for whichever month is on screen (incl. mid-swipe animations).
     val scheduleCycle = remember(agendaVersion) { AppStore.getShiftCycle(context) }
     val scheduleSnaps = remember(agendaVersion) { AppStore.getCycleSnapshots(context) }
-    val workingDays: Map<Int, AppStore.ShiftDef> = remember(year, month, scheduleCycle, scheduleSnaps, daysList) {
-        val base = scheduleCycle
-        if (base == null || !base.isConfigured) emptyMap()
-        else (1..daysList.size).mapNotNull { d ->
-            val cyc = AppStore.historyAwareCycle(base, scheduleSnaps, year, month, d)
-            WorkCycleEngine.shiftForDate(cyc, year, month, d)?.let { d to it }
-        }.toMap()
-    }
+    // Start of the cycle containing today; the schedule is shown only for the
+    // previous (recorded) and current cycle, never projected into a future cycle.
+    val currentCycleStartMs = remember { WorkCycleEngine.cycleStart(todayYear, todayMonth, todayDay).timeInMillis }
 
     var showDayDetailDialog by remember { mutableStateOf(false) }
     var detailDialogDate by remember { mutableStateOf<KhmerDate?>(null) }
@@ -132,7 +127,7 @@ fun CalendarTabContent(
         }
 
         // 3. Notes (multiple per day)
-        for (d in 1..31) {
+        for (d in 1..daysList.size) {
             AppStore.getNotes(context, year, month, d).forEach { note ->
                 list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
             }
@@ -144,7 +139,7 @@ fun CalendarTabContent(
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
                 val d = c.get(Calendar.DAY_OF_MONTH)
                 val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
-                val icon = if (r.kind == "shift") "💼" else null
+                val icon = if (r.kind == "shift") "🏭" else null
                 list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, "$time · ${r.message}", isPastDay(d), icon))
             }
         }
@@ -279,6 +274,23 @@ fun CalendarTabContent(
                 val animOffset = ((animSerial + 2) % 7 + 7) % 7
                 val animRows   = ((animOffset + animDays.size + 6) / 7)
 
+                // Per-displayed-month highlight maps, so notes/holidays/work shifts
+                // render for the month actually on screen (including mid-swipe).
+                val animNotes = remember(ym, agendaVersion) { AppStore.daysWithNotes(context, animYear, animMonth) }
+                val animCustomHolidayDays = remember(ym, agendaVersion) {
+                    AppStore.customHolidaysForMonth(context, animMonth).map { it.day }.toSet()
+                }
+                val animWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, scheduleCycle, scheduleSnaps) {
+                    val base = scheduleCycle
+                    if (base == null || !base.isConfigured) emptyMap()
+                    else (1..animDays.size).mapNotNull { d ->
+                        // Previous + current cycle only; never a future cycle.
+                        if (WorkCycleEngine.cycleStart(animYear, animMonth, d).timeInMillis > currentCycleStartMs) return@mapNotNull null
+                        val cyc = AppStore.historyAwareCycle(base, scheduleSnaps, animYear, animMonth, d)
+                        WorkCycleEngine.shiftForDate(cyc, animYear, animMonth, d)?.let { d to it }
+                    }.toMap()
+                }
+
                 Column(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.pointerInput(animYear, animMonth) {
@@ -314,11 +326,10 @@ fun CalendarTabContent(
                                     val dateInfo  = animDays[dayNumber - 1]
                                     val isSelected = dayNumber == selectedDay && animYear == year && animMonth == month
                                     val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
-                                    val isHoliday  = dateInfo.holiday != null ||
-                                        (animYear == year && animMonth == month && dayNumber in daysWithCustomHoliday)
+                                    val isHoliday  = dateInfo.holiday != null || dayNumber in animCustomHolidayDays
                                     val isWeekend  = col == 0 || col == 6
-                                    val hasNote    = animYear == year && animMonth == month && dayNumber in daysWithNotes
-                                    val workShift  = if (animYear == year && animMonth == month) workingDays[dayNumber] else null
+                                    val hasNote    = dayNumber in animNotes
+                                    val workShift  = animWorkingDays[dayNumber]
                                     val workColor  = if (workShift?.isOvernight == true) LotusPink else LightGold
 
                                     Box(

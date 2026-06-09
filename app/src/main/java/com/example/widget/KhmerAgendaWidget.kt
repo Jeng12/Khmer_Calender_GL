@@ -29,6 +29,8 @@ import com.example.core.AppLanguage
 import com.example.core.gregMonth
 import com.example.core.num
 import com.example.core.numStr
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.util.Calendar
 
@@ -120,7 +122,7 @@ class KhmerAgendaWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val lang = WidgetPrefs.resolveLang(context)
         val style = styleFor(context)
-        val items = AgendaRepository.load(context)
+        val items = withContext(Dispatchers.IO) { AgendaRepository.load(context) }
         provideContent {
             val ctx = LocalContext.current
             GlassRoot(ctx, style.bgRes) {

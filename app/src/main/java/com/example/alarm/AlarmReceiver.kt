@@ -20,7 +20,8 @@ class AlarmReceiver : BroadcastReceiver() {
         val ringtoneUri = intent.getStringExtra("ringtoneUri")
         val insistent = intent.getBooleanExtra("insistent", false)
         val kind = intent.getStringExtra("kind") ?: "reminder"
-        showNotification(context, title, message, ringtoneUri, insistent, kind)
+        val requestCode = intent.getIntExtra("requestCode", 0)
+        showNotification(context, requestCode, title, message, ringtoneUri, insistent, kind)
 
         // This was a one-shot alarm; drop it from persistence now that it fired
         // (boot rescheduling only re-arms future alarms anyway).
@@ -32,6 +33,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private fun showNotification(
         context: Context,
+        requestCode: Int,
         title: String,
         message: String,
         ringtoneUriStr: String?,
@@ -103,6 +105,10 @@ class AlarmReceiver : BroadcastReceiver() {
             notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
         }
 
-        nm.notify(System.currentTimeMillis().toInt() and 0x7FFFFFFF, notification)
+        // Use the alarm's unique requestCode as the notification id so two reminders
+        // firing in the same millisecond don't replace each other in the shade.
+        val notifId = if (requestCode != 0) requestCode and 0x7FFFFFFF
+                      else System.currentTimeMillis().toInt() and 0x7FFFFFFF
+        nm.notify(notifId, notification)
     }
 }

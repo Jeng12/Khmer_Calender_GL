@@ -114,6 +114,14 @@ fun CustomBottomBar(
                 isSelected = currentTab == AppTab.CONVERT,
                 onClick = { onTabSelect(AppTab.CONVERT) }
             )
+            // Work Schedule Tab
+            BottomBarItem(
+                emoji = "🏭",
+                label = tr("កាលវិភាគ", "Schedule"),
+                subLabel = "Work Schedule",
+                isSelected = currentTab == AppTab.SCHEDULE,
+                onClick = { onTabSelect(AppTab.SCHEDULE) }
+            )
             // Profile Tab
             BottomBarItem(
                 emoji = "👤",
@@ -142,14 +150,16 @@ fun BottomBarItem(
                 interactionSource = remember { MutableInteractionSource() },
                 onClickLabel = subLabel,
             ) { onClick() }
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(text = emoji, fontSize = 20.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
+        Text(text = emoji, fontSize = 18.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
         Text(
             text = label,
-            fontSize = 13.sp,
+            fontSize = 10.sp,
+            maxLines = 1,
+            softWrap = false,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = if (isSelected) TraditionalGold else GoldSubText.copy(0.6f)
         )

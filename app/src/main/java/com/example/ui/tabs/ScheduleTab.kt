@@ -46,6 +46,10 @@ fun ScheduleTabContent() {
     var editingShift by remember { mutableStateOf<AppStore.ShiftDef?>(null) }
     // Which cycle is being viewed: 0 = current, -1 = previous month, +1 = next, …
     var viewedOffset by remember { mutableIntStateOf(0) }
+    // Which week (0..3) currently has its "set whole week" quick-picker open.
+    var weekQuickPick by remember { mutableStateOf<Int?>(null) }
+    // Target system type awaiting confirmation before it wipes the daily schedule.
+    var pendingSystemType by remember { mutableStateOf<Int?>(null) }
     var savedVersion by remember { mutableIntStateOf(0) }
     val snapshots = remember(savedVersion) { AppStore.getCycleSnapshots(context) }
 
@@ -69,6 +73,33 @@ fun ScheduleTabContent() {
                 cycle = cycle?.let { c -> c.copy(shifts = c.shifts.map { if (it.id == updated.id) updated else it }) }
                 editingShift = null
             }
+        )
+    }
+
+    // Confirm before switching shift systems — it resets the whole daily schedule.
+    pendingSystemType?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingSystemType = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    cycle = cycle?.copy(
+                        systemType = target,
+                        shifts = AppStore.presetShifts(target),
+                        dayAssignments = AppStore.emptyDayAssignments()
+                    )
+                    weekQuickPick = null
+                    pendingSystemType = null
+                }) { Text(tr("កំណត់ឡើងវិញ", "Reset"), color = CrimsonHoliday, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSystemType = null }) {
+                    Text(tr("បោះបង់", "Cancel"), color = goldSubText)
+                }
+            },
+            title = { Text(tr("ប្ដូរប្រព័ន្ធវេន?", "Switch shift system?"), color = MoonWheat, fontWeight = FontWeight.Bold) },
+            text = { Text(tr("ការប្ដូរនេះនឹងលុបកាលវិភាគប្រចាំថ្ងៃទាំងអស់។ បន្តឬ?", "This will reset all daily shift assignments. Continue?"), color = sandText) },
+            containerColor = plumCard,
+            shape = RoundedCornerShape(16.dp)
         )
     }
 
@@ -130,7 +161,7 @@ fun ScheduleTabContent() {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("‹", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable { viewedOffset -= 1 }.padding(horizontal = 14.dp, vertical = 4.dp))
+                            modifier = Modifier.clickable { viewedOffset -= 1; weekQuickPick = null }.padding(horizontal = 14.dp, vertical = 4.dp))
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val vEnd = (viewedStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
                             Text("${fmtDate(viewedStartCal)} – ${fmtDate(vEnd)}", fontSize = 13.sp, color = sandText, fontWeight = FontWeight.Bold)
@@ -144,7 +175,7 @@ fun ScheduleTabContent() {
                             )
                         }
                         Text("›", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable { viewedOffset += 1 }.padding(horizontal = 14.dp, vertical = 4.dp))
+                            modifier = Modifier.clickable { viewedOffset += 1; weekQuickPick = null }.padding(horizontal = 14.dp, vertical = 4.dp))
                     }
                 }
 
@@ -216,7 +247,11 @@ fun ScheduleTabContent() {
                                     .background(if (active) TraditionalGold else plumSurface)
                                     .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
                                     .clickable {
-                                        if (!active) cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), dayAssignments = AppStore.emptyDayAssignments())
+                                        if (!active) {
+                                            // Confirm only when there is a customised schedule to lose.
+                                            if (c.dayAssignments.any { it != null }) pendingSystemType = t
+                                            else cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), dayAssignments = AppStore.emptyDayAssignments())
+                                        }
                                     }
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
@@ -261,6 +296,21 @@ fun ScheduleTabContent() {
                     .filter { it.blocked }
                     .map { it.year * 10000 + it.month * 100 + it.day }
                     .toSet()
+                // Day offsets covered by a 0-based week. Weeks 0–2 are 7 days; week 3
+                // (the 4th) absorbs everything to the 25th, so it can hold >7 days.
+                fun weekDayRange(weekIdx: Int): IntRange {
+                    val start = weekIdx * 7
+                    val end = if (weekIdx >= 3) cycleLen - 1 else (start + 6).coerceAtMost(cycleLen - 1)
+                    return start..end
+                }
+                // Assign one shift (or Off) to every day of a whole week at once.
+                val applyWeek: (Int, String?) -> Unit = { weekIdx, shiftId ->
+                    if (!readOnly) {
+                        cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { list ->
+                            for (i in weekDayRange(weekIdx)) if (i in list.indices) list[i] = shiftId
+                        })
+                    }
+                }
                 item {
                     SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
                     Text(
@@ -279,14 +329,49 @@ fun ScheduleTabContent() {
                     val blocked = (y * 10000 + m * 100 + d) in blockedDays
 
                     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        // Week separator label above the first day of each week.
-                        if (offset % 7 == 0) {
-                            val wk = (offset / 7) + 1
-                            Text(
-                                tr(lang, "— សប្តាហ៍ ${num(lang, wk)} —", "— Week $wk —"),
-                                fontSize = 9.sp, color = goldSubText, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.fillMaxWidth().padding(top = if (offset == 0) 0.dp else 6.dp)
-                            )
+                        // Week header above the first day of each of the four weeks.
+                        // Only weeks 1–4 get a header (offsets 0/7/14/21); the 4th week
+                        // absorbs every day to the 25th, so no spurious "Week 5" appears.
+                        if (offset % 7 == 0 && offset <= 21) {
+                            val weekIdx = offset / 7          // 0..3
+                            val wk = weekIdx + 1
+                            val isLongWeek = weekIdx == 3
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = if (offset == 0) 0.dp else 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    tr(lang,
+                                        if (isLongWeek) "— សប្តាហ៍ ${num(lang, wk)} (ដល់ ២៥) —" else "— សប្តាហ៍ ${num(lang, wk)} —",
+                                        if (isLongWeek) "— Week $wk (to 25th) —" else "— Week $wk —"),
+                                    fontSize = 9.sp, color = goldSubText, fontWeight = FontWeight.Bold
+                                )
+                                if (!readOnly) {
+                                    Text(
+                                        if (weekQuickPick == weekIdx) tr(lang, "បិទ", "Close") else tr(lang, "កំណត់ទាំងសប្តាហ៍", "Set week"),
+                                        fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { weekQuickPick = if (weekQuickPick == weekIdx) null else weekIdx }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            // Quick-assign one shift to the whole week (incl. the long 4th week).
+                            if (!readOnly && weekQuickPick == weekIdx) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp)
+                                ) {
+                                    ShiftChip(tr(lang, "ឈប់", "Off"), false, dimColor) { applyWeek(weekIdx, null); weekQuickPick = null }
+                                    viewCycle.shifts.forEach { s ->
+                                        ShiftChip(s.name, false, if (s.isOvernight) LotusPink else TraditionalGold) {
+                                            applyWeek(weekIdx, s.id); weekQuickPick = null
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Row(
                             modifier = Modifier

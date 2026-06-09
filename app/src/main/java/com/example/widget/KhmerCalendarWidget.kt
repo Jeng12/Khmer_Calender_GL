@@ -39,6 +39,8 @@ import com.example.MainActivity
 import com.example.R
 import com.example.calendar.KhmerCalendarHelper
 import com.example.calendar.KhmerDate
+import com.example.data.AppStore
+import com.example.data.WorkCycleEngine
 import com.example.core.AppLanguage
 import com.example.core.gregMonth
 import com.example.core.localizeDual
@@ -48,6 +50,8 @@ import com.example.core.num
 import com.example.core.numStr
 import com.example.core.weekdayLabels
 import com.example.core.zodiac
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 // Shared glass palette + WidgetStyle live in WidgetTheme.kt (GOLD, RED, cp(), …).
@@ -62,6 +66,19 @@ private val SIZE_LARGE = DpSize(300.dp, 320.dp)  // 4×4  (full calendar)
 /** A single upcoming public holiday (day-of-month, month, name). */
 private data class UpHoliday(val day: Int, val month: Int, val name: String)
 
+/** A worked shift for the widget's work-schedule section (raw, language-neutral). */
+private data class WorkShift(
+    val day: Int,
+    val month: Int,
+    val name: String,
+    val startHour: Int,
+    val startMin: Int,
+    val endHour: Int,
+    val endMin: Int,
+    val overnight: Boolean,
+    val blocked: Boolean
+)
+
 /** All data the widget renders, computed off the main thread in [provideGlance]. */
 private data class WidgetData(
     val today: KhmerDate,
@@ -73,7 +90,9 @@ private data class WidgetData(
     val currentWeek: List<Int?>,
     val upcoming: List<UpHoliday>,
     val notes: List<AgendaItem>,
-    val events: List<AgendaItem>
+    val events: List<AgendaItem>,
+    val todayShift: WorkShift?,
+    val upcomingShifts: List<WorkShift>
 )
 
 /** Everything a layout needs: the data plus the resolved language and theme. */
@@ -109,6 +128,23 @@ private fun agendaLineLabel(lang: AppLanguage, item: AgendaItem): String = build
     append(" · ${item.text}")
 }
 
+private fun workHeader(lang: AppLanguage) =
+    if (lang == AppLanguage.EN) "Work shifts" else "វេនការងារ"
+
+private fun shiftTimeStr(lang: AppLanguage, s: WorkShift): String =
+    numStr(lang, "%02d:%02d → %02d:%02d".format(s.startHour, s.startMin, s.endHour, s.endMin))
+
+/** \"Day · 07:30 → 19:30\" for today's shift (⛔ prefix when it is a no-rest day). */
+private fun workTodayLabel(lang: AppLanguage, s: WorkShift): String =
+    (if (s.blocked) "⛔ " else "") + "${s.name} · ${shiftTimeStr(lang, s)}"
+
+/** \"5 Jun · Day\" for an upcoming shift. */
+private fun workUpcomingLabel(lang: AppLanguage, s: WorkShift): String =
+    (if (s.blocked) "⛔ " else "") + "${num(lang, s.day)} ${gregMonth(lang, s.month - 1)} · ${s.name}"
+
+/** Single workplace icon used for every work shift across the widget + app. */
+private const val WORK_ICON = "🏭"
+
 /**
  * Glassmorphism home-screen widget for the Khmer calendar. Resizable across four
  * sizes; renders today's Khmer lunar date, moon phase, zodiac, holidays and (at
@@ -123,7 +159,8 @@ class KhmerCalendarWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val data = buildData(context)
+        // Calendar math + SharedPreferences I/O run off the Glance dispatcher.
+        val data = withContext(Dispatchers.Default) { buildData(context) }
         val lang = WidgetPrefs.resolveLang(context)
         val style = if (WidgetPrefs.resolveDark(context)) DARK_STYLE else LIGHT_STYLE
         provideContent {
@@ -167,6 +204,35 @@ class KhmerCalendarWidget : GlanceAppWidget() {
             kd.holiday?.let { UpHoliday(index + 1, m, it) }
         }
 
+        // Work schedule — today's shift plus the next few upcoming shifts, limited
+        // to the current cycle (never projected into a future 26th→25th cycle).
+        var todayShift: WorkShift? = null
+        val upcomingShifts = ArrayList<WorkShift>()
+        val cycleCfg = AppStore.getShiftCycle(context)
+        if (cycleCfg != null && cycleCfg.isConfigured) {
+            val currentCycleStartMs = WorkCycleEngine.cycleStart(y, m, d).timeInMillis
+            val ctxStart = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -2) }
+            val horizonEnd = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
+            val days = WorkCycleEngine.buildWorkDays(cycleCfg, ctxStart, horizonEnd)
+            val todayInt = y * 10000 + m * 100 + d
+            days.lastOrNull { it.year == y && it.month == m && it.day == d }?.let { wd ->
+                todayShift = WorkShift(
+                    d, m, wd.shift.name, wd.shift.startHour, wd.shift.startMin,
+                    wd.shift.endHour, wd.shift.endMin, wd.shift.isOvernight, wd.blocked
+                )
+            }
+            days.forEach { wd ->
+                val wdInt = wd.year * 10000 + wd.month * 100 + wd.day
+                if (wdInt <= todayInt) return@forEach
+                val wdCycleStartMs = WorkCycleEngine.cycleStart(wd.year, wd.month, wd.day).timeInMillis
+                if (wdCycleStartMs > currentCycleStartMs) return@forEach   // future cycle: skip
+                if (upcomingShifts.size < 3) upcomingShifts += WorkShift(
+                    wd.day, wd.month, wd.shift.name, wd.shift.startHour, wd.shift.startMin,
+                    wd.shift.endHour, wd.shift.endMin, wd.shift.isOvernight, wd.blocked
+                )
+            }
+        }
+
         return WidgetData(
             today = today,
             year = y,
@@ -177,7 +243,9 @@ class KhmerCalendarWidget : GlanceAppWidget() {
             currentWeek = currentWeek,
             upcoming = holidays,
             notes = agenda.filter { !it.isEvent },
-            events = agenda.filter { it.isEvent }
+            events = agenda.filter { it.isEvent },
+            todayShift = todayShift,
+            upcomingShifts = upcomingShifts
         )
     }
 }
@@ -280,7 +348,17 @@ private fun MediumLayout(ui: WidgetUi) {
             
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                 item { Spacer(GlanceModifier.height(6.dp)) }
-                
+
+                // Work shifts (today + upcoming, current cycle only)
+                if (ui.data.todayShift != null || ui.data.upcomingShifts.isNotEmpty()) {
+                    item { Text(workHeader(lang), style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold)) }
+                    ui.data.todayShift?.let { ts ->
+                        item { IconLine(WORK_ICON, workTodayLabel(lang, ts), s) }
+                    }
+                    items(ui.data.upcomingShifts) { ws -> IconLine(WORK_ICON, workUpcomingLabel(lang, ws), s) }
+                    item { Spacer(GlanceModifier.height(6.dp)) }
+                }
+
                 // Holidays
                 item { Text(upcomingHeader(lang), style = TextStyle(color = cp(GOLD), fontSize = 12.sp, fontWeight = FontWeight.Bold)) }
                 if (ui.data.upcoming.isEmpty()) {
@@ -419,13 +497,24 @@ private fun LargeLayout(ui: WidgetUi) {
             }
         }
 
-        // Footer: all holidays + all notes + all events, beneath the grid
-        if (ui.data.upcoming.isNotEmpty() || ui.data.notes.isNotEmpty() || ui.data.events.isNotEmpty()) {
+        // Footer: today's/upcoming work shifts + all holidays + notes + events
+        if (ui.data.todayShift != null || ui.data.upcomingShifts.isNotEmpty() ||
+            ui.data.upcoming.isNotEmpty() || ui.data.notes.isNotEmpty() || ui.data.events.isNotEmpty()) {
             LazyColumn(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
                 item { Spacer(GlanceModifier.height(6.dp)) }
                 item { GlassDivider(s.hairline) }
                 item { Spacer(GlanceModifier.height(4.dp)) }
-                
+
+                ui.data.todayShift?.let { ts ->
+                    item {
+                        Text("$WORK_ICON ${workTodayLabel(lang, ts)}",
+                            style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
+                    }
+                }
+                items(ui.data.upcomingShifts) { ws ->
+                    Text("$WORK_ICON ${workUpcomingLabel(lang, ws)}",
+                        style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)
+                }
                 items(ui.data.upcoming) { h ->
                     Text("⛱️ ${num(lang, h.day)} ${gregMonth(lang, h.month - 1)} · ${localizeDual(lang, h.name)}",
                         style = TextStyle(color = cp(s.sub), fontSize = 11.sp), maxLines = 1)

@@ -262,7 +262,7 @@ fun ProfileSettingsContent(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("✏️", fontSize = 12.sp)
                     }
-                    Text("jengah6@gmail.com · ${tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024")}", fontSize = 10.sp, color = GoldSubText)
+                    Text(tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024"), fontSize = 10.sp, color = GoldSubText)
                 }
             }
         }
@@ -354,7 +354,7 @@ fun ProfileSettingsContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("💼", fontSize = 16.sp)
+                    Text("🏭", fontSize = 16.sp)
                     Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 11.sp, color = SandText)
                 }
                 Text("›", fontSize = 20.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)

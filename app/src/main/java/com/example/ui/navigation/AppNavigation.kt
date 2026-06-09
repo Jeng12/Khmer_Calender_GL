@@ -107,11 +107,13 @@ fun KhmerCalendarApp() {
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
 
-    // Splash Timer — go straight to the main app (login flow skipped)
+    // Splash Timer — fresh installs skip the (mock) login and go straight to the
+    // main app, but once the user explicitly logs out we honour that and land on
+    // the login screen on the next launch until they sign back in.
     LaunchedEffect(screenState) {
         if (screenState == AppScreen.SPLASH) {
             delay(1800)
-            screenState = AppScreen.MAIN_APP
+            screenState = if (langPrefs.getBoolean("logged_out", false)) AppScreen.LOGIN else AppScreen.MAIN_APP
         }
     }
 
@@ -155,7 +157,10 @@ fun KhmerCalendarApp() {
                         onContinue = { screenState = AppScreen.LOGIN }
                     )
                     AppScreen.LOGIN -> LoginScreenContent(
-                        onSignIn = { screenState = AppScreen.MAIN_APP },
+                        onSignIn = {
+                            langPrefs.edit().putBoolean("logged_out", false).apply()
+                            screenState = AppScreen.MAIN_APP
+                        },
                         onSignUp = { screenState = AppScreen.REGISTER },
                         onForgot = { screenState = AppScreen.FORGOT }
                     )
@@ -169,7 +174,10 @@ fun KhmerCalendarApp() {
                     )
                     AppScreen.OTP -> OTPScreenContent(
                         onBack = { screenState = AppScreen.REGISTER },
-                        onVerify = { screenState = AppScreen.MAIN_APP }
+                        onVerify = {
+                            langPrefs.edit().putBoolean("logged_out", false).apply()
+                            screenState = AppScreen.MAIN_APP
+                        }
                     )
                     AppScreen.MAIN_APP -> MainAppLayout(
                         currentTab = currentTab,
@@ -207,6 +215,7 @@ fun KhmerCalendarApp() {
                         selectedHolidayFilter = selectedHolidayFilter,
                         onHolidayFilterChange = { selectedHolidayFilter = it },
                         onLogOut = {
+                            langPrefs.edit().putBoolean("logged_out", true).apply()
                             screenState = AppScreen.LOGIN
                             currentTab = AppTab.HOME
                         },

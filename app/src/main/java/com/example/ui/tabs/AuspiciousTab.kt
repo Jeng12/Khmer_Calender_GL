@@ -241,7 +241,10 @@ private fun AuspiciousDayCard(
                     isLoading = true
                     scope.launch {
                         val result = GeminiRepository.explainAuspiciousDay(khmerDate, lang)
-                        explanation = result.getOrElse { tr(lang, "មិនអាចភ្ជាប់ AI បានទេ", "Could not connect to AI") + " (${it.message})" }
+                        explanation = result.getOrElse {
+                            android.util.Log.w("AuspiciousTab", "AI explanation failed", it)
+                            tr(lang, "មិនអាចភ្ជាប់ AI បានទេ សូមព្យាយាមម្តងទៀត", "Could not connect to AI. Please try again.")
+                        }
                         isLoading = false
                     }
                 }

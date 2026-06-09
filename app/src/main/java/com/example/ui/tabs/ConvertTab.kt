@@ -100,6 +100,13 @@ fun DateConvertContent(
         val y = inYear.toIntOrNull()
         val m = inMonth.toIntOrNull()
         val d = inDay.toIntOrNull()
+        // Real number of days in a Gregorian month (leap-year aware) so invalid
+        // dates like 30 February or 31 April are rejected before conversion.
+        fun maxDayOf(yy: Int, mm: Int) = when (mm) {
+            2 -> if ((yy % 4 == 0 && yy % 100 != 0) || yy % 400 == 0) 29 else 28
+            4, 6, 9, 11 -> 30
+            else -> 31
+        }
         return when {
             y == null || m == null || d == null -> {
                 inputError = tr(lang, "សូមបញ្ចូលតម្លៃជាលេខ (numbers only)", "Please enter numbers only")
@@ -113,8 +120,8 @@ fun DateConvertContent(
                 inputError = tr(lang, "ខែត្រូវស្ថិតក្នុងចន្លោះ ១–១២ (Month 1–12)", "Month must be 1–12")
                 false
             }
-            d < 1 || d > 31 -> {
-                inputError = tr(lang, "ថ្ងៃត្រូវស្ថិតក្នុងចន្លោះ ១–៣១ (Day 1–31)", "Day must be 1–31")
+            d < 1 || d > maxDayOf(y, m) -> {
+                inputError = tr(lang, "ថ្ងៃមិនត្រឹមត្រូវសម្រាប់ខែនេះ (Invalid day for this month)", "Invalid day for this month")
                 false
             }
             else -> {

@@ -68,6 +68,9 @@ import com.example.ui.tabs.*
    TAB CONTENTS
 ───────────────────────────────────────────────────────────── */
 
+/** One upcoming public holiday shown on the Home screen's "Upcoming events" list. */
+private data class UpcomingHoliday(val year: Int, val month: Int, val day: Int, val name: String)
+
 // 1. HOME TAB CONTAINER
 @Composable
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
@@ -79,6 +82,26 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
     val currentKhmerInfo = remember(currentYear, currentMonth, currentDay) {
         KhmerCalendarHelper.getKhmerDate(currentYear, currentMonth, currentDay)
+    }
+    // Real upcoming public holidays (next 3), scanned from today via the calendar engine.
+    val todaySerial = remember(currentYear, currentMonth, currentDay) {
+        KhmerCalendarHelper.getSerialDay(currentYear, currentMonth, currentDay)
+    }
+    val upcomingHolidays = remember(currentYear, currentMonth, currentDay) {
+        val out = ArrayList<UpcomingHoliday>()
+        var y = currentYear; var m = currentMonth; var scanned = 0
+        while (out.size < 3 && scanned < 6) {
+            val days = KhmerCalendarHelper.getGregorianMonthDays(y, m)
+            for (idx in days.indices) {
+                val name = days[idx].holiday ?: continue
+                val d = idx + 1
+                val future = y > currentYear || (y == currentYear && m > currentMonth) ||
+                    (y == currentYear && m == currentMonth && d >= currentDay)
+                if (future && out.size < 3) out.add(UpcomingHoliday(y, m, d, name))
+            }
+            m++; if (m > 12) { m = 1; y++ }; scanned++
+        }
+        out
     }
 
     LazyColumn(
@@ -252,7 +275,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
             ) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
-                    emoji = "💼",
+                    emoji = "🏭",
                     title = tr("កាលវិភាគ", "Schedule"),
                     subtitle = "Work Schedule",
                     accentColor = CrimsonHoliday,
@@ -260,59 +283,54 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 )
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
-                    emoji = "🌿",
-                    title = tr("ថ្ងៃមង្គល", "Auspicious"),
-                    subtitle = "Auspicious",
-                    accentColor = JadeGreen,
-                    onClick = { onTabSelect(AppTab.AUSPICIOUS) }
+                    emoji = "👤",
+                    title = tr("ប្រវត្តិរូប", "Profile"),
+                    subtitle = "Profile & Settings",
+                    accentColor = SkyBlue,
+                    onClick = { onTabSelect(AppTab.PROFILE) }
                 )
             }
         }
 
-        // Upcoming national events in Cambodia
+        // Upcoming public holidays — real data from the calendar engine; tap to open the calendar.
         item {
             Text(tr("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", "UPCOMING EVENTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            val events = if (lang == AppLanguage.EN) listOf(
-                Pair("Visak Bochea", "3 days left · 🌕 15 Waxing"),
-                Pair("Pchum Ben Festival", "98 days left · 🌑 15 Waning"),
-                Pair("Royal Ploughing Ceremony", "14 days left · 4 Waning")
-            ) else listOf(
-                Pair("ថ្ងៃបុណ្យវិសាខបូជា (Visak Bochea)", "៣ ថ្ងៃទៀត · 🌕 ១៥ កើត"),
-                Pair("បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben Festival)", "៩៨ ថ្ងៃទៀត · 🌑 ១៥ រោច"),
-                Pair("ព្រះរាជពិធីច្រត់ព្រះនង្គ័ល (Royal Ploughing)", "១៤ ថ្ងៃទៀត · ៤ រោច")
-            )
-
-            events.forEach { event ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                        .background(PlumCard, RoundedCornerShape(12.dp))
-                        .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(TraditionalGold.copy(0.12f), RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("🔔", fontSize = 16.sp)
+            if (upcomingHolidays.isEmpty()) {
+                Text(tr("គ្មានព្រឹត្តិការណ៍ខាងមុខ", "No upcoming events"), fontSize = 11.sp, color = DimColor)
+            } else {
+                upcomingHolidays.forEach { ev ->
+                    val daysLeft = (KhmerCalendarHelper.getSerialDay(ev.year, ev.month, ev.day) - todaySerial).coerceAtLeast(0)
+                    val whenText = when (daysLeft) {
+                        0 -> tr("ថ្ងៃនេះ", "Today")
+                        1 -> tr("ស្អែក", "Tomorrow")
+                        else -> tr("នៅ ${num(lang, daysLeft)} ថ្ងៃទៀត", "in $daysLeft days")
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(event.first, fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold)
-                        Text(event.second, fontSize = 9.sp, color = TraditionalGold)
-                    }
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .background(TraditionalGold.copy(0.12f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .background(PlumCard, RoundedCornerShape(12.dp))
+                            .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                            .clickable { onTabSelect(AppTab.CALENDAR) }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(tr("រំលឹក", "Remind"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(TraditionalGold.copy(0.12f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🎉", fontSize = 16.sp)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(localizeDual(lang, ev.name), fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold, maxLines = 1)
+                            Text("${num(lang, ev.day)} ${gregMonth(lang, ev.month - 1)} · $whenText", fontSize = 9.sp, color = TraditionalGold)
+                        }
+                        Text("›", fontSize = 18.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                     }
                 }
             }

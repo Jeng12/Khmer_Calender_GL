@@ -25,4 +25,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * Auto-refresh the home-screen widgets whenever the app returns to the
+     * foreground. The widget's own [updatePeriodMillis] is fixed at the 30-minute
+     * platform floor, so this keeps today's date/shift and notes/events fresh the
+     * moment the user comes back to the app, without any manual refresh action.
+     */
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.Default) {
+            runCatching { com.example.widget.WidgetPrefs.refresh(this@MainActivity) }
+        }
+    }
 }

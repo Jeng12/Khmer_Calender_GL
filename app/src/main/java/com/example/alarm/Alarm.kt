@@ -42,16 +42,22 @@ fun armAlarm(
         context, requestCode, intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-    when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (alarmMgr.canScheduleExactAlarms())
+    // Exact scheduling can throw SecurityException if the exact-alarm permission is
+    // missing/revoked; fall back to an inexact window so the reminder still fires.
+    try {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                if (alarmMgr.canScheduleExactAlarms())
+                    alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
+                else
+                    alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
                 alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
-            else
-                alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi)
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
-            alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
-        else ->
-            alarmMgr.setExact(AlarmManager.RTC_WAKEUP, triggerMs, pi)
+            else ->
+                alarmMgr.setExact(AlarmManager.RTC_WAKEUP, triggerMs, pi)
+        }
+    } catch (_: SecurityException) {
+        runCatching { alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi) }
     }
 }
 
