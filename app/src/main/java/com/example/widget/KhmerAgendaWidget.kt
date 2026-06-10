@@ -61,6 +61,9 @@ internal object AgendaRepository {
             val arr = JSONArray(prefs.getString("alarms", "[]") ?: "[]")
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
+                // Work-shift reminders have their own "Work shifts" section on the
+                // widget, so keep them out of the Notes/Events list.
+                if (o.optString("kind") == "shift") continue
                 val triggerMs = o.optLong("triggerMs", 0L)
                 val c = Calendar.getInstance().apply { timeInMillis = triggerMs }
                 items += AgendaItem(
