@@ -50,8 +50,12 @@ fun ScheduleTabContent() {
     var weekQuickPick by remember { mutableStateOf<Int?>(null) }
     // Target system type awaiting confirmation before it wipes the daily schedule.
     var pendingSystemType by remember { mutableStateOf<Int?>(null) }
-    var savedVersion by remember { mutableIntStateOf(0) }
-    val snapshots = remember(savedVersion) { AppStore.getCycleSnapshots(context) }
+    // Per-month schedules (cycleKey → day assignments). Each month is independent;
+    // a month with no entry has no work. Migrate the old single template once.
+    var schedules by remember {
+        AppStore.migrateLegacyTemplate(context)
+        mutableStateOf(AppStore.getCycleSnapshots(context))
+    }
 
     val today = remember { Calendar.getInstance() }
     val tY = today.get(Calendar.YEAR); val tM = today.get(Calendar.MONTH) + 1; val tD = today.get(Calendar.DAY_OF_MONTH)
@@ -87,6 +91,7 @@ fun ScheduleTabContent() {
                         shifts = AppStore.presetShifts(target),
                         dayAssignments = AppStore.emptyDayAssignments()
                     )
+                    schedules = emptyMap()   // shift ids change → every month is cleared
                     weekQuickPick = null
                     pendingSystemType = null
                 }) { Text(tr("កំណត់ឡើងវិញ", "Reset"), color = CrimsonHoliday, fontWeight = FontWeight.Bold) }
@@ -97,7 +102,7 @@ fun ScheduleTabContent() {
                 }
             },
             title = { Text(tr("ប្ដូរប្រព័ន្ធវេន?", "Switch shift system?"), color = MoonWheat, fontWeight = FontWeight.Bold) },
-            text = { Text(tr("ការប្ដូរនេះនឹងលុបកាលវិភាគប្រចាំថ្ងៃទាំងអស់។ បន្តឬ?", "This will reset all daily shift assignments. Continue?"), color = sandText) },
+            text = { Text(tr("ការប្ដូរនេះនឹងលុបកាលវិភាគគ្រប់ខែទាំងអស់។ បន្តឬ?", "This will reset the schedule for every month. Continue?"), color = sandText) },
             containerColor = plumCard,
             shape = RoundedCornerShape(16.dp)
         )
@@ -140,14 +145,20 @@ fun ScheduleTabContent() {
                     }
                 }
             } else {
-                // Viewed cycle: 0 = current (editable); negative = past history
-                // (read-only snapshot); positive = upcoming (read-only template).
+                // Each month has its own schedule and every month is editable.
                 val viewedStartCal = (WorkCycleEngine.cycleStart(tY, tM, tD).clone() as Calendar).apply { add(Calendar.MONTH, viewedOffset) }
                 val vY = viewedStartCal.get(Calendar.YEAR)
                 val vM = viewedStartCal.get(Calendar.MONTH) + 1
                 val vD = viewedStartCal.get(Calendar.DAY_OF_MONTH)
-                val readOnly = viewedOffset != 0
-                val viewCycle = if (readOnly) c.copy(dayAssignments = snapshots[AppStore.cycleKey(vY, vM, vD)] ?: c.dayAssignments) else c
+                val vKey = AppStore.cycleKey(vY, vM, vD)
+                val viewedAssignments = schedules[vKey] ?: AppStore.emptyDayAssignments()
+                val viewCycle = c.copy(dayAssignments = viewedAssignments)
+                // Save an edited assignment list back to the viewed month.
+                fun setViewed(updated: List<String?>) { schedules = schedules + (vKey to updated) }
+                // Per-date cycle resolver for the today banner + upcoming preview.
+                val cycleFor: (Int, Int, Int) -> AppStore.ShiftCycle = { yy, mm, dd ->
+                    AppStore.cycleForDate(c, schedules, yy, mm, dd)
+                }
 
                 // ── Cycle navigation (review previous / next months) ──────────
                 item {
@@ -167,11 +178,11 @@ fun ScheduleTabContent() {
                             Text("${fmtDate(viewedStartCal)} – ${fmtDate(vEnd)}", fontSize = 13.sp, color = sandText, fontWeight = FontWeight.Bold)
                             Text(
                                 when {
-                                    viewedOffset == 0 -> tr(lang, "ខួបបច្ចុប្បន្ន", "Current cycle")
-                                    viewedOffset < 0 -> tr(lang, "ប្រវត្តិ · មើលតែប៉ុណ្ណោះ", "History · view only")
-                                    else -> tr(lang, "ខាងមុខ · មើលតែប៉ុណ្ណោះ", "Upcoming · view only")
+                                    viewedOffset == 0 -> tr(lang, "ខួបបច្ចុប្បន្ន · កែបាន", "Current cycle · editable")
+                                    viewedOffset < 0 -> tr(lang, "ខួបមុន · កែបាន", "Past cycle · editable")
+                                    else -> tr(lang, "ខួបខាងមុខ · កែបាន", "Upcoming cycle · editable")
                                 },
-                                fontSize = 9.sp, color = if (readOnly) goldSubText else TraditionalGold, fontWeight = FontWeight.Bold
+                                fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold
                             )
                         }
                         Text("›", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
@@ -182,7 +193,7 @@ fun ScheduleTabContent() {
                 // ── Today's shift banner (current cycle only) ─────────────────
                 if (viewedOffset == 0) item {
                     val ctxStart = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
-                    val wdToday = WorkCycleEngine.buildWorkDays(c, ctxStart, today)
+                    val wdToday = WorkCycleEngine.buildWorkDays(cycleFor, ctxStart, today)
                         .lastOrNull { it.year == tY && it.month == tM && it.day == tD }
                     Row(
                         modifier = Modifier
@@ -248,9 +259,15 @@ fun ScheduleTabContent() {
                                     .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
                                     .clickable {
                                         if (!active) {
-                                            // Confirm only when there is a customised schedule to lose.
-                                            if (c.dayAssignments.any { it != null }) pendingSystemType = t
-                                            else cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), dayAssignments = AppStore.emptyDayAssignments())
+                                            // Switching systems changes the shift ids, so it clears every
+                                            // month. Confirm only when some month actually has a schedule.
+                                            val hasAny = schedules.values.any { row -> row.any { it != null } }
+                                            if (hasAny) {
+                                                pendingSystemType = t
+                                            } else {
+                                                cycle = c.copy(systemType = t, shifts = AppStore.presetShifts(t), dayAssignments = AppStore.emptyDayAssignments())
+                                                schedules = emptyMap()
+                                            }
                                         }
                                     }
                                     .padding(vertical = 12.dp),
@@ -292,7 +309,10 @@ fun ScheduleTabContent() {
                 val cycleStartCal = viewedStartCal
                 val cycleEndCal = (cycleStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
                 val cycleLen = (((cycleEndCal.timeInMillis - cycleStartCal.timeInMillis) / 86_400_000L) + 1).toInt().coerceIn(1, AppStore.CYCLE_SLOTS)
-                val blockedDays = WorkCycleEngine.buildWorkDays(viewCycle, cycleStartCal, cycleEndCal)
+                // No-rest markers: resolve per date (2-day lookback) so a shift on the
+                // 26th still sees the previous month's last shift.
+                val blockCtxStart = (cycleStartCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
+                val blockedDays = WorkCycleEngine.buildWorkDays(cycleFor, blockCtxStart, cycleEndCal)
                     .filter { it.blocked }
                     .map { it.year * 10000 + it.month * 100 + it.day }
                     .toSet()
@@ -303,19 +323,16 @@ fun ScheduleTabContent() {
                     val end = if (weekIdx >= 3) cycleLen - 1 else (start + 6).coerceAtMost(cycleLen - 1)
                     return start..end
                 }
-                // Assign one shift (or Off) to every day of a whole week at once.
+                // Assign one shift (or Off) to every day of a whole week of the viewed month.
                 val applyWeek: (Int, String?) -> Unit = { weekIdx, shiftId ->
-                    if (!readOnly) {
-                        cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { list ->
-                            for (i in weekDayRange(weekIdx)) if (i in list.indices) list[i] = shiftId
-                        })
-                    }
+                    setViewed(viewedAssignments.toMutableList().also { list ->
+                        for (i in weekDayRange(weekIdx)) if (i in list.indices) list[i] = shiftId
+                    })
                 }
                 item {
                     SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
                     Text(
-                        if (readOnly) tr(lang, "កំណត់ត្រាខួបនេះ (មើលតែប៉ុណ្ណោះ)", "This cycle's record (view only)")
-                        else tr(lang, "ប្ដូរវេនបានគ្រប់ថ្ងៃ", "Tap any day to set its shift"),
+                        tr(lang, "ប្ដូរវេនបានគ្រប់ថ្ងៃ · ខែនេះមានកាលវិភាគផ្ទាល់ខ្លួន", "Tap any day to set its shift · this month has its own schedule"),
                         fontSize = 10.sp, color = dimColor, modifier = Modifier.padding(top = 4.dp)
                     )
                 }
@@ -347,19 +364,17 @@ fun ScheduleTabContent() {
                                         if (isLongWeek) "— Week $wk (to 25th) —" else "— Week $wk —"),
                                     fontSize = 9.sp, color = goldSubText, fontWeight = FontWeight.Bold
                                 )
-                                if (!readOnly) {
-                                    Text(
-                                        if (weekQuickPick == weekIdx) tr(lang, "បិទ", "Close") else tr(lang, "កំណត់ទាំងសប្តាហ៍", "Set week"),
-                                        fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { weekQuickPick = if (weekQuickPick == weekIdx) null else weekIdx }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                                Text(
+                                    if (weekQuickPick == weekIdx) tr(lang, "បិទ", "Close") else tr(lang, "កំណត់ទាំងសប្តាហ៍", "Set week"),
+                                    fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { weekQuickPick = if (weekQuickPick == weekIdx) null else weekIdx }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
                             }
                             // Quick-assign one shift to the whole week (incl. the long 4th week).
-                            if (!readOnly && weekQuickPick == weekIdx) {
+                            if (weekQuickPick == weekIdx) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp)
@@ -396,11 +411,11 @@ fun ScheduleTabContent() {
                                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
                             ) {
                                 ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
-                                    if (!readOnly) cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = null })
+                                    setViewed(viewedAssignments.toMutableList().also { if (offset in it.indices) it[offset] = null })
                                 }
                                 viewCycle.shifts.forEach { s ->
                                     ShiftChip(s.name, currentId == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
-                                        if (!readOnly) cycle = c.copy(dayAssignments = c.dayAssignments.toMutableList().also { it[offset] = s.id })
+                                        setViewed(viewedAssignments.toMutableList().also { if (offset in it.indices) it[offset] = s.id })
                                     }
                                 }
                             }
@@ -449,7 +464,7 @@ fun ScheduleTabContent() {
                 run {
                     val from = (today.clone() as Calendar)
                     val to = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 13) }
-                    val preview = WorkCycleEngine.buildWorkDays(c, from, to)
+                    val preview = WorkCycleEngine.buildWorkDays(cycleFor, from, to)
                     if (preview.isEmpty()) {
                         item {
                             Text(
@@ -490,14 +505,13 @@ fun ScheduleTabContent() {
                     }
                 }
 
-                // ── Save / clear (current cycle only) ─────────────────────────
-                if (!readOnly) item {
+                // ── Save / delete ─────────────────────────────────────────────
+                item {
                     Spacer(Modifier.height(4.dp))
                     Button(
                         onClick = {
                             AppStore.saveShiftCycle(context, c)
-                            AppStore.snapshotCurrentCycle(context)
-                            savedVersion++
+                            AppStore.saveMonthlySchedules(context, schedules)
                             if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -513,19 +527,21 @@ fun ScheduleTabContent() {
                         Text(tr("រក្សាទុក & បើកការរំលឹក", "Save & schedule reminders"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-                if (!readOnly) item {
+                item {
                     OutlinedButton(
                         onClick = {
                             AppStore.clearShiftCycle(context)
-                            WorkScheduleScheduler.sync(context)
+                            AppStore.clearAllSchedules(context)
+                            schedules = emptyMap()
                             cycle = null
+                            WorkScheduleScheduler.sync(context)
                             scope.launch { WidgetPrefs.refresh(context) }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonHoliday),
                         border = BorderStroke(1.dp, CrimsonHoliday.copy(0.5f))
                     ) {
-                        Text(tr("លុបកាលវិភាគ", "Delete schedule"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(tr("លុបកាលវិភាគទាំងអស់", "Delete all schedules"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 item { Spacer(Modifier.height(24.dp)) }

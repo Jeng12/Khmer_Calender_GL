@@ -33,11 +33,18 @@ object WorkScheduleScheduler {
         val lang = appLanguage(context)
         val now = System.currentTimeMillis()
 
+        // Each month has its own schedule; resolve the right one per date so a
+        // horizon spanning a cycle boundary still uses the correct assignments.
+        val schedules = AppStore.getCycleSnapshots(context)
+        val cycleFor: (Int, Int, Int) -> AppStore.ShiftCycle = { y, m, d ->
+            AppStore.cycleForDate(cycle, schedules, y, m, d)
+        }
+
         // Start two days early so the no-rest rule has correct edge context.
         val from = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -2) }
         val to = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, HORIZON_DAYS) }
 
-        WorkCycleEngine.buildWorkDays(cycle, from, to).forEach { wd ->
+        WorkCycleEngine.buildWorkDays(cycleFor, from, to).forEach { wd ->
             if (wd.blocked) return@forEach
             val triggerMs = wd.startMs - cycle.reminderMinutesBefore * 60_000L
             if (triggerMs <= now) return@forEach

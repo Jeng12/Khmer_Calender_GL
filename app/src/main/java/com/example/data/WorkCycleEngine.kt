@@ -108,6 +108,45 @@ object WorkCycleEngine {
         return result
     }
 
+    /**
+     * Per-date variant of [buildWorkDays]: each day's cycle is resolved via
+     * [cycleFor], so a window that spans several monthly schedules uses each
+     * day's own assignments (shared shift definitions, per-month day pattern).
+     * The no-rest [WorkDay.blocked] rule still carries across day boundaries.
+     */
+    fun buildWorkDays(
+        cycleFor: (Int, Int, Int) -> AppStore.ShiftCycle,
+        fromCal: Calendar,
+        toCal: Calendar
+    ): List<WorkDay> {
+        val result = ArrayList<WorkDay>()
+        val cursor = (fromCal.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val end = toCal.timeInMillis
+        var prevEndMs = 0L
+
+        while (cursor.timeInMillis <= end) {
+            val y = cursor.get(Calendar.YEAR)
+            val m = cursor.get(Calendar.MONTH) + 1
+            val d = cursor.get(Calendar.DAY_OF_MONTH)
+            val cyc = cycleFor(y, m, d)
+            if (cyc.isConfigured) {
+                val shift = shiftForDate(cyc, y, m, d)
+                if (shift != null) {
+                    val startMs = shiftStartMs(shift, y, m, d)
+                    val endMs = shiftEndMs(shift, y, m, d)
+                    val blocked = prevEndMs != 0L && startMs <= prevEndMs
+                    result += WorkDay(y, m, d, shift, startMs, endMs, blocked)
+                    if (!blocked) prevEndMs = endMs
+                }
+            }
+            cursor.add(Calendar.DAY_OF_YEAR, 1)
+        }
+        return result
+    }
+
     /** Date range (start..end inclusive) for week [weekIdx] of the cycle containing the reference date. */
     fun weekRange(referenceYear: Int, referenceMonth: Int, referenceDay: Int, weekIdx: Int): Pair<Calendar, Calendar> {
         val start = cycleStart(referenceYear, referenceMonth, referenceDay)

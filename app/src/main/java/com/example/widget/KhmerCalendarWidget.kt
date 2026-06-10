@@ -210,10 +210,14 @@ class KhmerCalendarWidget : GlanceAppWidget() {
         val upcomingShifts = ArrayList<WorkShift>()
         val cycleCfg = AppStore.getShiftCycle(context)
         if (cycleCfg != null && cycleCfg.isConfigured) {
-            val currentCycleStartMs = WorkCycleEngine.cycleStart(y, m, d).timeInMillis
+            // Each month has its own schedule; resolve per date over the horizon.
+            val schedules = AppStore.getCycleSnapshots(context)
+            val cycleFor: (Int, Int, Int) -> AppStore.ShiftCycle = { yy, mm, dd ->
+                AppStore.cycleForDate(cycleCfg, schedules, yy, mm, dd)
+            }
             val ctxStart = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -2) }
             val horizonEnd = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 7) }
-            val days = WorkCycleEngine.buildWorkDays(cycleCfg, ctxStart, horizonEnd)
+            val days = WorkCycleEngine.buildWorkDays(cycleFor, ctxStart, horizonEnd)
             val todayInt = y * 10000 + m * 100 + d
             days.lastOrNull { it.year == y && it.month == m && it.day == d }?.let { wd ->
                 todayShift = WorkShift(
@@ -224,8 +228,6 @@ class KhmerCalendarWidget : GlanceAppWidget() {
             days.forEach { wd ->
                 val wdInt = wd.year * 10000 + wd.month * 100 + wd.day
                 if (wdInt <= todayInt) return@forEach
-                val wdCycleStartMs = WorkCycleEngine.cycleStart(wd.year, wd.month, wd.day).timeInMillis
-                if (wdCycleStartMs > currentCycleStartMs) return@forEach   // future cycle: skip
                 if (upcomingShifts.size < 3) upcomingShifts += WorkShift(
                     wd.day, wd.month, wd.shift.name, wd.shift.startHour, wd.shift.startMin,
                     wd.shift.endHour, wd.shift.endMin, wd.shift.isOvernight, wd.blocked

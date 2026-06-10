@@ -127,10 +127,10 @@ fun KhmerCalendarApp() {
         com.example.widget.WidgetPrefs.refresh(context)
     }
 
-    // Keep the work-schedule reminder window topped up on every launch, and
-    // freeze the current cycle so past months stay reviewable.
+    // One-time migration of the old single repeating template into per-month
+    // schedules, then keep the work-schedule reminder window topped up.
     LaunchedEffect(Unit) {
-        com.example.data.AppStore.snapshotCurrentCycle(context)
+        com.example.data.AppStore.migrateLegacyTemplate(context)
         com.example.alarm.WorkScheduleScheduler.sync(context)
     }
 

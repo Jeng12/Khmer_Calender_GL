@@ -88,14 +88,12 @@ fun CalendarTabContent(
 
     val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
 
-    // Schedule data (history-aware) — used to highlight working days on the grid.
-    // The per-month highlight maps are computed inside AnimatedContent so they stay
-    // correct for whichever month is on screen (incl. mid-swipe animations).
+    // Per-month schedule data — used to highlight working days on the grid. Each
+    // month has its own schedule; a month with none shows no work highlights. The
+    // highlight maps are computed inside AnimatedContent so they stay correct for
+    // whichever month is on screen (incl. mid-swipe animations).
     val scheduleCycle = remember(agendaVersion) { AppStore.getShiftCycle(context) }
     val scheduleSnaps = remember(agendaVersion) { AppStore.getCycleSnapshots(context) }
-    // Start of the cycle containing today; the schedule is shown only for the
-    // previous (recorded) and current cycle, never projected into a future cycle.
-    val currentCycleStartMs = remember { WorkCycleEngine.cycleStart(todayYear, todayMonth, todayDay).timeInMillis }
 
     var showDayDetailDialog by remember { mutableStateOf(false) }
     var detailDialogDate by remember { mutableStateOf<KhmerDate?>(null) }
@@ -284,9 +282,7 @@ fun CalendarTabContent(
                     val base = scheduleCycle
                     if (base == null || !base.isConfigured) emptyMap()
                     else (1..animDays.size).mapNotNull { d ->
-                        // Previous + current cycle only; never a future cycle.
-                        if (WorkCycleEngine.cycleStart(animYear, animMonth, d).timeInMillis > currentCycleStartMs) return@mapNotNull null
-                        val cyc = AppStore.historyAwareCycle(base, scheduleSnaps, animYear, animMonth, d)
+                        val cyc = AppStore.cycleForDate(base, scheduleSnaps, animYear, animMonth, d)
                         WorkCycleEngine.shiftForDate(cyc, animYear, animMonth, d)?.let { d to it }
                     }.toMap()
                 }

@@ -401,25 +401,44 @@ object AppStore {
         schedulePrefs(c).edit().putString("snapshots", o.toString()).apply()
     }
 
-    /** Freeze the current cycle's day pattern so it survives later template edits. */
-    fun snapshotCurrentCycle(c: Context) {
-        val cyc = getShiftCycle(c) ?: return
-        if (!cyc.isConfigured) return
-        val now = Calendar.getInstance()
-        val key = cycleKey(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
-        val map = getCycleSnapshots(c).toMutableMap()
-        map[key] = cyc.dayAssignments
-        saveCycleSnapshots(c, map)
+    /** Public saver for the whole per-month schedule map. */
+    fun saveMonthlySchedules(c: Context, map: Map<String, List<String?>>) = saveCycleSnapshots(c, map)
+
+    /** Remove every monthly schedule (used when the user deletes the schedule). */
+    fun clearAllSchedules(c: Context) {
+        schedulePrefs(c).edit().remove("snapshots").apply()
     }
 
     /**
-     * The cycle to use for a given date: a frozen snapshot when one exists for
-     * that date's (past) cycle, otherwise the live [base] template.
+     * One-time migration from the old single repeating template to per-month
+     * schedules: seed the month current at migration time with the saved template
+     * so an existing user keeps their schedule. Runs at most once; brand-new users
+     * simply start with no months scheduled.
      */
-    fun historyAwareCycle(base: ShiftCycle, snapshots: Map<String, List<String?>>, year: Int, month: Int, day: Int): ShiftCycle {
-        val snap = snapshots[cycleKey(year, month, day)]
-        return if (snap != null) base.copy(dayAssignments = snap) else base
+    fun migrateLegacyTemplate(c: Context) {
+        val sp = schedulePrefs(c)
+        if (sp.getBoolean("monthly_migrated", false)) return
+        val cfg = getShiftCycle(c)
+        if (cfg != null && cfg.isConfigured && cfg.dayAssignments.any { it != null }) {
+            val now = Calendar.getInstance()
+            val key = cycleKey(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
+            val map = getCycleSnapshots(c).toMutableMap()
+            if (!map.containsKey(key)) {
+                map[key] = cfg.dayAssignments
+                saveCycleSnapshots(c, map)
+            }
+        }
+        sp.edit().putBoolean("monthly_migrated", true).apply()
     }
+
+    /**
+     * The cycle in effect for a given date under the per-month model: shared
+     * config ([base]) combined with that month's own day assignments. A month
+     * with no saved schedule has no work (empty assignments), so it renders
+     * normally on the calendar.
+     */
+    fun cycleForDate(base: ShiftCycle, schedules: Map<String, List<String?>>, year: Int, month: Int, day: Int): ShiftCycle =
+        base.copy(dayAssignments = schedules[cycleKey(year, month, day)] ?: emptyDayAssignments())
 
     // ─────────────────────────────────────────────────────────────────────────
     // ALARM SETTINGS — custom ringtone + behaviour
