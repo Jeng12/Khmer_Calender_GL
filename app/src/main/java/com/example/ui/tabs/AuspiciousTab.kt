@@ -125,7 +125,7 @@ fun AuspiciousTabContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(tr("ថ្ងៃមង្គល (Auspicious Days)", "Auspicious Days"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ថ្ងៃមង្គល (Auspicious Days)", "Auspicious Days"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
                     Text("Auspicious Days · ${num(lang, calendarYear)}", fontSize = 9.sp, color = JadeGreen)
                 }
                 Text("🌿", fontSize = 24.sp)
@@ -152,7 +152,7 @@ fun AuspiciousTabContent(
                         Text(
                             text = filterLabel(tag),
                             fontSize = 10.sp,
-                            color = if (isActive) NightBlack else SandText,
+                            color = if (isActive) OnAccent else SandText,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -226,7 +226,7 @@ private fun AuspiciousDayCard(
             Text(
                 text = explanation!!,
                 fontSize = 10.sp,
-                color = MoonWheat,
+                color = SandText,
                 lineHeight = 15.sp,
                 modifier = Modifier
                     .fillMaxWidth()

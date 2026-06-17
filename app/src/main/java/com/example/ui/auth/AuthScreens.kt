@@ -117,7 +117,7 @@ fun SplashScreenContent() {
                 text = tr("ប្រតិទិនខ្មែរ", "Khmer Calendar"),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = MoonWheat,
+                color = SandText,
                 letterSpacing = 1.sp
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -186,7 +186,7 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
                 text = tr("ប្រតិទិនចន្ទគតិ", "Lunar Calendar"),
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                color = MoonWheat
+                color = SandText
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -234,7 +234,7 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
                     .testTag("onboarding_continue_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text(tr("បន្តទៅមុខទៀត ->", "Continue ->"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(tr("បន្តទៅមុខទៀត ->", "Continue ->"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             Spacer(modifier = Modifier.height(14.dp))
             Text(
@@ -302,7 +302,7 @@ fun LoginScreenContent(
             ) {
                 Text("🌙", fontSize = 32.sp)
                 Column {
-                    Text(tr("ចូលគណនី (Sign In)", "Sign In"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ចូលគណនី (Sign In)", "Sign In"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
                     Text(tr("ចូលទៅកាន់ប្រតិទិនរបស់អ្នក", "Sign in to your traditional calendar"), fontSize = 11.sp, color = DimColor)
                 }
             }
@@ -376,7 +376,7 @@ fun LoginScreenContent(
                     .testTag("login_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text(tr("ចូលគណនី (Sign In)", "Sign In"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(tr("ចូលគណនី (Sign In)", "Sign In"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -483,7 +483,7 @@ fun RegisterScreenContent(
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-        Text(tr("ចុះឈ្មោះថ្មី", "Create Account"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+        Text(tr("ចុះឈ្មោះថ្មី", "Create Account"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
         Text(tr("បង្កើតប្រវត្តិរូបប្រតិទិនរបស់អ្នក", "Create your traditional calendar profile"), fontSize = 11.sp, color = DimColor)
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -582,7 +582,7 @@ fun RegisterScreenContent(
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(tr("ចុះឈ្មោះភ្លាមៗ", "Register Now"), color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ចុះឈ្មោះភ្លាមៗ", "Register Now"), color = OnAccent, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -618,7 +618,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
             ) {
                 Text("🔑", fontSize = 36.sp)
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(tr("ភ្លេចពាក្យសម្ងាត់?", "Forgot password?"), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text(tr("ភ្លេចពាក្យសម្ងាត់?", "Forgot password?"), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SandText)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = tr("បញ្ចូលអ៊ីមែលរបស់អ្នកដើម្បីទទួលបានតំណភ្ជាប់ប្តូរលេខសម្ងាត់ថ្មី។", "Enter your email to receive a password reset link."),
@@ -650,7 +650,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(tr("ផ្ញើតំណភ្ជាប់", "Send Link"), color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ផ្ញើតំណភ្ជាប់", "Send Link"), color = OnAccent, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -674,7 +674,7 @@ fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.height(30.dp))
-        Text(tr("បញ្ជាក់លេខកូដសម្ងាត់ OTP", "Verify OTP Code"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+        Text(tr("បញ្ជាក់លេខកូដសម្ងាត់ OTP", "Verify OTP Code"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
         Text(tr("យើងបានផ្ញើលេខកូដសម្ងាត់ប្រាំមួយខ្ទង់ទៅសារទូរសព្ទរបស់អ្នក។", "We sent a 6-digit code to your phone."), fontSize = 11.sp, color = GoldSubText)
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -711,7 +711,7 @@ fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
                 .height(48.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(tr("ផ្ទៀងផ្ទាត់ និងចូល", "Verify & Sign In"), color = NightBlack, fontWeight = FontWeight.Bold)
+            Text(tr("ផ្ទៀងផ្ទាត់ និងចូល", "Verify & Sign In"), color = OnAccent, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(18.dp))

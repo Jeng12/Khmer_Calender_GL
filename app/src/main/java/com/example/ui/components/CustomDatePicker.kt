@@ -119,6 +119,7 @@ fun KhmerDatePickerContent(
     var displayYear by remember { mutableIntStateOf(initialDate.year.coerceIn(minYear, maxYear)) }
     var displayMonth by remember { mutableIntStateOf(initialDate.monthValue) }
     var selectedDay by remember { mutableIntStateOf(initialDate.dayOfMonth) }
+    val colors = LocalAppColors.current
 
     val goldGradient = remember {
         Brush.horizontalGradient(listOf(TraditionalGold, LightGold, TraditionalGold))
@@ -135,7 +136,7 @@ fun KhmerDatePickerContent(
 
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = Color(0xFF1D1726),
+        color = colors.surface,
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, goldGradient, RoundedCornerShape(20.dp))
@@ -147,14 +148,14 @@ fun KhmerDatePickerContent(
             // Title
             Text(
                 text = "ជ្រើសរើសកាលបរិច្ឆេទ",
-                color = LightGold,
+                color = colors.accentText,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 text = "Select Date",
-                color = GoldSubText,
+                color = colors.subText,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
@@ -176,19 +177,19 @@ fun KhmerDatePickerContent(
                     }
                 ) {
                     Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "ខែមុន",
-                        tint = TraditionalGold)
+                        tint = colors.accentText)
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "${KHMER_MONTH_NAMES_KH[displayMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(displayYear)}",
-                        color = SandText,
+                        color = colors.text,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         text = "${KHMER_MONTH_NAMES_EN[displayMonth - 1]} $displayYear",
-                        color = GoldSubText,
+                        color = colors.subText,
                         fontSize = 11.sp
                     )
                 }
@@ -204,7 +205,7 @@ fun KhmerDatePickerContent(
                     }
                 ) {
                     Icon(Icons.Default.KeyboardArrowRight, contentDescription = "ខែក្រោយ",
-                        tint = TraditionalGold)
+                        tint = colors.accentText)
                 }
             }
 
@@ -216,7 +217,7 @@ fun KhmerDatePickerContent(
                     Text(
                         text = label,
                         modifier = Modifier.weight(1f),
-                        color = GoldSubText,
+                        color = colors.subText,
                         fontSize = 11.sp,
                         textAlign = TextAlign.Center,
                         fontWeight = FontWeight.Medium
@@ -255,10 +256,10 @@ fun KhmerDatePickerContent(
                         else -> Color.Transparent
                     }
                     val textColor = when {
-                        isSelected -> NightBlack
+                        isSelected -> OnAccent
                         isHoliday  -> CrimsonHoliday
                         isAuspicious -> JadeGreen
-                        else -> SandText
+                        else -> colors.text
                     }
 
                     Column(
@@ -284,8 +285,8 @@ fun KhmerDatePickerContent(
                         if (khDate != null) {
                             Text(
                                 text = KhmerCalendarHelper.toKhmerNumeral(khDate.lunarDayVal),
-                                color = if (isSelected) NightBlack.copy(alpha = 0.7f)
-                                        else DimColor,
+                                color = if (isSelected) OnAccent.copy(alpha = 0.72f)
+                                        else colors.dim,
                                 fontSize = 8.sp,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 10.sp
@@ -303,14 +304,14 @@ fun KhmerDatePickerContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF261E30))
+                        .background(colors.card)
                         .border(1.dp, TraditionalGold.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                         .padding(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "${KHMER_MONTH_NAMES_KH[displayMonth - 1]} ${KhmerCalendarHelper.toKhmerNumeral(selectedDay)}, ${KhmerCalendarHelper.toKhmerNumeral(displayYear)}",
-                        color = SandText,
+                        color = colors.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -325,12 +326,12 @@ fun KhmerDatePickerContent(
                         )
                         Text(
                             text = "${selectedDayKhmerDate.lunarDayName} ${selectedDayKhmerDate.lunarMonthName}",
-                            color = LightGold,
+                            color = colors.accentText,
                             fontSize = 13.sp
                         )
                         Text(
                             text = "ព.ស. ${KhmerCalendarHelper.toKhmerNumeral(selectedDayKhmerDate.BE)}",
-                            color = GoldSubText,
+                            color = colors.subText,
                             fontSize = 11.sp
                         )
                     }
@@ -381,7 +382,7 @@ fun KhmerDatePickerContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("បោះបង់", color = GoldSubText)
+                    Text("បោះបង់", color = colors.subText)
                 }
                 TextButton(
                     onClick = {
@@ -402,6 +403,7 @@ fun KhmerDatePickerContent(
 
 @Composable
 private fun LegendItem(color: Color, label: String) {
+    val colors = LocalAppColors.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -412,7 +414,7 @@ private fun LegendItem(color: Color, label: String) {
                 .clip(CircleShape)
                 .background(color)
         )
-        Text(text = label, color = GoldSubText, fontSize = 10.sp)
+        Text(text = label, color = colors.subText, fontSize = 10.sp)
     }
 }
 
@@ -430,11 +432,12 @@ fun KhmerDatePickerField(
     onDateSelected: (LocalDate, KhmerDate) -> Unit
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    val colors = LocalAppColors.current
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
-            color = GoldSubText,
+            color = colors.subText,
             fontSize = 12.sp,
             modifier = Modifier.padding(bottom = 4.dp)
         )
@@ -443,11 +446,11 @@ fun KhmerDatePickerField(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF261E30))
+                .background(colors.card)
                 .border(
                     1.dp,
                     if (selectedDate != null) TraditionalGold.copy(alpha = 0.6f)
-                    else DimColor,
+                    else colors.dim,
                     RoundedCornerShape(10.dp)
                 )
                 .clickable(
@@ -471,20 +474,20 @@ fun KhmerDatePickerField(
                         text = "${KHMER_MONTH_NAMES_KH[selectedDate.monthValue - 1]} " +
                                "${KhmerCalendarHelper.toKhmerNumeral(selectedDate.dayOfMonth)}, " +
                                KhmerCalendarHelper.toKhmerNumeral(selectedDate.year),
-                        color = SandText,
+                        color = colors.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "${khDate.moonEmoji} ${khDate.lunarDayName} ${khDate.lunarMonthName}",
-                        color = LightGold,
+                        color = colors.accentText,
                         fontSize = 11.sp
                     )
                 }
             } else {
                 Text(
                     text = "ថ្ងៃ / ខែ / ឆ្នាំ",
-                    color = DimColor,
+                    color = colors.dim,
                     fontSize = 14.sp
                 )
             }

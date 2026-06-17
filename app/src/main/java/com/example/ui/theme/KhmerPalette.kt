@@ -14,6 +14,7 @@ val DeepMuted = Color(0xFF453556)       // #3D3349 in Jetpack
 val SandText = Color(0xFFF5EDD8)        // #F5EDD8 (Cream)
 val GoldSubText = Color(0xFFC7B38E)     // #9B8E7A
 val DimColor = Color(0xFFA090B8)        // improved contrast on dark backgrounds
+val OnAccent = Color(0xFF1A1108)        // readable on gold, green, pink, and sky controls
 val TraditionalGold = Color(0xFFC8973A) // #C8973A
 val LightGold = Color(0xFFE8B84B)       // #E8B84B
 val CrimsonHoliday = Color(0xFFC0392B)  // #C0392B
@@ -40,23 +41,28 @@ data class AppColors(
     val text:    Color,  // SandText
     val subText: Color,  // GoldSubText
     val dim:     Color,  // DimColor
+    val accentText: Color,
+    val onAccent: Color,
 )
 
 val DarkAppColors = AppColors(
     bg = NightBlack, deepBg = DeepAmethyst, surface = PlumSurface, card = PlumCard,
-    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor
+    border = DeepBorder, muted = DeepMuted, text = SandText, subText = GoldSubText, dim = DimColor,
+    accentText = TraditionalGold, onAccent = OnAccent
 )
 
 val LightAppColors = AppColors(
-    bg      = Color(0xFFFAF5EE),
-    deepBg  = Color(0xFFF0E8DC),
+    bg      = Color(0xFFFAF7F1),
+    deepBg  = Color(0xFFF1E6D8),
     surface = Color(0xFFFFFFFF),
-    card    = Color(0xFFF5EFE6),
-    border  = Color(0xFFE2D5C3),
-    muted   = Color(0xFFCFC0A8),
-    text    = Color(0xFF2C1F0E),
-    subText = Color(0xFF7A5F3A),
-    dim     = Color(0xFF9A8068),
+    card    = Color(0xFFF4EADF),
+    border  = Color(0xFFC7B49E),
+    muted   = Color(0xFF9A8267),
+    text    = Color(0xFF1A1108),
+    subText = Color(0xFF4C3821),
+    dim     = Color(0xFF6B5436),
+    accentText = Color(0xFF7A4F09),
+    onAccent = OnAccent,
 )
 
 val LocalAppColors = compositionLocalOf { DarkAppColors }

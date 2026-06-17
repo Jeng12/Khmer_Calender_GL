@@ -5,6 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -143,6 +146,22 @@ fun BottomBarItem(
     onClick: () -> Unit
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val itemAlpha by animateFloatAsState(
+        targetValue = if (isSelected) 1f else 0.65f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "BottomBarItemAlpha"
+    )
+    val indicatorWidth by animateDpAsState(
+        targetValue = if (isSelected) 14.dp else 0.dp,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "BottomBarIndicatorWidth"
+    )
+    val labelColor by animateColorAsState(
+        targetValue = if (isSelected) TraditionalGold else GoldSubText,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "BottomBarLabelColor"
+    )
+
     Column(
         modifier = Modifier
             .clickable(
@@ -154,22 +173,20 @@ fun BottomBarItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(text = emoji, fontSize = 18.sp, modifier = Modifier.alpha(if (isSelected) 1f else 0.5f))
+        Text(text = emoji, fontSize = 18.sp, modifier = Modifier.alpha(itemAlpha))
         Text(
             text = label,
             fontSize = 10.sp,
             maxLines = 1,
             softWrap = false,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) TraditionalGold else GoldSubText.copy(0.6f)
+            color = labelColor
         )
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp, 2.dp)
-                    .clip(CircleShape)
-                    .background(TraditionalGold)
-            )
-        }
+        Box(
+            modifier = Modifier
+                .width(indicatorWidth)
+                .height(2.dp)
+                .background(TraditionalGold, CircleShape)
+        )
     }
 }

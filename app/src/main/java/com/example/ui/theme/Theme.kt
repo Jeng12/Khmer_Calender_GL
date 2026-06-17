@@ -4,6 +4,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 
@@ -27,13 +28,33 @@ private val KhmerDarkColorScheme = darkColorScheme(
     onError         = SandTextTheme,
 )
 
+private val KhmerLightColorScheme = lightColorScheme(
+    primary         = TraditionalGoldTheme,
+    onPrimary       = OnAccentTheme,
+    primaryContainer = LightCardTheme,
+    onPrimaryContainer = LightTextTheme,
+    secondary       = LotusPinkTheme,
+    onSecondary     = OnAccentTheme,
+    tertiary        = JadeGreenTheme,
+    onTertiary      = OnAccentTheme,
+    background      = LightBackgroundTheme,
+    onBackground    = LightTextTheme,
+    surface         = LightSurfaceTheme,
+    onSurface       = LightTextTheme,
+    surfaceVariant  = LightCardTheme,
+    onSurfaceVariant = LightSubTextTheme,
+    outline         = LightBorderTheme,
+    error           = CrimsonHolidayTheme,
+    onError         = SandTextTheme,
+)
+
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = KhmerDarkColorScheme,
+        colorScheme = if (darkTheme) KhmerDarkColorScheme else KhmerLightColorScheme,
         typography = Typography,
     ) {
         // Default every Text (even those that only set fontSize/color inline) to the

@@ -7,7 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import com.example.calendar.KhmerCalendarHelper
 import com.example.ui.navigation.KhmerCalendarApp
-import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -19,11 +18,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.Default) {
             KhmerCalendarHelper.warmUp()
         }
-        setContent {
-            MyApplicationTheme {
-                KhmerCalendarApp()
-            }
-        }
+        setContent { KhmerCalendarApp() }
     }
 
     /**

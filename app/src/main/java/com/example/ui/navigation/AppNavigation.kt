@@ -47,6 +47,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.lifecycle.lifecycleScope
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
@@ -135,22 +136,27 @@ fun KhmerCalendarApp() {
     }
 
     // Outer edge-to-edge container
-    CompositionLocalProvider(
-        LocalAppLanguage provides appLanguage,
-        LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
-    ) {
-    val C = LocalAppColors.current
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = C.bg
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+    MyApplicationTheme(darkTheme = isDarkMode) {
+        CompositionLocalProvider(
+            LocalAppLanguage provides appLanguage,
+            LocalAppColors provides if (isDarkMode) DarkAppColors else LightAppColors
         ) {
-            Crossfade(targetState = screenState, label = "ScreenTransition") { currentScreen ->
+            val C = LocalAppColors.current
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = C.bg
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                ) {
+                    Crossfade(
+                        targetState = screenState,
+                        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+                        label = "ScreenTransition"
+                    ) { currentScreen ->
                 when (currentScreen) {
                     AppScreen.SPLASH -> SplashScreenContent()
                     AppScreen.ONBOARDING -> OnboardingScreenContent(
@@ -234,6 +240,7 @@ fun KhmerCalendarApp() {
         }
     }
     }
+    }
 }
 
 
@@ -278,7 +285,11 @@ fun MainAppLayout(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Crossfade(targetState = currentTab, label = "TabTransition") { tab ->
+            Crossfade(
+                targetState = currentTab,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                label = "TabTransition"
+            ) { tab ->
                 when (tab) {
                     AppTab.HOME -> HomeTabContent(onTabSelect = onTabChange)
                     AppTab.CALENDAR -> CalendarTabContent(
