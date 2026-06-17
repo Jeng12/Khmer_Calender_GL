@@ -92,7 +92,7 @@ fun DateConvertContent(
     val spin by spinTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(animation = tween(900, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(animation = tween(1100, easing = LinearEasing)),
         label = "spin"
     )
 
@@ -145,7 +145,7 @@ fun DateConvertContent(
         }
         isConverting = true
         showResult = false
-        delay(600)
+        delay(520)
         isConverting = false
         showResult = true
     }
@@ -183,7 +183,7 @@ fun DateConvertContent(
                     // Gently rotates while a conversion is in flight.
                     Text("🔄", fontSize = 28.sp, modifier = Modifier.rotate(if (isConverting) spin else 0f))
                     Column {
-                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Text(tr("បំលែងថ្ងៃខែ", "Date Converter"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = SandText)
                         Text(tr("ពីគ្រីស្ដសករាជ → ចន្ទគតិខ្មែរ", "Gregorian → Khmer Lunar"), fontSize = 10.sp, color = SkyBlue)
                     }
                 }
@@ -263,8 +263,10 @@ fun DateConvertContent(
                     // Error banner
                     AnimatedVisibility(
                         visible = inputError != null,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                        enter = fadeIn(tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
+                                expandVertically(tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                        exit = fadeOut(tween(durationMillis = 140, easing = FastOutSlowInEasing)) +
+                                shrinkVertically(tween(durationMillis = 180, easing = FastOutSlowInEasing))
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -311,12 +313,12 @@ fun DateConvertContent(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(18.dp),
                                     strokeWidth = 2.dp,
-                                    color = NightBlack
+                                    color = OnAccent
                                 )
-                                Text(tr("កំពុងបំលែង…", "Converting…"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(tr("កំពុងបំលែង…", "Converting…"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             } else {
-                                Text("⇅", fontSize = 18.sp, color = NightBlack)
-                                Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = NightBlack, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("⇅", fontSize = 18.sp, color = OnAccent)
+                                Text(tr("បំលែងជាចន្ទគតិ", "Convert to Lunar"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
                     }
@@ -328,10 +330,10 @@ fun DateConvertContent(
         item {
             AnimatedVisibility(
                 visible = showResult && !isConverting && convertedDate != null,
-                enter = fadeIn(tween(420)) +
-                        slideInVertically(tween(420)) { it / 3 } +
-                        scaleIn(tween(420), initialScale = 0.92f),
-                exit = fadeOut(tween(150))
+                enter = fadeIn(tween(durationMillis = 380, easing = FastOutSlowInEasing)) +
+                        slideInVertically(tween(durationMillis = 380, easing = FastOutSlowInEasing)) { it / 4 } +
+                        scaleIn(tween(durationMillis = 380, easing = FastOutSlowInEasing), initialScale = 0.96f),
+                exit = fadeOut(tween(durationMillis = 160, easing = FastOutSlowInEasing))
             ) {
                 convertedDate?.let { ConversionResultCard(it) }
             }
@@ -445,7 +447,7 @@ private fun ConversionResultCard(date: KhmerDate) {
                     "${lunarDayLabel(lang, date)} ខែ${date.lunarMonthName}",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = MoonWheat
+                color = colors.text
             )
 
             Spacer(modifier = Modifier.height(12.dp))

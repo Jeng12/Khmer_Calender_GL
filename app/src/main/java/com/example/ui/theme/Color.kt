@@ -19,6 +19,13 @@ val LotusPinkTheme       = Color(0xFFE8768A)
 val JadeGreenTheme       = Color(0xFF4DAF7C)
 val MoonWheatTheme       = Color(0xFFF2E8C6)
 val SkyBlueTheme         = Color(0xFF7BA7BC)
+val LightBackgroundTheme = Color(0xFFFAF7F1)
+val LightSurfaceTheme    = Color(0xFFFFFFFF)
+val LightCardTheme       = Color(0xFFF4EADF)
+val LightBorderTheme     = Color(0xFFC7B49E)
+val LightTextTheme       = Color(0xFF1A1108)
+val LightSubTextTheme    = Color(0xFF4C3821)
+val OnAccentTheme        = Color(0xFF1A1108)
 
 // ── Semantic semi-transparent helpers ───────────────────────────────────────
 val GoldDivider  = TraditionalGoldTheme.copy(alpha = 0.3f)

@@ -129,7 +129,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                     Text("🌙", fontSize = 24.sp)
                 }
                 Column {
-                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("ប្រតិទិនចន្ទគតិខ្មែរ", "Khmer Lunar Calendar"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
                     Text("KHMER LUNAR CALENDAR · OFFICIAL v2", fontSize = 9.sp, color = TraditionalGold, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -170,7 +170,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                                         "ថ្ងៃ${currentKhmerInfo.dayOfWeek} ទី${num(lang, currentKhmerInfo.day)} ${gregMonth(lang, currentMonth - 1)} ${num(lang, currentYear)}",
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MoonWheat
+                                    color = SandText
                                 )
                             }
                             Text(text = currentKhmerInfo.moonEmoji, fontSize = 32.sp)

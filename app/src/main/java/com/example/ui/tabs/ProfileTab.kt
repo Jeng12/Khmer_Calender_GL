@@ -238,7 +238,7 @@ fun ProfileSettingsContent(
                         Text(
                             userName.take(1).uppercase(),
                             fontSize = 24.sp,
-                            color = NightBlack,
+                            color = OnAccent,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -258,7 +258,7 @@ fun ProfileSettingsContent(
                         .clickable { showEditNameDialog = true }
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(userName, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                        Text(userName, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = SandText)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("✏️", fontSize = 12.sp)
                     }
@@ -311,7 +311,7 @@ fun ProfileSettingsContent(
                                 Text(
                                     label,
                                     fontSize = 10.sp,
-                                    color = if (isActive) NightBlack else SandText,
+                                    color = if (isActive) OnAccent else SandText,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -569,7 +569,7 @@ private fun SettingChip(label: String, active: Boolean, onClick: () -> Unit) {
         Text(
             label,
             fontSize = 10.sp,
-            color = if (active) NightBlack else SandText,
+            color = if (active) OnAccent else SandText,
             fontWeight = FontWeight.Bold
         )
     }

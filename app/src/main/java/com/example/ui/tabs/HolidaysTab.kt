@@ -164,7 +164,7 @@ fun HolidaysTabContent(
     ) {
         item {
             Column {
-                Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
                 Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
                 Text(tr("ទាញចុះក្រោមដើម្បីផ្ទុកឡើងវិញ", "Pull down to refresh"), fontSize = 9.sp, color = GoldSubText)
             }
@@ -225,7 +225,7 @@ fun HolidaysTabContent(
                         Text(
                             text = typeLabel(tag),
                             fontSize = 10.sp,
-                            color = if (isActive) NightBlack else SandText,
+                            color = if (isActive) OnAccent else SandText,
                             fontWeight = FontWeight.Bold
                         )
                     }

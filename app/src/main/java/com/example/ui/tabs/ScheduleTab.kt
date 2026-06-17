@@ -101,7 +101,7 @@ fun ScheduleTabContent() {
                     Text(tr("បោះបង់", "Cancel"), color = goldSubText)
                 }
             },
-            title = { Text(tr("ប្ដូរប្រព័ន្ធវេន?", "Switch shift system?"), color = MoonWheat, fontWeight = FontWeight.Bold) },
+            title = { Text(tr("ប្ដូរប្រព័ន្ធវេន?", "Switch shift system?"), color = sandText, fontWeight = FontWeight.Bold) },
             text = { Text(tr("ការប្ដូរនេះនឹងលុបកាលវិភាគគ្រប់ខែទាំងអស់។ បន្តឬ?", "This will reset the schedule for every month. Continue?"), color = sandText) },
             containerColor = plumCard,
             shape = RoundedCornerShape(16.dp)
@@ -115,7 +115,7 @@ fun ScheduleTabContent() {
         ) {
             item {
                 Column {
-                    Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MoonWheat)
+                    Text(tr("កាលវិភាគការងារ (Work Schedule)", "Work Schedule"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = sandText)
                     Text(tr("ប្រព័ន្ធវេនវិលជុំ · ខួប ២៦ ដល់ ២៥", "Rotating shifts · 26th-to-25th cycle"), fontSize = 10.sp, color = LotusPink)
                 }
             }
@@ -238,7 +238,7 @@ fun ScheduleTabContent() {
                                     )
                                 },
                                 fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                                color = if (wdToday?.blocked == true) CrimsonHoliday else MoonWheat
+                                color = if (wdToday?.blocked == true) CrimsonHoliday else sandText
                             )
                         }
                     }
@@ -273,7 +273,7 @@ fun ScheduleTabContent() {
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(label, fontSize = 12.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold)
+                                Text(label, fontSize = 12.sp, color = if (active) OnAccent else sandText, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -524,7 +524,7 @@ fun ScheduleTabContent() {
                         colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text(tr("រក្សាទុក & បើកការរំលឹក", "Save & schedule reminders"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(tr("រក្សាទុក & បើកការរំលឹក", "Save & schedule reminders"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
                 item {
@@ -589,7 +589,7 @@ private fun ShiftChip(label: String, active: Boolean, activeColor: Color, onClic
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
-        Text(label, fontSize = 11.sp, color = if (active) nightBlack else sandText, fontWeight = FontWeight.Bold)
+        Text(label, fontSize = 11.sp, color = if (active) OnAccent else sandText, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -643,7 +643,7 @@ private fun ShiftTimeEditor(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
                 ) {
-                    Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold)
+                    Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold)
                 }
             }
         }

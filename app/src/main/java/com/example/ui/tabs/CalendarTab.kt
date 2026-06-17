@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -191,7 +192,7 @@ fun CalendarTabContent(
                             "ថ្ងៃទី ${num(lang, selectedDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MoonWheat
+                        color = sandText
                     )
                     Text(
                         text = tr(
@@ -199,7 +200,7 @@ fun CalendarTabContent(
                             "BE ${selectedKhmerDate.BE} · ${zodiac(lang, selectedKhmerDate.zodiac)}"
                         ),
                         fontSize = 11.sp,
-                        color = TraditionalGold,
+                        color = if (LocalAppColors.current == DarkAppColors) TraditionalGold else goldSubText,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -246,7 +247,7 @@ fun CalendarTabContent(
                         textAlign = TextAlign.Center,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (idx == 0 || idx == 6) CrimsonHoliday else goldSubText
+                        color = if (idx == 0 || idx == 6) CrimsonHoliday else dimColor
                     )
                 }
             }
@@ -258,10 +259,15 @@ fun CalendarTabContent(
                 targetState = year * 12 + (month - 1),
                 transitionSpec = {
                     val forward = targetState > initialState
-                    (slideInHorizontally(tween(300)) { if (forward) it else -it } +
-                     fadeIn(tween(220))) togetherWith
-                    (slideOutHorizontally(tween(300)) { if (forward) -it else it } +
-                     fadeOut(tween(180)))
+                    (slideInHorizontally(
+                        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
+                    ) { if (forward) it / 2 else -it / 2 } +
+                     fadeIn(tween(durationMillis = 240, easing = FastOutSlowInEasing))) togetherWith
+                    (slideOutHorizontally(
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    ) { if (forward) -it / 4 else it / 4 } +
+                     fadeOut(tween(durationMillis = 220, easing = FastOutSlowInEasing))) using
+                    SizeTransform(clip = false)
                 },
                 label = "MonthGrid"
             ) { ym ->
@@ -376,7 +382,7 @@ fun CalendarTabContent(
                                                     isSelected -> TraditionalGold
                                                     isHoliday  -> LotusPink
                                                     isWeekend  -> CrimsonHoliday
-                                                    else       -> SandText
+                                                    else       -> sandText
                                                 }
                                             )
                                             Text(
@@ -428,7 +434,7 @@ fun CalendarTabContent(
         item {
             Text(
                 text = tr("📅 កម្មវិធីប្រចាំខែ", "📅 Monthly Agenda"),
-                style = TextStyle(color = goldSubText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                style = TextStyle(color = sandText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
             )
         }
@@ -655,7 +661,7 @@ private fun DayDetailDialog(
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = SkyBlue)
                                 ) {
-                                    Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                 }
                             }
                         }
@@ -710,7 +716,7 @@ private fun DayDetailDialog(
                             colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(tr("បន្ថែម", "Add"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Text(tr("បន្ថែម", "Add"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
                 }
@@ -777,7 +783,7 @@ private fun DayDetailDialog(
                                 modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
                             ) {
-                                Text(tr("ជ្រើសម៉ោង", "Pick Time"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text(tr("ជ្រើសម៉ោង", "Pick Time"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                             }
                         }
                     }
@@ -845,7 +851,7 @@ private fun DayDetailDialog(
                                 modifier = Modifier.align(Alignment.End),
                                 colors = ButtonDefaults.buttonColors(containerColor = LotusPink)
                             ) {
-                                Text(tr("រក្សាទុក", "Save"), color = nightBlack, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                             }
                         }
                     }
