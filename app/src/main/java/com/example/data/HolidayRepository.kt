@@ -1,20 +1,15 @@
 package com.example.data
 
+import com.example.calendar.KhmerCalendarHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.LocalDate
 
 /**
- * A single Cambodian public holiday as returned by the
- * Khmer Public Holidays API (https://khmer-public-holidays-api.vercel.app).
+ * A single Cambodian public holiday as returned by the calendar API.
  *
- * The remote `type` field is one of: fixed, national, international,
- * religious, royal, traditional. [isBuddhist] folds the religious ones into
- * the app's two-bucket National / Buddhist filter.
+ * Built-in holidays come from the computed calendar month endpoint. Database
+ * holiday overlays come from each day payload's `holiday_events` array.
  */
 data class Holiday(
     val nameKh: String,
@@ -30,20 +25,16 @@ data class Holiday(
 }
 
 /**
- * Fetches Cambodian public holidays from the public Khmer holidays API.
+ * Fetches Cambodian public holidays from the Khmer Calendar API.
  *
- * Uses a plain [HttpURLConnection] + `org.json` so no extra networking
- * dependency is required. Results are cached in memory for the process
- * lifetime; callers get a [Result] so network/parse failures can fall back to
- * the bundled list gracefully.
+ * Results are cached in memory for the process lifetime; callers get a
+ * [Result] so network/parse failures can fall back to the bundled list
+ * gracefully.
  */
 object HolidayRepository {
 
-    private const val ENDPOINT = "https://khmer-public-holidays-api.vercel.app/holidays"
-    private const val TIMEOUT_MS = 12_000
-
     @Volatile
-    private var cache: List<Holiday>? = null
+    private var cache: Map<Int, List<Holiday>> = emptyMap()
 
     /**
      * @param year  Optional year filter applied client-side after fetching.
@@ -54,48 +45,61 @@ object HolidayRepository {
         forceRefresh: Boolean = false
     ): Result<List<Holiday>> = withContext(Dispatchers.IO) {
         runCatching {
-            val all = cache.takeUnless { forceRefresh || it == null } ?: run {
-                val parsed = parse(download())
-                cache = parsed
-                parsed
+            val targetYear = year ?: LocalDate.now().year
+            val cached = cache[targetYear]
+            if (!forceRefresh && cached != null) return@runCatching cached
+
+            val builtIn = (1..12).flatMap { month ->
+                KhmerCalendarHelper.getGregorianMonthDays(targetYear, month).mapNotNull { day ->
+                    val name = day.holiday ?: return@mapNotNull null
+                    Holiday(
+                        nameKh = name,
+                        nameEn = name,
+                        date = LocalDate.of(day.year, day.month, day.day),
+                        type = typeFromBuiltInHoliday(name),
+                        description = null,
+                        notes = null,
+                        isFixed = false
+                    )
+                }
             }
-            if (year == null) all else all.filter { it.date.year == year }
+
+            val apiEvents = CalendarApiRepository
+                .fetchHolidayEvents(
+                    from = LocalDate.of(targetYear, 1, 1),
+                    to = LocalDate.of(targetYear, 12, 31),
+                    forceRefresh = forceRefresh
+                )
+                .getOrDefault(emptyList())
+                .map { event ->
+                    Holiday(
+                        nameKh = event.nameKm,
+                        nameEn = event.nameEn,
+                        date = event.occurrenceDate ?: event.date,
+                        type = event.type,
+                        description = event.description,
+                        notes = event.notes,
+                        isFixed = false
+                    )
+                }
+
+            val parsed = (builtIn + apiEvents)
+                .distinctBy { "${it.date}:${it.nameKh}:${it.nameEn}" }
+                .sortedBy { it.date }
+
+            cache = cache + (targetYear to parsed)
+            parsed
         }
     }
 
-    private fun download(): String {
-        val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
-            setRequestProperty("Accept", "application/json")
+    private fun typeFromBuiltInHoliday(name: String): String =
+        if (
+            name.contains("Bochea", ignoreCase = true) ||
+            name.contains("Pchum", ignoreCase = true) ||
+            name.contains("Water Festival", ignoreCase = true)
+        ) {
+            "religious"
+        } else {
+            "national"
         }
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) throw IOException("HTTP $code from holidays API")
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun parse(body: String): List<Holiday> {
-        val arr = JSONArray(body)
-        val out = ArrayList<Holiday>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val dateStr = o.optString("date").takeIf { it.isNotBlank() } ?: continue
-            val date = runCatching { LocalDate.parse(dateStr) }.getOrNull() ?: continue
-            out += Holiday(
-                nameKh = o.optString("name_kh", ""),
-                nameEn = o.optString("name_en", ""),
-                date = date,
-                type = o.optString("type", "national"),
-                description = o.optString("description").takeIf { it.isNotBlank() && it != "null" },
-                notes = o.optString("notes").takeIf { it.isNotBlank() && it != "null" },
-                isFixed = o.optBoolean("is_fixed", false)
-            )
-        }
-        return out.sortedBy { it.date }
-    }
 }

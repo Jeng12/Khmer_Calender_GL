@@ -80,6 +80,7 @@ fun KhmerCalendarApp() {
 
     // App-wide language, persisted across launches. Defaults to Khmer.
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val langPrefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
     var appLanguage by remember {
         mutableStateOf(
@@ -121,6 +122,8 @@ fun KhmerCalendarApp() {
     // Initialize Conversion date on first load
     LaunchedEffect(Unit) {
         convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25)
+        CalendarApiRepository.convertDate(2026, 5, 25)
+            .onSuccess { convertedKhDate = it }
     }
 
     // Refresh home-screen widgets every time the app starts, so notes/events stay current.
@@ -215,6 +218,10 @@ fun KhmerCalendarApp() {
                             val mVal = m.toIntOrNull() ?: 5
                             val dVal = d.toIntOrNull() ?: 25
                             convertedKhDate = KhmerCalendarHelper.getKhmerDate(yearVal, mVal, dVal)
+                            scope.launch {
+                                CalendarApiRepository.convertDate(yearVal, mVal, dVal)
+                                    .onSuccess { convertedKhDate = it }
+                            }
                         },
                         selectedAuspiciousFilter = selectedAuspiciousFilter,
                         onAuspiciousFilterChange = { selectedAuspiciousFilter = it },
