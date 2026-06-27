@@ -39,6 +39,8 @@ import com.example.calendar.KhmerCalendarHelper
 import com.example.calendar.KhmerDate
 import com.example.core.*
 import com.example.data.AppStore
+import com.example.data.CalendarApiMonthOverlays
+import com.example.data.CalendarApiRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
@@ -81,6 +83,31 @@ fun CalendarTabContent(
     val todayMonth = todayCal.get(Calendar.MONTH) + 1
     val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
 
+    var apiOverlaysResult by remember { mutableStateOf<Result<CalendarApiMonthOverlays>?>(null) }
+    LaunchedEffect(year, month) {
+        apiOverlaysResult = null
+        apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(year, month)
+    }
+    val apiOverlays = apiOverlaysResult?.getOrNull()
+        ?.takeIf { it.year == year && it.month == month }
+    val apiNotesByDay = remember(apiOverlays) {
+        apiOverlays?.notes.orEmpty().groupBy { it.date.dayOfMonth }
+    }
+    val apiEventsByDay = remember(apiOverlays) {
+        apiOverlays?.events.orEmpty().mapNotNull { event ->
+            event.date?.takeIf { it.year == year && it.monthValue == month }?.dayOfMonth?.let { it to event }
+        }.groupBy({ it.first }, { it.second })
+    }
+    val apiHolidayEventsByDay = remember(apiOverlays) {
+        apiOverlays?.holidayEvents.orEmpty().mapNotNull { event ->
+            val date = event.occurrenceDate ?: event.date
+            date.takeIf { it.year == year && it.monthValue == month }?.dayOfMonth?.let { it to event }
+        }.groupBy({ it.first }, { it.second })
+    }
+    val apiWorkShiftsByDay = remember(apiOverlays) {
+        apiOverlays?.workShifts.orEmpty().associateBy { it.date.dayOfMonth }
+    }
+
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
     val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7
@@ -109,7 +136,16 @@ fun CalendarTabContent(
         (year == todayYear && month < todayMonth) ||
         (year == todayYear && month == todayMonth && d < todayDay)
 
-    val monthlyAgenda = remember(year, month, agendaVersion, lang) {
+    val monthlyAgenda = remember(
+        year,
+        month,
+        agendaVersion,
+        lang,
+        daysList,
+        apiNotesByDay,
+        apiEventsByDay,
+        apiHolidayEventsByDay
+    ) {
         val list = mutableListOf<AgendaItem>()
 
         // 1. Built-in holidays
@@ -132,7 +168,28 @@ fun CalendarTabContent(
             }
         }
 
-        // 4. Reminders / events (keyed off trigger time)
+        // 4. Remote API overlays
+        apiNotesByDay.forEach { (d, notes) ->
+            notes.forEach { note ->
+                list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
+            }
+        }
+        apiEventsByDay.forEach { (d, events) ->
+            events.forEach { event ->
+                val subtitle = listOfNotNull(event.timeLabel, event.location)
+                    .joinToString(" - ")
+                    .ifBlank { reminderFallback }
+                list.add(AgendaItem(d, AgendaType.REMINDER, event.title, subtitle, isPastDay(d)))
+            }
+        }
+        apiHolidayEventsByDay.forEach { (d, holidays) ->
+            holidays.forEach { event ->
+                val title = if (lang == AppLanguage.EN) event.nameEn else event.nameKm
+                list.add(AgendaItem(d, AgendaType.HOLIDAY, title, customHolidayLabel, isPastDay(d)))
+            }
+        }
+
+        // 5. Reminders / events (keyed off trigger time)
         AppStore.getReminders(context).forEach { r ->
             val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
@@ -273,24 +330,41 @@ fun CalendarTabContent(
             ) { ym ->
                 val animYear   = ym / 12
                 val animMonth  = ym % 12 + 1
-                val animDays   = remember(ym) { KhmerCalendarHelper.getGregorianMonthDays(animYear, animMonth) }
+                val animDays = remember(ym) { KhmerCalendarHelper.getGregorianMonthDays(animYear, animMonth) }
                 val animSerial = remember(ym) { KhmerCalendarHelper.getSerialDay(animYear, animMonth, 1) }
                 val animOffset = ((animSerial + 2) % 7 + 7) % 7
                 val animRows   = ((animOffset + animDays.size + 6) / 7)
 
                 // Per-displayed-month highlight maps, so notes/holidays/work shifts
                 // render for the month actually on screen (including mid-swipe).
-                val animNotes = remember(ym, agendaVersion) { AppStore.daysWithNotes(context, animYear, animMonth) }
-                val animCustomHolidayDays = remember(ym, agendaVersion) {
-                    AppStore.customHolidaysForMonth(context, animMonth).map { it.day }.toSet()
+                val animApiNoteDays = remember(ym, apiNotesByDay) {
+                    if (animYear == year && animMonth == month) apiNotesByDay.keys else emptySet()
                 }
-                val animWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, scheduleCycle, scheduleSnaps) {
+                val animNotes = remember(ym, agendaVersion, animApiNoteDays) {
+                    AppStore.daysWithNotes(context, animYear, animMonth) + animApiNoteDays
+                }
+                val animApiHolidayDays = remember(ym, apiHolidayEventsByDay) {
+                    if (animYear == year && animMonth == month) apiHolidayEventsByDay.keys else emptySet()
+                }
+                val animCustomHolidayDays = remember(ym, agendaVersion, animApiHolidayDays) {
+                    AppStore.customHolidaysForMonth(context, animMonth).map { it.day }.toSet() + animApiHolidayDays
+                }
+                val animApiWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, apiWorkShiftsByDay) {
+                    if (animYear != year || animMonth != month) emptyMap()
+                    else apiWorkShiftsByDay.mapNotNull { (day, workShift) ->
+                        workShift.shiftTemplate
+                            ?.toShiftDef()
+                            ?.let { day to it }
+                    }.toMap()
+                }
+                val animWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, scheduleCycle, scheduleSnaps, animApiWorkingDays) {
                     val base = scheduleCycle
-                    if (base == null || !base.isConfigured) emptyMap()
+                    val localWorkingDays = if (base == null || !base.isConfigured) emptyMap()
                     else (1..animDays.size).mapNotNull { d ->
                         val cyc = AppStore.cycleForDate(base, scheduleSnaps, animYear, animMonth, d)
                         WorkCycleEngine.shiftForDate(cyc, animYear, animMonth, d)?.let { d to it }
                     }.toMap()
+                    animApiWorkingDays + localWorkingDays
                 }
 
                 Column(

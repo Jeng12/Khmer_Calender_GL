@@ -87,7 +87,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val todaySerial = remember(currentYear, currentMonth, currentDay) {
         KhmerCalendarHelper.getSerialDay(currentYear, currentMonth, currentDay)
     }
-    val upcomingHolidays = remember(currentYear, currentMonth, currentDay) {
+    val localUpcomingHolidays = remember(currentYear, currentMonth, currentDay) {
         val out = ArrayList<UpcomingHoliday>()
         var y = currentYear; var m = currentMonth; var scanned = 0
         while (out.size < 3 && scanned < 6) {
@@ -103,6 +103,29 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
         }
         out
     }
+    var apiUpcomingHolidays by remember { mutableStateOf<List<UpcomingHoliday>?>(null) }
+    LaunchedEffect(currentYear, currentMonth, currentDay) {
+        HolidayRepository.fetchHolidays(currentYear).onSuccess { holidays ->
+            apiUpcomingHolidays = holidays
+                .filter { holiday ->
+                    KhmerCalendarHelper.getSerialDay(
+                        holiday.date.year,
+                        holiday.date.monthValue,
+                        holiday.date.dayOfMonth
+                    ) >= todaySerial
+                }
+                .take(3)
+                .map { holiday ->
+                    UpcomingHoliday(
+                        year = holiday.date.year,
+                        month = holiday.date.monthValue,
+                        day = holiday.date.dayOfMonth,
+                        name = if (lang == AppLanguage.EN) holiday.nameEn else holiday.nameKh
+                    )
+                }
+        }
+    }
+    val upcomingHolidays = apiUpcomingHolidays?.takeIf { it.isNotEmpty() } ?: localUpcomingHolidays
 
     LazyColumn(
         modifier = Modifier
