@@ -32,12 +32,14 @@ object AppStore {
     private const val ALARMS_FILE = "khmer_calendar_alarms"
     private const val HOLIDAYS_FILE = "khmer_calendar_custom_holidays"
     private const val SCHEDULE_FILE = "khmer_calendar_schedule"
+    private const val AI_REPORTS_FILE = "khmer_calendar_ai_reports"
     const val SETTINGS_FILE = "khmer_calendar_prefs"
 
     private fun notesPrefs(c: Context) = c.getSharedPreferences(NOTES_FILE, Context.MODE_PRIVATE)
     private fun alarmsPrefs(c: Context) = c.getSharedPreferences(ALARMS_FILE, Context.MODE_PRIVATE)
     private fun holidaysPrefs(c: Context) = c.getSharedPreferences(HOLIDAYS_FILE, Context.MODE_PRIVATE)
     private fun schedulePrefs(c: Context) = c.getSharedPreferences(SCHEDULE_FILE, Context.MODE_PRIVATE)
+    private fun aiReportsPrefs(c: Context) = c.getSharedPreferences(AI_REPORTS_FILE, Context.MODE_PRIVATE)
     private fun settings(c: Context) = c.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE)
 
     fun dateKey(year: Int, month: Int, day: Int) = "${year}_${month}_$day"
@@ -497,5 +499,81 @@ object AppStore {
     }
 
     // ── util ─────────────────────────────────────────────────────────────────
+    fun isCloudSyncEnabled(c: Context): Boolean = settings(c).getBoolean("cloud_sync_enabled", true)
+
+    fun setCloudSyncEnabled(c: Context, enabled: Boolean) {
+        settings(c).edit().putBoolean("cloud_sync_enabled", enabled).apply()
+    }
+
+    data class AiContentReport(
+        val id: String,
+        val dateLabel: String,
+        val content: String,
+        val reason: String,
+        val ts: Long
+    )
+
+    fun addAiContentReport(
+        c: Context,
+        dateLabel: String,
+        content: String,
+        reason: String
+    ): AiContentReport {
+        val report = AiContentReport(
+            id = newId(),
+            dateLabel = dateLabel.trim(),
+            content = content.trim(),
+            reason = reason.trim(),
+            ts = System.currentTimeMillis()
+        )
+        val updated = getAiContentReports(c) + report
+        val arr = JSONArray()
+        updated.forEach { r ->
+            arr.put(JSONObject().apply {
+                put("id", r.id)
+                put("dateLabel", r.dateLabel)
+                put("content", r.content)
+                put("reason", r.reason)
+                put("ts", r.ts)
+            })
+        }
+        aiReportsPrefs(c).edit().putString("reports", arr.toString()).apply()
+        return report
+    }
+
+    fun getAiContentReports(c: Context): List<AiContentReport> = try {
+        val arr = JSONArray(aiReportsPrefs(c).getString("reports", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            AiContentReport(
+                id = o.optString("id").ifBlank { newId() },
+                dateLabel = o.optString("dateLabel"),
+                content = o.optString("content"),
+                reason = o.optString("reason"),
+                ts = o.optLong("ts", 0L)
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun clearLocalUserData(c: Context) {
+        notesPrefs(c).edit().clear().apply()
+        alarmsPrefs(c).edit().clear().apply()
+        holidaysPrefs(c).edit().clear().apply()
+        schedulePrefs(c).edit().clear().apply()
+        aiReportsPrefs(c).edit().clear().apply()
+        settings(c).edit()
+            .remove("user_name")
+            .remove("profile_image_uri")
+            .remove("reminder_ringtone_uri")
+            .remove("reminder_ringtone_title")
+            .remove("reminder_insistent")
+            .remove("reminder_default_minutes")
+            .remove("next_request_code")
+            .remove("logged_out")
+            .apply()
+    }
+
     private fun newId(): String = "${System.currentTimeMillis()}_${(Math.random() * 100000).toInt()}"
 }

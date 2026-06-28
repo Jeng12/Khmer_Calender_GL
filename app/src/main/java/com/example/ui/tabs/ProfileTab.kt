@@ -113,6 +113,8 @@ fun ProfileSettingsContent(
     var userName by remember { mutableStateOf(prefs.getString("user_name", "Sophanit") ?: "Sophanit") }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var profileImageUri by remember { mutableStateOf(prefs.getString("profile_image_uri", null)?.let { Uri.parse(it) }) }
+    var cloudSyncEnabled by remember { mutableStateOf(AppStore.isCloudSyncEnabled(context)) }
+    var showClearDataDialog by remember { mutableStateOf(false) }
 
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
 
@@ -191,6 +193,50 @@ fun ProfileSettingsContent(
             dismissButton = {
                 TextButton(onClick = { showEditNameDialog = false }) {
                     Text(tr("បោះបង់", "Cancel"), color = GoldSubText)
+                }
+            },
+            containerColor = PlumSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showClearDataDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDataDialog = false },
+            title = { Text("Delete local app data?", color = SandText) },
+            text = {
+                Text(
+                    "This removes notes, reminders, custom holidays, work schedules, AI reports, and the local profile image from this device. Data already synced to the API database is not deleted here.",
+                    color = GoldSubText,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        AppStore.getReminders(context).map { it.requestCode }.forEach { requestCode ->
+                            cancelReminder(context, requestCode)
+                        }
+                        runCatching { File(context.filesDir, "profile_picture.jpg").delete() }
+                        AppStore.clearLocalUserData(context)
+                        profileImageUri = null
+                        userName = "Sophanit"
+                        ringtoneTitle = defaultRingtoneLabel
+                        insistent = AppStore.isInsistent(context)
+                        defaultReminderMinutes = AppStore.getDefaultReminderMinutes(context)
+                        cloudSyncEnabled = AppStore.isCloudSyncEnabled(context)
+                        showClearDataDialog = false
+                        scope.launch { WidgetPrefs.refresh(context) }
+                        Toast.makeText(context, "Local app data deleted", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Delete", color = CrimsonHoliday, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDataDialog = false }) {
+                    Text("Cancel", color = GoldSubText)
                 }
             },
             containerColor = PlumSurface,
@@ -536,19 +582,96 @@ fun ProfileSettingsContent(
             }
         }
 
-        // Logout
+        // Privacy and data controls
+        item {
+            Text("PRIVACY & DATA", fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PlumSurface, RoundedCornerShape(12.dp))
+                    .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Database sync", fontSize = 11.sp, color = SandText, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Notes, reminders, work schedules, and custom holidays can sync with api-calender-sigma.vercel.app.",
+                            fontSize = 10.sp,
+                            color = GoldSubText,
+                            lineHeight = 14.sp
+                        )
+                    }
+                    Switch(
+                        checked = cloudSyncEnabled,
+                        onCheckedChange = { enabled ->
+                            cloudSyncEnabled = enabled
+                            AppStore.setCloudSyncEnabled(context, enabled)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
+                    )
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("AI explanations", fontSize = 11.sp, color = SandText, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Auspicious-day context is sent to Firebase/Google AI only when AI Explain is tapped. AI responses can be reported in-app.",
+                        fontSize = 10.sp,
+                        color = GoldSubText,
+                        lineHeight = 14.sp
+                    )
+                }
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Device permissions", fontSize = 11.sp, color = SandText, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Notifications, exact alarms, boot completed, internet, and network state are used for reminders, widgets, API sync, and AI explanations.",
+                        fontSize = 10.sp,
+                        color = GoldSubText,
+                        lineHeight = 14.sp
+                    )
+                    OutlinedButton(
+                        onClick = { showClearDataDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonHoliday),
+                        border = BorderStroke(1.dp, CrimsonHoliday.copy(0.55f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Delete local app data", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Back to home
         item {
             Spacer(modifier = Modifier.height(10.dp))
             Button(
                 onClick = onLogOut,
-                colors = ButtonDefaults.buttonColors(containerColor = CrimsonHoliday),
+                colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .testTag("logout_button"),
+                    .testTag("back_home_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text(tr("ចាកចេញពីគណនី (Log Out)", "Log Out"), color = SandText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("Back to Home", color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }

@@ -13,8 +13,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -176,7 +176,7 @@ fun KhmerDatePickerContent(
                         selectedDay = selectedDay.coerceAtMost(daysInMonth(displayYear, displayMonth))
                     }
                 ) {
-                    Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "ខែមុន",
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "ខែមុន",
                         tint = colors.accentText)
                 }
 
@@ -204,7 +204,7 @@ fun KhmerDatePickerContent(
                         selectedDay = selectedDay.coerceAtMost(daysInMonth(displayYear, displayMonth))
                     }
                 ) {
-                    Icon(Icons.Default.KeyboardArrowRight, contentDescription = "ខែក្រោយ",
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "ខែក្រោយ",
                         tint = colors.accentText)
                 }
             }

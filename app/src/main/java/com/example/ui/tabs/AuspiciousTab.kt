@@ -190,9 +190,61 @@ private fun AuspiciousDayCard(
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    val context = LocalContext.current
     var explanation by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var reportReason by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+
+    if (showReportDialog) {
+        AlertDialog(
+            onDismissRequest = { showReportDialog = false },
+            title = { Text("Report AI response", color = SandText) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Tell us what was wrong with this AI response.",
+                        fontSize = 12.sp,
+                        color = GoldSubText
+                    )
+                    OutlinedTextField(
+                        value = reportReason,
+                        onValueChange = { reportReason = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        minLines = 3,
+                        textStyle = TextStyle(fontSize = 12.sp, color = SandText),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = JadeGreen)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        AppStore.addAiContentReport(
+                            c = context,
+                            dateLabel = gregLabel,
+                            content = explanation.orEmpty(),
+                            reason = reportReason
+                        )
+                        reportReason = ""
+                        showReportDialog = false
+                        Toast.makeText(context, "AI response report saved", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Submit", color = JadeGreen, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReportDialog = false }) {
+                    Text("Cancel", color = GoldSubText)
+                }
+            },
+            containerColor = PlumSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -223,16 +275,28 @@ private fun AuspiciousDayCard(
 
         // AI Explanation section
         if (explanation != null) {
-            Text(
-                text = explanation!!,
-                fontSize = 10.sp,
-                color = SandText,
-                lineHeight = 15.sp,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(PlumSurface, RoundedCornerShape(8.dp))
-                    .padding(8.dp)
-            )
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = explanation!!,
+                    fontSize = 10.sp,
+                    color = SandText,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TextButton(
+                    onClick = { showReportDialog = true },
+                    modifier = Modifier.align(Alignment.End),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Text("Report", fontSize = 9.sp, color = CrimsonHoliday)
+                }
+            }
         }
 
         TextButton(

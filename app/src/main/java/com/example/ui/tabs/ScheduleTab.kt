@@ -77,6 +77,10 @@ fun ScheduleTabContent() {
     }
 
     fun syncWorkScheduleToDatabase(cycleToSave: AppStore.ShiftCycle, schedulesToSave: Map<String, List<String?>>) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            scope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         scope.launch {
             val result = runCatching {
                 CalendarApiRepository.updateWorkScheduleSettings(cycleToSave).getOrThrow()
@@ -94,6 +98,10 @@ fun ScheduleTabContent() {
     }
 
     fun syncClearWorkSchedulesFromDatabase(keysToClear: Set<String>) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            scope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         scope.launch {
             val result = runCatching {
                 keysToClear.forEach { key ->

@@ -88,13 +88,16 @@ fun CalendarTabContent(
     val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
 
     var apiOverlaysResult by remember { mutableStateOf<Result<CalendarApiMonthOverlays>?>(null) }
-    LaunchedEffect(year, month, agendaVersion) {
+    val cloudSyncEnabled = remember(agendaVersion) { AppStore.isCloudSyncEnabled(context) }
+    LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
         apiOverlaysResult = null
-        apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(
-            year = year,
-            month = month,
-            forceRefresh = agendaVersion > 0
-        )
+        if (cloudSyncEnabled) {
+            apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(
+                year = year,
+                month = month,
+                forceRefresh = agendaVersion > 0
+            )
+        }
     }
     val apiOverlays = apiOverlaysResult?.getOrNull()
         ?.takeIf { it.year == year && it.month == month }
@@ -635,6 +638,10 @@ private fun DayDetailDialog(
     }
 
     fun syncSavedNote(localId: String, remoteId: String?, text: String) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         val clean = text.trim()
         widgetScope.launch {
             WidgetPrefs.refresh(context)
@@ -656,6 +663,10 @@ private fun DayDetailDialog(
     }
 
     fun syncDeletedNote(remoteId: String?) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         if (remoteId.isNullOrBlank()) {
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
@@ -680,6 +691,10 @@ private fun DayDetailDialog(
 
     fun syncSavedReminder(reminder: AppStore.Reminder) {
         if (reminder.kind != "reminder") return
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         widgetScope.launch {
             WidgetPrefs.refresh(context)
             val dateForEvent = eventDate(reminder.triggerMs)
@@ -702,6 +717,10 @@ private fun DayDetailDialog(
     }
 
     fun syncDeletedReminder(remoteEventId: String?, triggerMs: Long) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
         if (remoteEventId.isNullOrBlank()) {
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
