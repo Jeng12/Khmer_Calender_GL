@@ -192,6 +192,40 @@ object CalendarApiRepository {
         }
     }
 
+    suspend fun createNote(date: LocalDate, text: String): Result<CalendarApiNote> = withContext(Dispatchers.IO) {
+        runCatching {
+            val payload = JSONObject()
+                .put("date", date.toString())
+                .put("text", text.trim())
+            val body = sendJson("/notes", "POST", payload)
+            val note = parseNote(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid note")
+            invalidateMonth(date)
+            note
+        }
+    }
+
+    suspend fun updateNote(id: String, date: LocalDate, text: String): Result<CalendarApiNote> = withContext(Dispatchers.IO) {
+        runCatching {
+            val payload = JSONObject()
+                .put("date", date.toString())
+                .put("text", text.trim())
+            val body = sendJson("/notes/${id.urlEncoded()}", "PUT", payload)
+            val note = parseNote(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid note")
+            invalidateMonth(date)
+            note
+        }
+    }
+
+    suspend fun deleteNote(id: String, date: LocalDate? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            sendJson("/notes/${id.urlEncoded()}", "DELETE")
+            date?.let(::invalidateMonth)
+            Unit
+        }
+    }
+
     private fun fetchNotes(): List<CalendarApiNote> =
         parseDataList(getJson("/notes"), ::parseNote)
 
@@ -234,6 +268,52 @@ object CalendarApiRepository {
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun sendJson(pathAndQuery: String, method: String, payload: JSONObject? = null): String {
+        val conn = (URL(BASE_URL + pathAndQuery).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            instanceFollowRedirects = true
+            connectTimeout = TIMEOUT_MS
+            readTimeout = TIMEOUT_MS
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
+            if (payload != null) {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            }
+        }
+
+        try {
+            if (payload != null) {
+                conn.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(payload.toString()) }
+            }
+
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                .orEmpty()
+            if (code !in 200..299) {
+                throw IOException("HTTP $code from calendar API: ${body.take(200)}")
+            }
+
+            if (body.isBlank()) return body
+            val trimmed = body.trimStart()
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+                val contentType = conn.contentType.orEmpty()
+                throw IOException("Calendar API returned non-JSON response: $contentType")
+            }
+            return body
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun invalidateMonth(date: LocalDate) {
+        val key = "${date.year}-${date.monthValue}"
+        monthCache.remove(key)
+        overlayCache.remove(key)
     }
 
     private fun parseMonth(body: String): CalendarApiMonth {

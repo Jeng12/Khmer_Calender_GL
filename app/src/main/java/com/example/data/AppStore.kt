@@ -45,7 +45,7 @@ object AppStore {
     // ─────────────────────────────────────────────────────────────────────────
     // NOTES — multiple per day
     // ─────────────────────────────────────────────────────────────────────────
-    data class Note(val id: String, val text: String, val ts: Long)
+    data class Note(val id: String, val text: String, val ts: Long, val remoteId: String? = null)
 
     private fun notesListKey(year: Int, month: Int, day: Int) = "${dateKey(year, month, day)}__notes"
 
@@ -70,18 +70,24 @@ object AppStore {
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val text = o.optString("text").trim()
             if (text.isEmpty()) null
-            else Note(o.optString("id").ifBlank { newId() }, text, o.optLong("ts", 0L))
+            else Note(
+                id = o.optString("id").ifBlank { newId() },
+                text = text,
+                ts = o.optLong("ts", 0L),
+                remoteId = o.optString("remote_id").trim().takeIf { it.isNotBlank() }
+            )
         }
     } catch (_: Exception) {
         emptyList()
     }
 
-    fun addNote(c: Context, year: Int, month: Int, day: Int, text: String): Boolean {
+    fun addNote(c: Context, year: Int, month: Int, day: Int, text: String): Note? {
         val clean = text.trim()
-        if (clean.isEmpty()) return false
-        val updated = getNotes(c, year, month, day) + Note(newId(), clean, System.currentTimeMillis())
+        if (clean.isEmpty()) return null
+        val note = Note(newId(), clean, System.currentTimeMillis())
+        val updated = getNotes(c, year, month, day) + note
         writeNotes(c, year, month, day, updated)
-        return true
+        return note
     }
 
     fun updateNote(c: Context, year: Int, month: Int, day: Int, id: String, text: String) {
@@ -89,6 +95,15 @@ object AppStore {
         val updated = getNotes(c, year, month, day).map {
             if (it.id == id) it.copy(text = clean) else it
         }.filter { it.text.isNotEmpty() }
+        writeNotes(c, year, month, day, updated)
+    }
+
+    fun setNoteRemoteId(c: Context, year: Int, month: Int, day: Int, id: String, remoteId: String) {
+        val cleanRemoteId = remoteId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getNotes(c, year, month, day).map {
+            if (it.id == id) it.copy(remoteId = cleanRemoteId) else it
+        }
         writeNotes(c, year, month, day, updated)
     }
 
@@ -108,6 +123,7 @@ object AppStore {
             notes.forEach { n ->
                 arr.put(JSONObject().apply {
                     put("id", n.id); put("text", n.text); put("ts", n.ts)
+                    n.remoteId?.let { put("remote_id", it) }
                 })
             }
             e.putString(notesListKey(year, month, day), arr.toString())
