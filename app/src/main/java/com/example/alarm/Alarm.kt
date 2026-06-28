@@ -51,10 +51,7 @@ fun armAlarm(
                     alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
                 else
                     alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
-                alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
-            else ->
-                alarmMgr.setExact(AlarmManager.RTC_WAKEUP, triggerMs, pi)
+            else -> alarmMgr.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pi)
         }
     } catch (_: SecurityException) {
         runCatching { alarmMgr.setWindow(AlarmManager.RTC_WAKEUP, triggerMs, 5 * 60_000L, pi) }

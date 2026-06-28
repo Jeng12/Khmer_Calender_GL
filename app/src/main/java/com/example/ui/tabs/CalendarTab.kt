@@ -75,7 +75,7 @@ fun CalendarTabContent(
     val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    var swipeOffset by remember { mutableStateOf(0f) }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
 
     // Refresh trigger — bumping this re-reads notes/reminders/holidays from store.
     var agendaVersion by remember { mutableIntStateOf(0) }

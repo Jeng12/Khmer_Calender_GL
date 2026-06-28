@@ -83,7 +83,7 @@ fun DateConvertContent(
 
     // Drives the "converting…" → "result" animation. Bumped on every successful
     // convert so the styled transition replays even for the same date.
-    var convertSeq by remember { mutableStateOf(0) }
+    var convertSeq by remember { mutableIntStateOf(0) }
     var isConverting by remember { mutableStateOf(false) }
     var showResult by remember { mutableStateOf(convertedDate != null) }
 

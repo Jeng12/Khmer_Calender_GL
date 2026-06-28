@@ -94,9 +94,9 @@ fun KhmerCalendarApp() {
     val today = remember { java.util.Calendar.getInstance() }
 
     // State for interactive dates — initialised to the current day
-    var calendarYear by remember { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
-    var calendarMonth by remember { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
-    var selectedDayIndex by remember { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
+    var calendarYear by remember { mutableIntStateOf(today.get(java.util.Calendar.YEAR)) }
+    var calendarMonth by remember { mutableIntStateOf(today.get(java.util.Calendar.MONTH) + 1) }
+    var selectedDayIndex by remember { mutableIntStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
 
     // Conversion calculator state
     var convertYear by remember { mutableStateOf("2026") }

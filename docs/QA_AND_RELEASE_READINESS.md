@@ -25,6 +25,7 @@ Reviewed native Android/Kotlin Compose app architecture, API/database integratio
 - Backup privacy: excluded local user data from backup/device transfer rules.
 - Quality coverage: added `AppStorePrivacyTest` for the new data controls.
 - Warning cleanup: switched deprecated Compose icons to AutoMirrored variants.
+- Follow-up lint cleanup: moved Android 12+ widget sizing attributes to `xml-v31`, removed redundant manifest label, removed unused template colors/drawable, suppressed false typo warnings for font certificates, simplified obsolete alarm SDK branching, and replaced boxed primitive Compose state in the active screens lint flagged.
 
 ## Feature Priority
 
@@ -54,7 +55,7 @@ Reviewed native Android/Kotlin Compose app architecture, API/database integratio
 
 - `:app:compileDebugKotlin` passed.
 - `:app:testDebugUnitTest` passed.
-- `:app:lintDebug` passed with 0 errors. Remaining warnings are non-blocking cleanup items: dependency/update suggestions, KTX style suggestions, widget XML attributes ignored below API 31, unused legacy resources, and launcher-icon density warnings.
+- `:app:lintDebug` passed with 0 errors. Remaining warnings are non-blocking cleanup items: dependency/update suggestions, SDK 37 availability in the lint repository while only SDK 36/36.1 is installed locally, KTX style suggestions, and launcher-icon density metadata warnings.
 - `:app:assembleDebug` passed.
 - `:app:installDebug` passed on emulator `emulator-5554`.
 - Fresh-launch smoke test passed: app launched to foreground, first-run database-sync disclosure appeared, accepting it rendered the main calendar, and recent logcat had no app crash markers.
