@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -478,7 +478,7 @@ fun RegisterScreenContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.clickable { onBack() }
         ) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
             Text(tr("ត្រឡប់ក្រោយ (Back)", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 
@@ -602,7 +602,7 @@ fun ForgotScreenContent(onBack: () -> Unit, onSend: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.clickable { onBack() }
         ) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
             Text(tr("ត្រឡប់ក្រោយ", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 
@@ -669,7 +669,7 @@ fun OTPScreenContent(onBack: () -> Unit, onVerify: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.clickable { onBack() }
         ) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
             Text(tr("ត្រឡប់ក្រោយ", "Back"), color = TraditionalGold, fontSize = 11.sp)
         }
 

@@ -66,7 +66,7 @@ import com.example.ui.auth.*
 import com.example.ui.tabs.*
 
 enum class AppScreen {
-    SPLASH, ONBOARDING, LOGIN, REGISTER, FORGOT, OTP, MAIN_APP
+    SPLASH, MAIN_APP
 }
 
 enum class AppTab {
@@ -77,6 +77,7 @@ enum class AppTab {
 fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
     var currentTab by remember { mutableStateOf(AppTab.CALENDAR) }
+    var showCloudSyncDisclosure by remember { mutableStateOf(false) }
 
     // App-wide language, persisted across launches. Defaults to Khmer.
     val context = LocalContext.current
@@ -93,9 +94,9 @@ fun KhmerCalendarApp() {
     val today = remember { java.util.Calendar.getInstance() }
 
     // State for interactive dates — initialised to the current day
-    var calendarYear by remember { mutableStateOf(today.get(java.util.Calendar.YEAR)) }
-    var calendarMonth by remember { mutableStateOf(today.get(java.util.Calendar.MONTH) + 1) }
-    var selectedDayIndex by remember { mutableStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
+    var calendarYear by remember { mutableIntStateOf(today.get(java.util.Calendar.YEAR)) }
+    var calendarMonth by remember { mutableIntStateOf(today.get(java.util.Calendar.MONTH) + 1) }
+    var selectedDayIndex by remember { mutableIntStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
 
     // Conversion calculator state
     var convertYear by remember { mutableStateOf("2026") }
@@ -115,7 +116,16 @@ fun KhmerCalendarApp() {
     LaunchedEffect(screenState) {
         if (screenState == AppScreen.SPLASH) {
             delay(1800)
-            screenState = if (langPrefs.getBoolean("logged_out", false)) AppScreen.LOGIN else AppScreen.MAIN_APP
+            langPrefs.edit().putBoolean("logged_out", false).apply()
+            screenState = AppScreen.MAIN_APP
+        }
+    }
+
+    LaunchedEffect(screenState) {
+        if (screenState == AppScreen.MAIN_APP &&
+            !langPrefs.getBoolean("cloud_sync_disclosure_seen", false)
+        ) {
+            showCloudSyncDisclosure = true
         }
     }
 
@@ -162,32 +172,6 @@ fun KhmerCalendarApp() {
                     ) { currentScreen ->
                 when (currentScreen) {
                     AppScreen.SPLASH -> SplashScreenContent()
-                    AppScreen.ONBOARDING -> OnboardingScreenContent(
-                        onContinue = { screenState = AppScreen.LOGIN }
-                    )
-                    AppScreen.LOGIN -> LoginScreenContent(
-                        onSignIn = {
-                            langPrefs.edit().putBoolean("logged_out", false).apply()
-                            screenState = AppScreen.MAIN_APP
-                        },
-                        onSignUp = { screenState = AppScreen.REGISTER },
-                        onForgot = { screenState = AppScreen.FORGOT }
-                    )
-                    AppScreen.REGISTER -> RegisterScreenContent(
-                        onBack = { screenState = AppScreen.LOGIN },
-                        onRegister = { screenState = AppScreen.OTP }
-                    )
-                    AppScreen.FORGOT -> ForgotScreenContent(
-                        onBack = { screenState = AppScreen.LOGIN },
-                        onSend = { screenState = AppScreen.LOGIN }
-                    )
-                    AppScreen.OTP -> OTPScreenContent(
-                        onBack = { screenState = AppScreen.REGISTER },
-                        onVerify = {
-                            langPrefs.edit().putBoolean("logged_out", false).apply()
-                            screenState = AppScreen.MAIN_APP
-                        }
-                    )
                     AppScreen.MAIN_APP -> MainAppLayout(
                         currentTab = currentTab,
                         onTabChange = { currentTab = it },
@@ -228,8 +212,8 @@ fun KhmerCalendarApp() {
                         selectedHolidayFilter = selectedHolidayFilter,
                         onHolidayFilterChange = { selectedHolidayFilter = it },
                         onLogOut = {
-                            langPrefs.edit().putBoolean("logged_out", true).apply()
-                            screenState = AppScreen.LOGIN
+                            langPrefs.edit().putBoolean("logged_out", false).apply()
+                            screenState = AppScreen.MAIN_APP
                             currentTab = AppTab.HOME
                         },
                         isDarkMode = isDarkMode,
@@ -243,6 +227,44 @@ fun KhmerCalendarApp() {
                         }
                     )
                 }
+            }
+            if (showCloudSyncDisclosure) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("Database sync", color = C.text) },
+                    text = {
+                        Text(
+                            "This app can sync notes, reminders, work schedules, and custom holidays with api-calender-sigma.vercel.app. You can turn sync off now or later in Profile.",
+                            color = C.subText,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                AppStore.setCloudSyncEnabled(context, true)
+                                langPrefs.edit().putBoolean("cloud_sync_disclosure_seen", true).apply()
+                                showCloudSyncDisclosure = false
+                            }
+                        ) {
+                            Text("Keep sync on", color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                AppStore.setCloudSyncEnabled(context, false)
+                                langPrefs.edit().putBoolean("cloud_sync_disclosure_seen", true).apply()
+                                showCloudSyncDisclosure = false
+                            }
+                        ) {
+                            Text("Turn off", color = C.subText)
+                        }
+                    },
+                    containerColor = C.surface,
+                    shape = RoundedCornerShape(16.dp)
+                )
             }
         }
     }

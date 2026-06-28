@@ -45,6 +45,10 @@ import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 
 // Data model for monthly agenda items
@@ -71,7 +75,7 @@ fun CalendarTabContent(
     val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    var swipeOffset by remember { mutableStateOf(0f) }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
 
     // Refresh trigger — bumping this re-reads notes/reminders/holidays from store.
     var agendaVersion by remember { mutableIntStateOf(0) }
@@ -84,9 +88,16 @@ fun CalendarTabContent(
     val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
 
     var apiOverlaysResult by remember { mutableStateOf<Result<CalendarApiMonthOverlays>?>(null) }
-    LaunchedEffect(year, month) {
+    val cloudSyncEnabled = remember(agendaVersion) { AppStore.isCloudSyncEnabled(context) }
+    LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
         apiOverlaysResult = null
-        apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(year, month)
+        if (cloudSyncEnabled) {
+            apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(
+                year = year,
+                month = month,
+                forceRefresh = agendaVersion > 0
+            )
+        }
     }
     val apiOverlays = apiOverlaysResult?.getOrNull()
         ?.takeIf { it.year == year && it.month == month }
@@ -161,9 +172,14 @@ fun CalendarTabContent(
             list.add(AgendaItem(h.day, AgendaType.HOLIDAY, if (lang == AppLanguage.EN) h.nameEn else h.nameKm, customHolidayLabel, isPastDay(h.day)))
         }
 
+        val localReminders = AppStore.getReminders(context)
+        val localRemoteNoteIds = mutableSetOf<String>()
+        val localRemoteEventIds = localReminders.mapNotNull { it.remoteEventId?.takeIf(String::isNotBlank) }.toSet()
+
         // 3. Notes (multiple per day)
         for (d in 1..daysList.size) {
             AppStore.getNotes(context, year, month, d).forEach { note ->
+                note.remoteId?.takeIf { it.isNotBlank() }?.let(localRemoteNoteIds::add)
                 list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
             }
         }
@@ -171,15 +187,19 @@ fun CalendarTabContent(
         // 4. Remote API overlays
         apiNotesByDay.forEach { (d, notes) ->
             notes.forEach { note ->
-                list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
+                if (note.id !in localRemoteNoteIds) {
+                    list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
+                }
             }
         }
         apiEventsByDay.forEach { (d, events) ->
             events.forEach { event ->
-                val subtitle = listOfNotNull(event.timeLabel, event.location)
-                    .joinToString(" - ")
-                    .ifBlank { reminderFallback }
-                list.add(AgendaItem(d, AgendaType.REMINDER, event.title, subtitle, isPastDay(d)))
+                if (event.id !in localRemoteEventIds) {
+                    val subtitle = listOfNotNull(event.timeLabel, event.location)
+                        .joinToString(" - ")
+                        .ifBlank { reminderFallback }
+                    list.add(AgendaItem(d, AgendaType.REMINDER, event.title, subtitle, isPastDay(d)))
+                }
             }
         }
         apiHolidayEventsByDay.forEach { (d, holidays) ->
@@ -190,7 +210,7 @@ fun CalendarTabContent(
         }
 
         // 5. Reminders / events (keyed off trigger time)
-        AppStore.getReminders(context).forEach { r ->
+        localReminders.forEach { r ->
             val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
                 val d = c.get(Calendar.DAY_OF_MONTH)
@@ -606,10 +626,114 @@ private fun DayDetailDialog(
     val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
     val context = LocalContext.current
     val widgetScope = rememberCoroutineScope()
+    val selectedDate = remember(date.year, date.month, date.day) {
+        LocalDate.of(date.year, date.month, date.day)
+    }
 
     // Local refresh counter so the dialog re-reads the store as the user edits.
     var localVersion by remember { mutableIntStateOf(0) }
     fun bump() { localVersion++; onDataChange() }
+    fun showApiSyncFailed() {
+        Toast.makeText(context, "Saved locally; API database sync failed", Toast.LENGTH_SHORT).show()
+    }
+
+    fun syncSavedNote(localId: String, remoteId: String?, text: String) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        val clean = text.trim()
+        widgetScope.launch {
+            WidgetPrefs.refresh(context)
+            val result = if (remoteId.isNullOrBlank()) {
+                CalendarApiRepository.createNote(selectedDate, clean)
+                    .onSuccess { remoteNote ->
+                        AppStore.setNoteRemoteId(context, date.year, date.month, date.day, localId, remoteNote.id)
+                    }
+            } else {
+                CalendarApiRepository.updateNote(remoteId, selectedDate, clean)
+            }
+            result
+                .onSuccess {
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun syncDeletedNote(remoteId: String?) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        if (remoteId.isNullOrBlank()) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            CalendarApiRepository.deleteNote(remoteId, selectedDate)
+                .onSuccess {
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun eventDate(triggerMs: Long): LocalDate =
+        Instant.ofEpochMilli(triggerMs).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    fun eventStartsAt(triggerMs: Long): String =
+        Instant.ofEpochMilli(triggerMs)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+    fun syncSavedReminder(reminder: AppStore.Reminder) {
+        if (reminder.kind != "reminder") return
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            WidgetPrefs.refresh(context)
+            val dateForEvent = eventDate(reminder.triggerMs)
+            CalendarApiRepository.createEvent(
+                date = dateForEvent,
+                title = reminder.title,
+                startsAt = eventStartsAt(reminder.triggerMs),
+                allDay = false,
+                description = reminder.message,
+                color = "#EAB308",
+                reminderMinutesBefore = 0
+            )
+                .onSuccess { event ->
+                    AppStore.setReminderRemoteEventId(context, reminder.requestCode, event.id)
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun syncDeletedReminder(remoteEventId: String?, triggerMs: Long) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        if (remoteEventId.isNullOrBlank()) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            CalendarApiRepository.deleteEvent(remoteEventId, eventDate(triggerMs))
+                .onSuccess {
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
 
     val notes = remember(localVersion) { AppStore.getNotes(context, date.year, date.month, date.day) }
     val dayReminders = remember(localVersion) {
@@ -643,10 +767,11 @@ private fun DayDetailDialog(
         val dlg = TimePickerDialog(
             context,
             { _, hour, minute ->
-                scheduleAlarm(context, date.year, date.month, date.day, hour, minute, alarmTitleText, date, lang)
+                val reminder = scheduleAlarm(context, date.year, date.month, date.day, hour, minute, alarmTitleText, date, lang)
                 widgetScope.launch { WidgetPrefs.refresh(context) }
                 alarmTitleText = ""
                 bump()
+                syncSavedReminder(reminder)
                 Toast.makeText(context, tr(lang, "បានកំណត់ការរំលឹក", "Reminder set"), Toast.LENGTH_SHORT).show()
                 showTimePicker = false
                 showAlarmForm = false
@@ -728,10 +853,15 @@ private fun DayDetailDialog(
                                 }
                                 Button(
                                     onClick = {
-                                        AppStore.updateNote(context, date.year, date.month, date.day, note.id, editingNoteText)
+                                        val cleanText = editingNoteText.trim()
+                                        AppStore.updateNote(context, date.year, date.month, date.day, note.id, cleanText)
                                         editingNoteId = null
                                         bump()
-                                        widgetScope.launch { WidgetPrefs.refresh(context) }
+                                        if (cleanText.isEmpty()) {
+                                            syncDeletedNote(note.remoteId)
+                                        } else {
+                                            syncSavedNote(note.id, note.remoteId, cleanText)
+                                        }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = SkyBlue)
                                 ) {
@@ -759,9 +889,10 @@ private fun DayDetailDialog(
                                 "🗑️", fontSize = 14.sp,
                                 modifier = Modifier
                                     .clickable {
+                                        val remoteId = note.remoteId
                                         AppStore.deleteNote(context, date.year, date.month, date.day, note.id)
                                         bump()
-                                        widgetScope.launch { WidgetPrefs.refresh(context) }
+                                        syncDeletedNote(remoteId)
                                     }
                                     .padding(horizontal = 4.dp)
                             )
@@ -781,10 +912,11 @@ private fun DayDetailDialog(
                         Spacer(Modifier.width(8.dp))
                         Button(
                             onClick = {
-                                if (AppStore.addNote(context, date.year, date.month, date.day, newNoteText)) {
+                                val savedNote = AppStore.addNote(context, date.year, date.month, date.day, newNoteText)
+                                if (savedNote != null) {
                                     newNoteText = ""
                                     bump()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    syncSavedNote(savedNote.id, savedNote.remoteId, savedNote.text)
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
@@ -825,9 +957,11 @@ private fun DayDetailDialog(
                             "🗑️", fontSize = 14.sp,
                             modifier = Modifier
                                 .clickable {
+                                    val remoteEventId = r.remoteEventId
+                                    val triggerMs = r.triggerMs
                                     cancelReminder(context, r.requestCode)
                                     bump()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    syncDeletedReminder(remoteEventId, triggerMs)
                                 }
                                 .padding(start = 6.dp)
                         )

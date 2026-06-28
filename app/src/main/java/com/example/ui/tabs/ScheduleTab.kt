@@ -29,10 +29,12 @@ import androidx.core.content.ContextCompat
 import com.example.alarm.WorkScheduleScheduler
 import com.example.core.*
 import com.example.data.AppStore
+import com.example.data.CalendarApiRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.util.Calendar
 
 @Composable
@@ -66,6 +68,54 @@ fun ScheduleTabContent() {
 
     fun fmtDate(cal: Calendar) =
         "${num(lang, cal.get(Calendar.DAY_OF_MONTH))} ${gregMonth(lang, cal.get(Calendar.MONTH))}"
+
+    fun cycleStartDateFromKey(key: String): LocalDate? {
+        val parts = key.split("-")
+        val year = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val month = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        return runCatching { LocalDate.of(year, month, 26) }.getOrNull()
+    }
+
+    fun syncWorkScheduleToDatabase(cycleToSave: AppStore.ShiftCycle, schedulesToSave: Map<String, List<String?>>) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            scope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        scope.launch {
+            val result = runCatching {
+                CalendarApiRepository.updateWorkScheduleSettings(cycleToSave).getOrThrow()
+                schedulesToSave.forEach { (key, assignments) ->
+                    val cycleStart = cycleStartDateFromKey(key) ?: return@forEach
+                    CalendarApiRepository.updateWorkScheduleCycle(cycleStart, assignments).getOrThrow()
+                }
+            }
+            result
+                .onSuccess { WidgetPrefs.refresh(context) }
+                .onFailure {
+                    Toast.makeText(context, "Schedule saved locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    fun syncClearWorkSchedulesFromDatabase(keysToClear: Set<String>) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            scope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        scope.launch {
+            val result = runCatching {
+                keysToClear.forEach { key ->
+                    val cycleStart = cycleStartDateFromKey(key) ?: return@forEach
+                    CalendarApiRepository.updateWorkScheduleCycle(cycleStart, AppStore.emptyDayAssignments()).getOrThrow()
+                }
+            }
+            result
+                .onSuccess { WidgetPrefs.refresh(context) }
+                .onFailure {
+                    Toast.makeText(context, "Schedule deleted locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
 
     // Edit-shift dialog
     editingShift?.let { shift ->
@@ -517,6 +567,7 @@ fun ScheduleTabContent() {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                             WorkScheduleScheduler.sync(context)
+                            syncWorkScheduleToDatabase(c, schedules)
                             scope.launch { WidgetPrefs.refresh(context) }
                             Toast.makeText(context, tr(lang, "បានរក្សាទុកកាលវិភាគ", "Schedule saved"), Toast.LENGTH_SHORT).show()
                         },
@@ -530,11 +581,13 @@ fun ScheduleTabContent() {
                 item {
                     OutlinedButton(
                         onClick = {
+                            val keysToClear = schedules.keys.toSet()
                             AppStore.clearShiftCycle(context)
                             AppStore.clearAllSchedules(context)
                             schedules = emptyMap()
                             cycle = null
                             WorkScheduleScheduler.sync(context)
+                            syncClearWorkSchedulesFromDatabase(keysToClear)
                             scope.launch { WidgetPrefs.refresh(context) }
                         },
                         modifier = Modifier.fillMaxWidth(),

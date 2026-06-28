@@ -32,12 +32,14 @@ object AppStore {
     private const val ALARMS_FILE = "khmer_calendar_alarms"
     private const val HOLIDAYS_FILE = "khmer_calendar_custom_holidays"
     private const val SCHEDULE_FILE = "khmer_calendar_schedule"
+    private const val AI_REPORTS_FILE = "khmer_calendar_ai_reports"
     const val SETTINGS_FILE = "khmer_calendar_prefs"
 
     private fun notesPrefs(c: Context) = c.getSharedPreferences(NOTES_FILE, Context.MODE_PRIVATE)
     private fun alarmsPrefs(c: Context) = c.getSharedPreferences(ALARMS_FILE, Context.MODE_PRIVATE)
     private fun holidaysPrefs(c: Context) = c.getSharedPreferences(HOLIDAYS_FILE, Context.MODE_PRIVATE)
     private fun schedulePrefs(c: Context) = c.getSharedPreferences(SCHEDULE_FILE, Context.MODE_PRIVATE)
+    private fun aiReportsPrefs(c: Context) = c.getSharedPreferences(AI_REPORTS_FILE, Context.MODE_PRIVATE)
     private fun settings(c: Context) = c.getSharedPreferences(SETTINGS_FILE, Context.MODE_PRIVATE)
 
     fun dateKey(year: Int, month: Int, day: Int) = "${year}_${month}_$day"
@@ -45,7 +47,7 @@ object AppStore {
     // ─────────────────────────────────────────────────────────────────────────
     // NOTES — multiple per day
     // ─────────────────────────────────────────────────────────────────────────
-    data class Note(val id: String, val text: String, val ts: Long)
+    data class Note(val id: String, val text: String, val ts: Long, val remoteId: String? = null)
 
     private fun notesListKey(year: Int, month: Int, day: Int) = "${dateKey(year, month, day)}__notes"
 
@@ -70,18 +72,24 @@ object AppStore {
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
             val text = o.optString("text").trim()
             if (text.isEmpty()) null
-            else Note(o.optString("id").ifBlank { newId() }, text, o.optLong("ts", 0L))
+            else Note(
+                id = o.optString("id").ifBlank { newId() },
+                text = text,
+                ts = o.optLong("ts", 0L),
+                remoteId = o.optString("remote_id").trim().takeIf { it.isNotBlank() }
+            )
         }
     } catch (_: Exception) {
         emptyList()
     }
 
-    fun addNote(c: Context, year: Int, month: Int, day: Int, text: String): Boolean {
+    fun addNote(c: Context, year: Int, month: Int, day: Int, text: String): Note? {
         val clean = text.trim()
-        if (clean.isEmpty()) return false
-        val updated = getNotes(c, year, month, day) + Note(newId(), clean, System.currentTimeMillis())
+        if (clean.isEmpty()) return null
+        val note = Note(newId(), clean, System.currentTimeMillis())
+        val updated = getNotes(c, year, month, day) + note
         writeNotes(c, year, month, day, updated)
-        return true
+        return note
     }
 
     fun updateNote(c: Context, year: Int, month: Int, day: Int, id: String, text: String) {
@@ -89,6 +97,15 @@ object AppStore {
         val updated = getNotes(c, year, month, day).map {
             if (it.id == id) it.copy(text = clean) else it
         }.filter { it.text.isNotEmpty() }
+        writeNotes(c, year, month, day, updated)
+    }
+
+    fun setNoteRemoteId(c: Context, year: Int, month: Int, day: Int, id: String, remoteId: String) {
+        val cleanRemoteId = remoteId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getNotes(c, year, month, day).map {
+            if (it.id == id) it.copy(remoteId = cleanRemoteId) else it
+        }
         writeNotes(c, year, month, day, updated)
     }
 
@@ -108,6 +125,7 @@ object AppStore {
             notes.forEach { n ->
                 arr.put(JSONObject().apply {
                     put("id", n.id); put("text", n.text); put("ts", n.ts)
+                    n.remoteId?.let { put("remote_id", it) }
                 })
             }
             e.putString(notesListKey(year, month, day), arr.toString())
@@ -132,7 +150,8 @@ object AppStore {
         val ringtoneUri: String?,
         val insistent: Boolean,
         val kind: String,        // "reminder" | "shift"
-        val shiftId: String?
+        val shiftId: String?,
+        val remoteEventId: String? = null
     )
 
     fun getReminders(c: Context): List<Reminder> = try {
@@ -147,7 +166,8 @@ object AppStore {
                 ringtoneUri = o.optString("ringtoneUri").ifBlank { null },
                 insistent = o.optBoolean("insistent", false),
                 kind = o.optString("kind").ifBlank { "reminder" },
-                shiftId = o.optString("shiftId").ifBlank { null }
+                shiftId = o.optString("shiftId").ifBlank { null },
+                remoteEventId = o.optString("remoteEventId").ifBlank { null }
             )
         }
     } catch (_: Exception) {
@@ -166,6 +186,7 @@ object AppStore {
                 put("insistent", r.insistent)
                 put("kind", r.kind)
                 r.shiftId?.let { put("shiftId", it) }
+                r.remoteEventId?.let { put("remoteEventId", it) }
             })
         }
         alarmsPrefs(c).edit().putString("alarms", arr.toString()).apply()
@@ -178,6 +199,15 @@ object AppStore {
 
     fun removeReminder(c: Context, requestCode: Int) {
         saveReminders(c, getReminders(c).filterNot { it.requestCode == requestCode })
+    }
+
+    fun setReminderRemoteEventId(c: Context, requestCode: Int, remoteEventId: String) {
+        val cleanRemoteId = remoteEventId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getReminders(c).map {
+            if (it.requestCode == requestCode) it.copy(remoteEventId = cleanRemoteId) else it
+        }
+        saveReminders(c, updated)
     }
 
     /** A fresh, monotonically increasing request code so reminders never collide. */
@@ -469,5 +499,81 @@ object AppStore {
     }
 
     // ── util ─────────────────────────────────────────────────────────────────
+    fun isCloudSyncEnabled(c: Context): Boolean = settings(c).getBoolean("cloud_sync_enabled", true)
+
+    fun setCloudSyncEnabled(c: Context, enabled: Boolean) {
+        settings(c).edit().putBoolean("cloud_sync_enabled", enabled).apply()
+    }
+
+    data class AiContentReport(
+        val id: String,
+        val dateLabel: String,
+        val content: String,
+        val reason: String,
+        val ts: Long
+    )
+
+    fun addAiContentReport(
+        c: Context,
+        dateLabel: String,
+        content: String,
+        reason: String
+    ): AiContentReport {
+        val report = AiContentReport(
+            id = newId(),
+            dateLabel = dateLabel.trim(),
+            content = content.trim(),
+            reason = reason.trim(),
+            ts = System.currentTimeMillis()
+        )
+        val updated = getAiContentReports(c) + report
+        val arr = JSONArray()
+        updated.forEach { r ->
+            arr.put(JSONObject().apply {
+                put("id", r.id)
+                put("dateLabel", r.dateLabel)
+                put("content", r.content)
+                put("reason", r.reason)
+                put("ts", r.ts)
+            })
+        }
+        aiReportsPrefs(c).edit().putString("reports", arr.toString()).apply()
+        return report
+    }
+
+    fun getAiContentReports(c: Context): List<AiContentReport> = try {
+        val arr = JSONArray(aiReportsPrefs(c).getString("reports", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            AiContentReport(
+                id = o.optString("id").ifBlank { newId() },
+                dateLabel = o.optString("dateLabel"),
+                content = o.optString("content"),
+                reason = o.optString("reason"),
+                ts = o.optLong("ts", 0L)
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun clearLocalUserData(c: Context) {
+        notesPrefs(c).edit().clear().apply()
+        alarmsPrefs(c).edit().clear().apply()
+        holidaysPrefs(c).edit().clear().apply()
+        schedulePrefs(c).edit().clear().apply()
+        aiReportsPrefs(c).edit().clear().apply()
+        settings(c).edit()
+            .remove("user_name")
+            .remove("profile_image_uri")
+            .remove("reminder_ringtone_uri")
+            .remove("reminder_ringtone_title")
+            .remove("reminder_insistent")
+            .remove("reminder_default_minutes")
+            .remove("next_request_code")
+            .remove("logged_out")
+            .apply()
+    }
+
     private fun newId(): String = "${System.currentTimeMillis()}_${(Math.random() * 100000).toInt()}"
 }
