@@ -75,24 +75,23 @@ fun scheduleReminder(
     insistent: Boolean? = null,
     kind: String = "reminder",
     shiftId: String? = null
-) {
+): AppStore.Reminder {
     val ring = ringtoneUri ?: AppStore.getRingtoneUri(context)
     val loop = insistent ?: AppStore.isInsistent(context)
-
-    AppStore.upsertReminder(
-        context,
-        AppStore.Reminder(
-            requestCode = requestCode,
-            triggerMs = triggerMs,
-            title = title,
-            message = message,
-            ringtoneUri = ring,
-            insistent = loop,
-            kind = kind,
-            shiftId = shiftId
-        )
+    val reminder = AppStore.Reminder(
+        requestCode = requestCode,
+        triggerMs = triggerMs,
+        title = title,
+        message = message,
+        ringtoneUri = ring,
+        insistent = loop,
+        kind = kind,
+        shiftId = shiftId
     )
+
+    AppStore.upsertReminder(context, reminder)
     armAlarm(context, requestCode, triggerMs, title, message, ring, loop, kind)
+    return reminder
 }
 
 /** Cancel a scheduled reminder and forget it. */
@@ -118,7 +117,7 @@ fun scheduleAlarm(
     alarmTitle: String,
     khmerDate: KhmerDate,
     lang: AppLanguage
-) {
+): AppStore.Reminder {
     val cal = java.util.Calendar.getInstance().apply {
         set(year, month - 1, day, hour, minute, 0)
         set(java.util.Calendar.MILLISECOND, 0)
@@ -131,7 +130,7 @@ fun scheduleAlarm(
     else
         "ថ្ងៃ${khmerDate.dayOfWeek} ទី${KhmerCalendarHelper.toKhmerNumeral(day)} ខែ${GREG_MONTHS_KM.getOrElse(month - 1) { "" }}"
 
-    scheduleReminder(
+    return scheduleReminder(
         context = context,
         requestCode = AppStore.nextRequestCode(context),
         triggerMs = cal.timeInMillis,

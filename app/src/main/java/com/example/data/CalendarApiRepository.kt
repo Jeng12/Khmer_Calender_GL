@@ -50,7 +50,8 @@ data class CalendarApiEvent(
     val endsAt: String?,
     val allDay: Boolean,
     val location: String?,
-    val color: String?
+    val color: String?,
+    val reminderMinutesBefore: Int?
 ) {
     val timeLabel: String?
         get() = startsAt?.takeIf { it.length >= 16 }?.substring(11, 16)
@@ -226,6 +227,112 @@ object CalendarApiRepository {
         }
     }
 
+    suspend fun createEvent(
+        date: LocalDate,
+        title: String,
+        startsAt: String,
+        endsAt: String? = null,
+        allDay: Boolean = false,
+        description: String? = null,
+        location: String? = null,
+        color: String? = null,
+        reminderMinutesBefore: Int? = null
+    ): Result<CalendarApiEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = sendJson("/events", "POST", eventPayload(
+                title = title,
+                startsAt = startsAt,
+                endsAt = endsAt,
+                allDay = allDay,
+                description = description,
+                location = location,
+                color = color,
+                reminderMinutesBefore = reminderMinutesBefore
+            ))
+            val event = parseEvent(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid event")
+            invalidateMonth(date)
+            event
+        }
+    }
+
+    suspend fun updateEvent(
+        id: String,
+        date: LocalDate,
+        title: String,
+        startsAt: String,
+        endsAt: String? = null,
+        allDay: Boolean = false,
+        description: String? = null,
+        location: String? = null,
+        color: String? = null,
+        reminderMinutesBefore: Int? = null
+    ): Result<CalendarApiEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = sendJson("/events/${id.urlEncoded()}", "PUT", eventPayload(
+                title = title,
+                startsAt = startsAt,
+                endsAt = endsAt,
+                allDay = allDay,
+                description = description,
+                location = location,
+                color = color,
+                reminderMinutesBefore = reminderMinutesBefore
+            ))
+            val event = parseEvent(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid event")
+            invalidateMonth(date)
+            event
+        }
+    }
+
+    suspend fun deleteEvent(id: String, date: LocalDate? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            sendJson("/events/${id.urlEncoded()}", "DELETE")
+            date?.let(::invalidateMonth)
+            Unit
+        }
+    }
+
+    suspend fun updateWorkScheduleSettings(cycle: AppStore.ShiftCycle): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val payload = JSONObject()
+                .put("system_type", cycle.systemType)
+                .put("remind", cycle.remind)
+                .put("reminder_minutes_before", cycle.reminderMinutesBefore)
+                .put("shift_templates", JSONArray().apply {
+                    cycle.shifts.forEachIndexed { index, shift ->
+                        put(JSONObject()
+                            .put("code", shift.id)
+                            .put("name", shift.name)
+                            .put("start_time", "%02d:%02d".format(shift.startHour, shift.startMin))
+                            .put("end_time", "%02d:%02d".format(shift.endHour, shift.endMin))
+                            .put("sort_order", index)
+                        )
+                    }
+                })
+            sendJson("/work-schedule/settings", "PUT", payload)
+            overlayCache.clear()
+            Unit
+        }
+    }
+
+    suspend fun updateWorkScheduleCycle(cycleStartDate: LocalDate, assignments: List<String?>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val padded = assignments.take(AppStore.CYCLE_SLOTS) +
+                List((AppStore.CYCLE_SLOTS - assignments.size).coerceAtLeast(0)) { null }
+            val payload = JSONObject().put("assignments", JSONArray().apply {
+                padded.forEach { assignment ->
+                    if (assignment.isNullOrBlank()) put(JSONObject.NULL) else put(assignment)
+                }
+            })
+            sendJson("/work-schedule/cycles/${cycleStartDate.toString().urlEncoded()}", "PUT", payload)
+            invalidateMonth(cycleStartDate)
+            invalidateMonth(cycleStartDate.plusMonths(1))
+            Unit
+        }
+    }
+
     private fun fetchNotes(): List<CalendarApiNote> =
         parseDataList(getJson("/notes"), ::parseNote)
 
@@ -316,6 +423,27 @@ object CalendarApiRepository {
         overlayCache.remove(key)
     }
 
+    private fun eventPayload(
+        title: String,
+        startsAt: String,
+        endsAt: String?,
+        allDay: Boolean,
+        description: String?,
+        location: String?,
+        color: String?,
+        reminderMinutesBefore: Int?
+    ): JSONObject = JSONObject()
+        .put("title", title.trim())
+        .put("starts_at", startsAt)
+        .put("all_day", allDay)
+        .apply {
+            endsAt?.takeIf { it.isNotBlank() }?.let { put("ends_at", it) }
+            description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+            location?.takeIf { it.isNotBlank() }?.let { put("location", it) }
+            color?.takeIf { it.isNotBlank() }?.let { put("color", it) }
+            reminderMinutesBefore?.let { put("reminder_minutes_before", it) }
+        }
+
     private fun parseMonth(body: String): CalendarApiMonth {
         val data = JSONObject(body).getJSONObject("data")
         val year = data.optInt("year")
@@ -397,7 +525,12 @@ object CalendarApiRepository {
             endsAt = o.cleanString("ends_at"),
             allDay = o.optBoolean("all_day", false),
             location = o.cleanString("location"),
-            color = o.cleanString("color")
+            color = o.cleanString("color"),
+            reminderMinutesBefore = if (o.has("reminder_minutes_before") && !o.isNull("reminder_minutes_before")) {
+                o.optInt("reminder_minutes_before")
+            } else {
+                null
+            }
         )
     }
 

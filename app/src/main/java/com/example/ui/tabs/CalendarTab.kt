@@ -45,7 +45,10 @@ import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 
 // Data model for monthly agenda items
@@ -166,7 +169,9 @@ fun CalendarTabContent(
             list.add(AgendaItem(h.day, AgendaType.HOLIDAY, if (lang == AppLanguage.EN) h.nameEn else h.nameKm, customHolidayLabel, isPastDay(h.day)))
         }
 
+        val localReminders = AppStore.getReminders(context)
         val localRemoteNoteIds = mutableSetOf<String>()
+        val localRemoteEventIds = localReminders.mapNotNull { it.remoteEventId?.takeIf(String::isNotBlank) }.toSet()
 
         // 3. Notes (multiple per day)
         for (d in 1..daysList.size) {
@@ -186,10 +191,12 @@ fun CalendarTabContent(
         }
         apiEventsByDay.forEach { (d, events) ->
             events.forEach { event ->
-                val subtitle = listOfNotNull(event.timeLabel, event.location)
-                    .joinToString(" - ")
-                    .ifBlank { reminderFallback }
-                list.add(AgendaItem(d, AgendaType.REMINDER, event.title, subtitle, isPastDay(d)))
+                if (event.id !in localRemoteEventIds) {
+                    val subtitle = listOfNotNull(event.timeLabel, event.location)
+                        .joinToString(" - ")
+                        .ifBlank { reminderFallback }
+                    list.add(AgendaItem(d, AgendaType.REMINDER, event.title, subtitle, isPastDay(d)))
+                }
             }
         }
         apiHolidayEventsByDay.forEach { (d, holidays) ->
@@ -200,7 +207,7 @@ fun CalendarTabContent(
         }
 
         // 5. Reminders / events (keyed off trigger time)
-        AppStore.getReminders(context).forEach { r ->
+        localReminders.forEach { r ->
             val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
                 val d = c.get(Calendar.DAY_OF_MONTH)
@@ -663,6 +670,52 @@ private fun DayDetailDialog(
         }
     }
 
+    fun eventDate(triggerMs: Long): LocalDate =
+        Instant.ofEpochMilli(triggerMs).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    fun eventStartsAt(triggerMs: Long): String =
+        Instant.ofEpochMilli(triggerMs)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+    fun syncSavedReminder(reminder: AppStore.Reminder) {
+        if (reminder.kind != "reminder") return
+        widgetScope.launch {
+            WidgetPrefs.refresh(context)
+            val dateForEvent = eventDate(reminder.triggerMs)
+            CalendarApiRepository.createEvent(
+                date = dateForEvent,
+                title = reminder.title,
+                startsAt = eventStartsAt(reminder.triggerMs),
+                allDay = false,
+                description = reminder.message,
+                color = "#EAB308",
+                reminderMinutesBefore = 0
+            )
+                .onSuccess { event ->
+                    AppStore.setReminderRemoteEventId(context, reminder.requestCode, event.id)
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun syncDeletedReminder(remoteEventId: String?, triggerMs: Long) {
+        if (remoteEventId.isNullOrBlank()) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            CalendarApiRepository.deleteEvent(remoteEventId, eventDate(triggerMs))
+                .onSuccess {
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
     val notes = remember(localVersion) { AppStore.getNotes(context, date.year, date.month, date.day) }
     val dayReminders = remember(localVersion) {
         AppStore.getReminders(context).filter {
@@ -695,10 +748,11 @@ private fun DayDetailDialog(
         val dlg = TimePickerDialog(
             context,
             { _, hour, minute ->
-                scheduleAlarm(context, date.year, date.month, date.day, hour, minute, alarmTitleText, date, lang)
+                val reminder = scheduleAlarm(context, date.year, date.month, date.day, hour, minute, alarmTitleText, date, lang)
                 widgetScope.launch { WidgetPrefs.refresh(context) }
                 alarmTitleText = ""
                 bump()
+                syncSavedReminder(reminder)
                 Toast.makeText(context, tr(lang, "បានកំណត់ការរំលឹក", "Reminder set"), Toast.LENGTH_SHORT).show()
                 showTimePicker = false
                 showAlarmForm = false
@@ -884,9 +938,11 @@ private fun DayDetailDialog(
                             "🗑️", fontSize = 14.sp,
                             modifier = Modifier
                                 .clickable {
+                                    val remoteEventId = r.remoteEventId
+                                    val triggerMs = r.triggerMs
                                     cancelReminder(context, r.requestCode)
                                     bump()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    syncDeletedReminder(remoteEventId, triggerMs)
                                 }
                                 .padding(start = 6.dp)
                         )

@@ -148,7 +148,8 @@ object AppStore {
         val ringtoneUri: String?,
         val insistent: Boolean,
         val kind: String,        // "reminder" | "shift"
-        val shiftId: String?
+        val shiftId: String?,
+        val remoteEventId: String? = null
     )
 
     fun getReminders(c: Context): List<Reminder> = try {
@@ -163,7 +164,8 @@ object AppStore {
                 ringtoneUri = o.optString("ringtoneUri").ifBlank { null },
                 insistent = o.optBoolean("insistent", false),
                 kind = o.optString("kind").ifBlank { "reminder" },
-                shiftId = o.optString("shiftId").ifBlank { null }
+                shiftId = o.optString("shiftId").ifBlank { null },
+                remoteEventId = o.optString("remoteEventId").ifBlank { null }
             )
         }
     } catch (_: Exception) {
@@ -182,6 +184,7 @@ object AppStore {
                 put("insistent", r.insistent)
                 put("kind", r.kind)
                 r.shiftId?.let { put("shiftId", it) }
+                r.remoteEventId?.let { put("remoteEventId", it) }
             })
         }
         alarmsPrefs(c).edit().putString("alarms", arr.toString()).apply()
@@ -194,6 +197,15 @@ object AppStore {
 
     fun removeReminder(c: Context, requestCode: Int) {
         saveReminders(c, getReminders(c).filterNot { it.requestCode == requestCode })
+    }
+
+    fun setReminderRemoteEventId(c: Context, requestCode: Int, remoteEventId: String) {
+        val cleanRemoteId = remoteEventId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getReminders(c).map {
+            if (it.requestCode == requestCode) it.copy(remoteEventId = cleanRemoteId) else it
+        }
+        saveReminders(c, updated)
     }
 
     /** A fresh, monotonically increasing request code so reminders never collide. */
