@@ -252,7 +252,8 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
 fun LoginScreenContent(
     onSignIn: () -> Unit,
     onSignUp: () -> Unit,
-    onForgot: () -> Unit
+    onForgot: () -> Unit,
+    onSubmit: (String, String) -> Unit = { _, _ -> onSignIn() }
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
@@ -273,7 +274,7 @@ fun LoginScreenContent(
             password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
-        if (emailError == null && passwordError == null) onSignIn()
+        if (emailError == null && passwordError == null) onSubmit(email.trim(), password)
     }
 
     Column(
@@ -438,7 +439,8 @@ fun LoginScreenContent(
 @Composable
 fun RegisterScreenContent(
     onBack: () -> Unit,
-    onRegister: () -> Unit
+    onRegister: () -> Unit,
+    onSubmit: (String, String, String, String) -> Unit = { _, _, _, _ -> onRegister() }
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
@@ -463,7 +465,9 @@ fun RegisterScreenContent(
             password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
-        if (nameError == null && emailError == null && passwordError == null) onRegister()
+        if (nameError == null && emailError == null && passwordError == null) {
+            onSubmit(fn.trim(), ln.trim(), email.trim(), password)
+        }
     }
 
     Column(

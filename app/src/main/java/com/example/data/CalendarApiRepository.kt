@@ -121,6 +121,12 @@ object CalendarApiRepository {
 
     private val monthCache = mutableMapOf<String, CalendarApiMonth>()
     private val overlayCache = mutableMapOf<String, CalendarApiMonthOverlays>()
+    private var authSession: AuthStore.Session? = null
+
+    fun setAuthSession(session: AuthStore.Session?) {
+        authSession = session
+        overlayCache.clear()
+    }
 
     suspend fun fetchMonth(
         year: Int,
@@ -264,7 +270,7 @@ object CalendarApiRepository {
             val payload = JSONObject()
                 .put("date", date.toString())
                 .put("text", text.trim())
-            val body = sendJson("/notes/${id.urlEncoded()}", "PUT", payload)
+            val body = sendJson("/notes/${id.urlEncoded()}", "PATCH", payload)
             val note = parseNote(JSONObject(body).getJSONObject("data"))
                 ?: throw IOException("Calendar API returned an invalid note")
             invalidateMonth(date)
@@ -322,7 +328,7 @@ object CalendarApiRepository {
         reminderMinutesBefore: Int? = null
     ): Result<CalendarApiEvent> = withContext(Dispatchers.IO) {
         runCatching {
-            val body = sendJson("/events/${id.urlEncoded()}", "PUT", eventPayload(
+            val body = sendJson("/events/${id.urlEncoded()}", "PATCH", eventPayload(
                 title = title,
                 startsAt = startsAt,
                 endsAt = endsAt,
@@ -409,6 +415,7 @@ object CalendarApiRepository {
             readTimeout = TIMEOUT_MS
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
+            applyAuthHeaders()
         }
 
         try {
@@ -438,6 +445,7 @@ object CalendarApiRepository {
             readTimeout = TIMEOUT_MS
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
+            applyAuthHeaders()
             if (payload != null) {
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=UTF-8")
@@ -468,6 +476,13 @@ object CalendarApiRepository {
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun HttpURLConnection.applyAuthHeaders() {
+        val session = authSession ?: return
+        setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+        setRequestProperty("X-Calendar-User-Id", session.userId)
+        setRequestProperty("X-Calendar-User-Email", session.email)
     }
 
     private fun invalidateMonth(date: LocalDate) {

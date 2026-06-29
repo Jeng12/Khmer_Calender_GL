@@ -659,7 +659,7 @@ fun ProfileSettingsContent(
             }
         }
 
-        // Back to home
+        // Sign out
         item {
             Spacer(modifier = Modifier.height(10.dp))
             Button(
@@ -671,7 +671,7 @@ fun ProfileSettingsContent(
                     .testTag("back_home_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Back to Home", color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("Sign out", color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }

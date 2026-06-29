@@ -66,7 +66,7 @@ import com.example.ui.auth.*
 import com.example.ui.tabs.*
 
 enum class AppScreen {
-    SPLASH, MAIN_APP
+    SPLASH, LOGIN, REGISTER, FORGOT, MAIN_APP
 }
 
 enum class AppTab {
@@ -83,6 +83,7 @@ fun KhmerCalendarApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val langPrefs = remember { context.getSharedPreferences("khmer_calendar_prefs", android.content.Context.MODE_PRIVATE) }
+    var authSession by remember { mutableStateOf(AuthStore.currentSession(context)) }
     var appLanguage by remember {
         mutableStateOf(
             if (langPrefs.getString("app_lang", "km") == "en") AppLanguage.EN else AppLanguage.KM
@@ -110,14 +111,26 @@ fun KhmerCalendarApp() {
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
 
-    // Splash Timer — fresh installs skip the (mock) login and go straight to the
-    // main app, but once the user explicitly logs out we honour that and land on
-    // the login screen on the next launch until they sign back in.
+    LaunchedEffect(authSession) {
+        AuthStore.setInMemorySession(authSession)
+        CalendarApiRepository.setAuthSession(authSession)
+    }
+
+    fun enterMainApp(session: AuthStore.Session) {
+        authSession = session
+        langPrefs.edit()
+            .putString("user_name", session.displayName)
+            .putBoolean("logged_out", false)
+            .apply()
+        screenState = AppScreen.MAIN_APP
+        currentTab = AppTab.CALENDAR
+    }
+
+    // Splash Timer — require a saved local account/session before opening data screens.
     LaunchedEffect(screenState) {
         if (screenState == AppScreen.SPLASH) {
             delay(1800)
-            langPrefs.edit().putBoolean("logged_out", false).apply()
-            screenState = AppScreen.MAIN_APP
+            screenState = if (authSession != null) AppScreen.MAIN_APP else AppScreen.LOGIN
         }
     }
 
@@ -172,6 +185,34 @@ fun KhmerCalendarApp() {
                     ) { currentScreen ->
                 when (currentScreen) {
                     AppScreen.SPLASH -> SplashScreenContent()
+                    AppScreen.LOGIN -> LoginScreenContent(
+                        onSignIn = {},
+                        onSignUp = { screenState = AppScreen.REGISTER },
+                        onForgot = { screenState = AppScreen.FORGOT },
+                        onSubmit = { email, password ->
+                            when (val result = AuthStore.signIn(context, email, password)) {
+                                is AuthStore.AuthResult.Success -> enterMainApp(result.session)
+                                is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                    AppScreen.REGISTER -> RegisterScreenContent(
+                        onBack = { screenState = AppScreen.LOGIN },
+                        onRegister = {},
+                        onSubmit = { firstName, lastName, email, password ->
+                            when (val result = AuthStore.register(context, firstName, lastName, email, password)) {
+                                is AuthStore.AuthResult.Success -> enterMainApp(result.session)
+                                is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                    AppScreen.FORGOT -> ForgotScreenContent(
+                        onBack = { screenState = AppScreen.LOGIN },
+                        onSend = {
+                            Toast.makeText(context, "Password reset is local-only in this build. Create a new account if needed.", Toast.LENGTH_LONG).show()
+                            screenState = AppScreen.LOGIN
+                        }
+                    )
                     AppScreen.MAIN_APP -> MainAppLayout(
                         currentTab = currentTab,
                         onTabChange = { currentTab = it },
@@ -212,8 +253,10 @@ fun KhmerCalendarApp() {
                         selectedHolidayFilter = selectedHolidayFilter,
                         onHolidayFilterChange = { selectedHolidayFilter = it },
                         onLogOut = {
-                            langPrefs.edit().putBoolean("logged_out", false).apply()
-                            screenState = AppScreen.MAIN_APP
+                            AuthStore.signOut(context)
+                            authSession = null
+                            CalendarApiRepository.setAuthSession(null)
+                            screenState = AppScreen.LOGIN
                             currentTab = AppTab.HOME
                         },
                         isDarkMode = isDarkMode,

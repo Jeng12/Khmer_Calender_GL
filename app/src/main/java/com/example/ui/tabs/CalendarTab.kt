@@ -40,6 +40,7 @@ import com.example.calendar.KhmerDate
 import com.example.core.*
 import com.example.data.AppStore
 import com.example.data.CalendarApiMonthOverlays
+import com.example.data.CalendarApiNote
 import com.example.data.CalendarApiRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
@@ -252,9 +253,11 @@ fun CalendarTabContent(
     }
 
     if (showDayDetailDialog && detailDialogDate != null) {
+        val dialogDate = detailDialogDate!!
         DayDetailDialog(
-            date = detailDialogDate!!,
+            date = dialogDate,
             lang = lang,
+            remoteNotes = apiNotesByDay[dialogDate.day].orEmpty(),
             onDismiss = { showDayDetailDialog = false },
             onDataChange = { agendaVersion++ }
         )
@@ -648,6 +651,7 @@ private fun LegendIndicator(color: Color, label: String) {
 private fun DayDetailDialog(
     date: KhmerDate,
     lang: AppLanguage,
+    remoteNotes: List<CalendarApiNote> = emptyList(),
     onDismiss: () -> Unit,
     onDataChange: () -> Unit
 ) {
@@ -801,7 +805,20 @@ private fun DayDetailDialog(
         }
     }
 
-    val notes = remember(localVersion) { AppStore.getNotes(context, date.year, date.month, date.day) }
+    val notes = remember(localVersion, remoteNotes) {
+        val localNotes = AppStore.getNotes(context, date.year, date.month, date.day)
+        val localRemoteIds = localNotes.mapNotNull { it.remoteId?.takeIf(String::isNotBlank) }.toSet()
+        localNotes + remoteNotes
+            .filter { it.id !in localRemoteIds }
+            .map { remoteNote ->
+                AppStore.Note(
+                    id = "remote-note-${remoteNote.id}",
+                    text = remoteNote.text,
+                    ts = 0L,
+                    remoteId = remoteNote.id
+                )
+            }
+    }
     val dayReminders = remember(localVersion) {
         AppStore.getReminders(context).filter {
             val c = Calendar.getInstance().apply { timeInMillis = it.triggerMs }

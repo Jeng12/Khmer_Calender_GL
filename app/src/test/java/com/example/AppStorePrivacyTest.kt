@@ -3,9 +3,11 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppStore
+import com.example.data.AuthStore
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -23,6 +25,7 @@ class AppStorePrivacyTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        AuthStore.clearForTests(context)
         AppStore.clearLocalUserData(context)
         AppStore.setCloudSyncEnabled(context, true)
     }
@@ -30,6 +33,7 @@ class AppStorePrivacyTest {
     @After
     fun tearDown() {
         AppStore.clearLocalUserData(context)
+        AuthStore.clearForTests(context)
         AppStore.setCloudSyncEnabled(context, true)
     }
 
@@ -84,6 +88,22 @@ class AppStorePrivacyTest {
         val deleted = AppStore.deleteCustomHoliday(context, stored.id)
         assertEquals("remote-123", deleted?.remoteHolidayEventId)
         assertTrue(AppStore.getCustomHolidays(context).isEmpty())
+    }
+
+    @Test
+    fun authSessionPersistsAndSwitchingAccountsClearsLocalCalendarData() {
+        val first = AuthStore.register(context, "First", "User", "first@example.com", "secret1")
+        assertTrue(first is AuthStore.AuthResult.Success)
+        AppStore.addNote(context, 2026, 6, 28, "First user note")
+
+        val second = AuthStore.register(context, "Second", "User", "second@example.com", "secret2")
+        assertTrue(second is AuthStore.AuthResult.Success)
+
+        val firstSession = (first as AuthStore.AuthResult.Success).session
+        val secondSession = (second as AuthStore.AuthResult.Success).session
+        assertNotEquals(firstSession.userId, secondSession.userId)
+        assertEquals(secondSession.email, AuthStore.currentSession(context)?.email)
+        assertTrue(AppStore.getNotes(context, 2026, 6, 28).isEmpty())
     }
 
     @Test
