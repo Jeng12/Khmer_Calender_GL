@@ -193,6 +193,59 @@ object CalendarApiRepository {
         }
     }
 
+    suspend fun createHolidayEvent(
+        date: LocalDate,
+        nameKm: String,
+        nameEn: String,
+        type: String = "custom",
+        isRecurringYearly: Boolean = true,
+        description: String? = null,
+        notes: String? = null
+    ): Result<CalendarApiHolidayEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = sendJson(
+                "/holiday-events",
+                "POST",
+                holidayEventPayload(date, nameKm, nameEn, type, isRecurringYearly, description, notes)
+            )
+            val event = parseHolidayEvent(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid holiday event")
+            invalidateHolidayEventCaches(event.occurrenceDate ?: event.date)
+            event
+        }
+    }
+
+    suspend fun updateHolidayEvent(
+        id: String,
+        date: LocalDate,
+        nameKm: String,
+        nameEn: String,
+        type: String = "custom",
+        isRecurringYearly: Boolean = true,
+        description: String? = null,
+        notes: String? = null
+    ): Result<CalendarApiHolidayEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = sendJson(
+                "/holiday-events/${id.urlEncoded()}",
+                "PATCH",
+                holidayEventPayload(date, nameKm, nameEn, type, isRecurringYearly, description, notes)
+            )
+            val event = parseHolidayEvent(JSONObject(body).getJSONObject("data"))
+                ?: throw IOException("Calendar API returned an invalid holiday event")
+            invalidateHolidayEventCaches(event.occurrenceDate ?: event.date)
+            event
+        }
+    }
+
+    suspend fun deleteHolidayEvent(id: String, date: LocalDate? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            sendJson("/holiday-events/${id.urlEncoded()}", "DELETE")
+            invalidateHolidayEventCaches(date)
+            Unit
+        }
+    }
+
     suspend fun createNote(date: LocalDate, text: String): Result<CalendarApiNote> = withContext(Dispatchers.IO) {
         runCatching {
             val payload = JSONObject()
@@ -423,6 +476,11 @@ object CalendarApiRepository {
         overlayCache.remove(key)
     }
 
+    private fun invalidateHolidayEventCaches(date: LocalDate?) {
+        date?.let { monthCache.remove("${it.year}-${it.monthValue}") }
+        overlayCache.clear()
+    }
+
     private fun eventPayload(
         title: String,
         startsAt: String,
@@ -443,6 +501,32 @@ object CalendarApiRepository {
             color?.takeIf { it.isNotBlank() }?.let { put("color", it) }
             reminderMinutesBefore?.let { put("reminder_minutes_before", it) }
         }
+
+    private fun holidayEventPayload(
+        date: LocalDate,
+        nameKm: String,
+        nameEn: String,
+        type: String,
+        isRecurringYearly: Boolean,
+        description: String?,
+        notes: String?
+    ): JSONObject {
+        val km = nameKm.trim().ifBlank { nameEn.trim() }
+        val en = nameEn.trim().ifBlank { km }
+        if (km.isBlank()) throw IOException("Holiday event name is required")
+        return JSONObject()
+            .put("name_km", km)
+            .put("name_en", en)
+            .put("date", date.toString())
+            .put("type", type.ifBlank { "custom" })
+            .put("source", "manual")
+            .put("is_fixed", false)
+            .put("is_recurring_yearly", isRecurringYearly)
+            .apply {
+                description?.takeIf { it.isNotBlank() }?.let { put("description", it) }
+                notes?.takeIf { it.isNotBlank() }?.let { put("notes", it) }
+            }
+    }
 
     private fun parseMonth(body: String): CalendarApiMonth {
         val data = JSONObject(body).getJSONObject("data")

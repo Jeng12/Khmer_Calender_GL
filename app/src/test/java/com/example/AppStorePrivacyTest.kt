@@ -74,6 +74,19 @@ class AppStorePrivacyTest {
     }
 
     @Test
+    fun customHolidayRemoteEventIdPersistsAndDeleteReturnsHoliday() {
+        val holiday = AppStore.addCustomHoliday(context, 6, 28, "Holiday", "Holiday")!!
+
+        AppStore.setCustomHolidayRemoteEventId(context, holiday.id, "remote-123")
+
+        val stored = AppStore.getCustomHolidays(context).single()
+        assertEquals("remote-123", stored.remoteHolidayEventId)
+        val deleted = AppStore.deleteCustomHoliday(context, stored.id)
+        assertEquals("remote-123", deleted?.remoteHolidayEventId)
+        assertTrue(AppStore.getCustomHolidays(context).isEmpty())
+    }
+
+    @Test
     fun aiContentReportsAreStoredNewestLast() {
         AppStore.addAiContentReport(context, "Day 1", "Text 1", "Reason 1")
         AppStore.addAiContentReport(context, "Day 2", "Text 2", "Reason 2")

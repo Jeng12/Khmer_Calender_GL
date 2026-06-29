@@ -226,7 +226,8 @@ object AppStore {
         val month: Int,    // 1..12
         val day: Int,      // 1..31
         val nameKm: String,
-        val nameEn: String
+        val nameEn: String,
+        val remoteHolidayEventId: String? = null
     )
 
     fun getCustomHolidays(c: Context): List<CustomHoliday> = try {
@@ -238,7 +239,12 @@ object AppStore {
                 month = o.optInt("month"),
                 day = o.optInt("day"),
                 nameKm = o.optString("nameKm"),
-                nameEn = o.optString("nameEn").ifBlank { o.optString("nameKm") }
+                nameEn = o.optString("nameEn").ifBlank { o.optString("nameKm") },
+                remoteHolidayEventId = o.optString("remote_event_id").trim().ifBlank {
+                    o.optString("remoteHolidayEventId").trim()
+                }.ifBlank {
+                    o.optString("remoteId").trim()
+                }.takeIf { it.isNotBlank() }
             )
         }
     } catch (_: Exception) {
@@ -251,20 +257,37 @@ object AppStore {
             arr.put(JSONObject().apply {
                 put("id", h.id); put("month", h.month); put("day", h.day)
                 put("nameKm", h.nameKm); put("nameEn", h.nameEn)
+                h.remoteHolidayEventId?.let { put("remote_event_id", it) }
             })
         }
         holidaysPrefs(c).edit().putString("holidays", arr.toString()).apply()
     }
 
-    fun addCustomHoliday(c: Context, month: Int, day: Int, nameKm: String, nameEn: String) {
+    fun addCustomHoliday(c: Context, month: Int, day: Int, nameKm: String, nameEn: String): CustomHoliday? {
         val km = nameKm.trim().ifBlank { nameEn.trim() }
         val en = nameEn.trim().ifBlank { km }
-        if (km.isEmpty()) return
-        saveCustomHolidays(c, getCustomHolidays(c) + CustomHoliday(newId(), month, day, km, en))
+        if (km.isEmpty()) return null
+        val holiday = CustomHoliday(newId(), month, day, km, en)
+        saveCustomHolidays(c, getCustomHolidays(c) + holiday)
+        return holiday
     }
 
-    fun deleteCustomHoliday(c: Context, id: String) {
-        saveCustomHolidays(c, getCustomHolidays(c).filterNot { it.id == id })
+    fun setCustomHolidayRemoteEventId(c: Context, id: String, remoteHolidayEventId: String) {
+        val cleanRemoteId = remoteHolidayEventId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getCustomHolidays(c).map {
+            if (it.id == id) it.copy(remoteHolidayEventId = cleanRemoteId) else it
+        }
+        saveCustomHolidays(c, updated)
+    }
+
+    fun deleteCustomHoliday(c: Context, id: String): CustomHoliday? {
+        val holidays = getCustomHolidays(c)
+        val deleted = holidays.firstOrNull { it.id == id }
+        if (deleted != null) {
+            saveCustomHolidays(c, holidays.filterNot { it.id == id })
+        }
+        return deleted
     }
 
     fun customHolidaysForMonth(c: Context, month: Int): List<CustomHoliday> =

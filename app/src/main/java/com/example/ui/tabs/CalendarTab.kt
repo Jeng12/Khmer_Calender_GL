@@ -126,6 +126,29 @@ fun CalendarTabContent(
     val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
 
     val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
+    LaunchedEffect(year, month, customHolidays, cloudSyncEnabled) {
+        if (!cloudSyncEnabled) return@LaunchedEffect
+        var repairedAny = false
+        customHolidays
+            .filter { it.remoteHolidayEventId.isNullOrBlank() }
+            .forEach { holiday ->
+                val holidayDate = runCatching { LocalDate.of(year, holiday.month, holiday.day) }
+                    .getOrNull()
+                    ?: return@forEach
+                CalendarApiRepository.createHolidayEvent(
+                    date = holidayDate,
+                    nameKm = holiday.nameKm,
+                    nameEn = holiday.nameEn
+                ).onSuccess { remoteEvent ->
+                    AppStore.setCustomHolidayRemoteEventId(context, holiday.id, remoteEvent.id)
+                    repairedAny = true
+                }
+            }
+        if (repairedAny) {
+            WidgetPrefs.refresh(context)
+            agendaVersion++
+        }
+    }
 
     // Per-month schedule data — used to highlight working days on the grid. Each
     // month has its own schedule; a month with none shows no work highlights. The
@@ -175,6 +198,9 @@ fun CalendarTabContent(
         val localReminders = AppStore.getReminders(context)
         val localRemoteNoteIds = mutableSetOf<String>()
         val localRemoteEventIds = localReminders.mapNotNull { it.remoteEventId?.takeIf(String::isNotBlank) }.toSet()
+        val localRemoteHolidayEventIds = customHolidays.mapNotNull {
+            it.remoteHolidayEventId?.takeIf(String::isNotBlank)
+        }.toSet()
 
         // 3. Notes (multiple per day)
         for (d in 1..daysList.size) {
@@ -204,8 +230,10 @@ fun CalendarTabContent(
         }
         apiHolidayEventsByDay.forEach { (d, holidays) ->
             holidays.forEach { event ->
-                val title = if (lang == AppLanguage.EN) event.nameEn else event.nameKm
-                list.add(AgendaItem(d, AgendaType.HOLIDAY, title, customHolidayLabel, isPastDay(d)))
+                if (event.id !in localRemoteHolidayEventIds) {
+                    val title = if (lang == AppLanguage.EN) event.nameEn else event.nameKm
+                    list.add(AgendaItem(d, AgendaType.HOLIDAY, title, customHolidayLabel, isPastDay(d)))
+                }
             }
         }
 
@@ -633,8 +661,8 @@ private fun DayDetailDialog(
     // Local refresh counter so the dialog re-reads the store as the user edits.
     var localVersion by remember { mutableIntStateOf(0) }
     fun bump() { localVersion++; onDataChange() }
-    fun showApiSyncFailed() {
-        Toast.makeText(context, "Saved locally; API database sync failed", Toast.LENGTH_SHORT).show()
+    fun showApiSyncFailed(message: String = "Saved locally; API database sync failed") {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
     fun syncSavedNote(localId: String, remoteId: String?, text: String) {
@@ -732,6 +760,44 @@ private fun DayDetailDialog(
                     WidgetPrefs.refresh(context)
                 }
                 .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun syncSavedCustomHoliday(holiday: AppStore.CustomHoliday) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            WidgetPrefs.refresh(context)
+            CalendarApiRepository.createHolidayEvent(
+                date = selectedDate,
+                nameKm = holiday.nameKm,
+                nameEn = holiday.nameEn
+            )
+                .onSuccess { remoteEvent ->
+                    AppStore.setCustomHolidayRemoteEventId(context, holiday.id, remoteEvent.id)
+                    bump()
+                    WidgetPrefs.refresh(context)
+                }
+                .onFailure { showApiSyncFailed() }
+        }
+    }
+
+    fun syncDeletedCustomHoliday(holiday: AppStore.CustomHoliday) {
+        if (!AppStore.isCloudSyncEnabled(context)) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        val remoteEventId = holiday.remoteHolidayEventId
+        if (remoteEventId.isNullOrBlank()) {
+            widgetScope.launch { WidgetPrefs.refresh(context) }
+            return
+        }
+        widgetScope.launch {
+            CalendarApiRepository.deleteHolidayEvent(remoteEventId, selectedDate)
+                .onSuccess { WidgetPrefs.refresh(context) }
+                .onFailure { showApiSyncFailed("Deleted locally; API database sync failed") }
         }
     }
 
@@ -1023,9 +1089,9 @@ private fun DayDetailDialog(
                             "🗑️", fontSize = 14.sp,
                             modifier = Modifier
                                 .clickable {
-                                    AppStore.deleteCustomHoliday(context, h.id)
+                                    val deletedHoliday = AppStore.deleteCustomHoliday(context, h.id) ?: h
                                     bump()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    syncDeletedCustomHoliday(deletedHoliday)
                                 }
                                 .padding(start = 6.dp)
                         )
@@ -1050,11 +1116,13 @@ private fun DayDetailDialog(
                             )
                             Button(
                                 onClick = {
-                                    AppStore.addCustomHoliday(context, date.month, date.day, holidayNameKm, holidayNameEn)
-                                    holidayNameKm = ""; holidayNameEn = ""
-                                    showHolidayForm = false
-                                    bump()
-                                    widgetScope.launch { WidgetPrefs.refresh(context) }
+                                    val savedHoliday = AppStore.addCustomHoliday(context, date.month, date.day, holidayNameKm, holidayNameEn)
+                                    if (savedHoliday != null) {
+                                        holidayNameKm = ""; holidayNameEn = ""
+                                        showHolidayForm = false
+                                        bump()
+                                        syncSavedCustomHoliday(savedHoliday)
+                                    }
                                 },
                                 modifier = Modifier.align(Alignment.End),
                                 colors = ButtonDefaults.buttonColors(containerColor = LotusPink)

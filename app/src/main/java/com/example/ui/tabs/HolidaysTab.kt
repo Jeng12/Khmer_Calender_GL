@@ -75,6 +75,7 @@ fun HolidaysTabContent(
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var customVersion by remember { mutableIntStateOf(0) }
     val customHolidays = remember(customVersion) { AppStore.getCustomHolidays(context).sortedWith(compareBy({ it.month }, { it.day })) }
     val NATIONAL = "ជាតិ (National)"
@@ -92,6 +93,17 @@ fun HolidaysTabContent(
 
     // Unified row model shared by the live API list and the offline fallback.
     data class HolidayRow(val dateKm: String, val dateEn: String, val nameKm: String, val nameEn: String, val type: String)
+
+    fun deleteCustomHolidayFromDatabase(holiday: AppStore.CustomHoliday) {
+        if (!AppStore.isCloudSyncEnabled(context)) return
+        val remoteEventId = holiday.remoteHolidayEventId?.takeIf { it.isNotBlank() } ?: return
+        scope.launch {
+            CalendarApiRepository.deleteHolidayEvent(remoteEventId)
+                .onFailure {
+                    Toast.makeText(context, "Deleted locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
 
     // Bundled fallback used when the network is unavailable so the screen is never empty.
     val fallbackHolidays = remember(NATIONAL, BUDDHIST) {
@@ -201,8 +213,9 @@ fun HolidaysTabContent(
                     Text(
                         "🗑️", fontSize = 16.sp,
                         modifier = Modifier.clickable {
-                            AppStore.deleteCustomHoliday(context, h.id)
+                            val deletedHoliday = AppStore.deleteCustomHoliday(context, h.id) ?: h
                             customVersion++
+                            deleteCustomHolidayFromDatabase(deletedHoliday)
                         }
                     )
                 }
