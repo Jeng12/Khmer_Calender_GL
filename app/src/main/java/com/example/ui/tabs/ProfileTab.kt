@@ -613,6 +613,7 @@ fun ProfileSettingsContent(
                         onCheckedChange = { enabled ->
                             cloudSyncEnabled = enabled
                             AppStore.setCloudSyncEnabled(context, enabled)
+                            if (enabled) scope.launch { SyncRepository.syncPending(context) }
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = TraditionalGold, checkedTrackColor = TraditionalGold.copy(0.4f))
                     )

@@ -34,7 +34,7 @@ data class Holiday(
 object HolidayRepository {
 
     @Volatile
-    private var cache: Map<Int, List<Holiday>> = emptyMap()
+    private var cache: Map<String, List<Holiday>> = emptyMap()
 
     /**
      * @param year  Optional year filter applied client-side after fetching.
@@ -42,11 +42,13 @@ object HolidayRepository {
      */
     suspend fun fetchHolidays(
         year: Int? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        includeDatabaseEvents: Boolean = true
     ): Result<List<Holiday>> = withContext(Dispatchers.IO) {
         runCatching {
             val targetYear = year ?: LocalDate.now().year
-            val cached = cache[targetYear]
+            val cacheKey = "$targetYear:$includeDatabaseEvents"
+            val cached = cache[cacheKey]
             if (!forceRefresh && cached != null) return@runCatching cached
 
             val builtIn = (1..12).flatMap { month ->
@@ -64,30 +66,34 @@ object HolidayRepository {
                 }
             }
 
-            val apiEvents = CalendarApiRepository
-                .fetchHolidayEvents(
-                    from = LocalDate.of(targetYear, 1, 1),
-                    to = LocalDate.of(targetYear, 12, 31),
-                    forceRefresh = forceRefresh
-                )
-                .getOrDefault(emptyList())
-                .map { event ->
-                    Holiday(
-                        nameKh = event.nameKm,
-                        nameEn = event.nameEn,
-                        date = event.occurrenceDate ?: event.date,
-                        type = event.type,
-                        description = event.description,
-                        notes = event.notes,
-                        isFixed = false
+            val apiEvents = if (includeDatabaseEvents) {
+                CalendarApiRepository
+                    .fetchHolidayEvents(
+                        from = LocalDate.of(targetYear, 1, 1),
+                        to = LocalDate.of(targetYear, 12, 31),
+                        forceRefresh = forceRefresh
                     )
-                }
+                    .getOrDefault(emptyList())
+                    .map { event ->
+                        Holiday(
+                            nameKh = event.nameKm,
+                            nameEn = event.nameEn,
+                            date = event.occurrenceDate ?: event.date,
+                            type = event.type,
+                            description = event.description,
+                            notes = event.notes,
+                            isFixed = false
+                        )
+                    }
+            } else {
+                emptyList()
+            }
 
             val parsed = (builtIn + apiEvents)
                 .distinctBy { "${it.date}:${it.nameKh}:${it.nameEn}" }
                 .sortedBy { it.date }
 
-            cache = cache + (targetYear to parsed)
+            cache = cache + (cacheKey to parsed)
             parsed
         }
     }

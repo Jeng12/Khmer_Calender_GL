@@ -161,6 +161,15 @@ fun KhmerCalendarApp() {
         com.example.alarm.WorkScheduleScheduler.sync(context)
     }
 
+    LaunchedEffect(screenState, authSession) {
+        if (screenState == AppScreen.MAIN_APP &&
+            authSession != null &&
+            langPrefs.getBoolean("cloud_sync_disclosure_seen", false)
+        ) {
+            SyncRepository.syncPending(context)
+        }
+    }
+
     // Outer edge-to-edge container
     MyApplicationTheme(darkTheme = isDarkMode) {
         CompositionLocalProvider(
@@ -289,6 +298,7 @@ fun KhmerCalendarApp() {
                                 AppStore.setCloudSyncEnabled(context, true)
                                 langPrefs.edit().putBoolean("cloud_sync_disclosure_seen", true).apply()
                                 showCloudSyncDisclosure = false
+                                scope.launch { SyncRepository.syncPending(context) }
                             }
                         ) {
                             Text("Keep sync on", color = TraditionalGold, fontWeight = FontWeight.Bold)

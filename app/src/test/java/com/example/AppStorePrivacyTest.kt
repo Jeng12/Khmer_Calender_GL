@@ -2,8 +2,7 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.example.data.AppStore
-import com.example.data.AuthStore
+import com.example.data.*
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.time.LocalDate
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -116,5 +116,91 @@ class AppStorePrivacyTest {
         assertEquals(2, reports.size)
         assertEquals("Day 1", reports[0].dateLabel)
         assertEquals("Reason 2", reports[1].reason)
+    }
+
+    @Test
+    fun remoteOverlaysMaterializeLocallyAndDeduplicateByRemoteId() {
+        val date = LocalDate.of(2026, 6, 28)
+        val overlays = CalendarApiMonthOverlays(
+            year = 2026,
+            month = 6,
+            notes = listOf(CalendarApiNote("note-1", date, "Remote note")),
+            events = listOf(
+                CalendarApiEvent(
+                    id = "event-1",
+                    title = "Remote reminder",
+                    description = "Remote details",
+                    startsAt = "2026-06-28T08:30:00+07:00",
+                    endsAt = null,
+                    allDay = false,
+                    location = null,
+                    color = null,
+                    reminderMinutesBefore = 0
+                )
+            ),
+            holidayEvents = listOf(
+                CalendarApiHolidayEvent(
+                    id = "holiday-1",
+                    nameKm = "Holiday KM",
+                    nameEn = "Holiday EN",
+                    date = date,
+                    occurrenceDate = null,
+                    type = "custom",
+                    description = null,
+                    notes = null
+                )
+            ),
+            workShifts = emptyList()
+        )
+
+        SyncRepository.materializeMonthOverlays(context, overlays)
+        SyncRepository.materializeMonthOverlays(
+            context,
+            overlays.copy(notes = listOf(CalendarApiNote("note-1", date, "Remote note updated")))
+        )
+
+        val notes = AppStore.getNotes(context, 2026, 6, 28)
+        assertEquals(1, notes.size)
+        assertEquals("note-1", notes.single().remoteId)
+        assertEquals("Remote note updated", notes.single().text)
+        assertEquals("event-1", AppStore.getReminders(context).single().remoteEventId)
+        assertEquals("holiday-1", AppStore.getCustomHolidays(context).single().remoteHolidayEventId)
+    }
+
+    @Test
+    fun pendingDeletePreventsRemoteMaterializationFromRecreatingLocalRecord() {
+        val date = LocalDate.of(2026, 6, 28)
+
+        SyncRepository.enqueueNoteDelete(context, "remote-note-note-2", "note-2", date)
+        SyncRepository.materializeMonthOverlays(
+            context,
+            CalendarApiMonthOverlays(
+                year = 2026,
+                month = 6,
+                notes = listOf(CalendarApiNote("note-2", date, "Should stay deleted locally")),
+                events = emptyList(),
+                holidayEvents = emptyList(),
+                workShifts = emptyList()
+            )
+        )
+
+        assertTrue(AppStore.getNotes(context, 2026, 6, 28).isEmpty())
+        assertEquals(1, SyncRepository.pendingCount(context))
+    }
+
+    @Test
+    fun clearLocalUserDataClearsPendingSyncQueue() {
+        SyncRepository.enqueueNoteUpsert(
+            context,
+            localId = "local-note",
+            date = LocalDate.of(2026, 6, 28),
+            text = "Pending note",
+            remoteId = null
+        )
+        assertEquals(1, SyncRepository.pendingCount(context))
+
+        AppStore.clearLocalUserData(context)
+
+        assertEquals(0, SyncRepository.pendingCount(context))
     }
 }

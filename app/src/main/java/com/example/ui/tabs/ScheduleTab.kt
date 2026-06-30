@@ -29,12 +29,11 @@ import androidx.core.content.ContextCompat
 import com.example.alarm.WorkScheduleScheduler
 import com.example.core.*
 import com.example.data.AppStore
-import com.example.data.CalendarApiRepository
+import com.example.data.SyncRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 import java.util.Calendar
 
 @Composable
@@ -69,30 +68,17 @@ fun ScheduleTabContent() {
     fun fmtDate(cal: Calendar) =
         "${num(lang, cal.get(Calendar.DAY_OF_MONTH))} ${gregMonth(lang, cal.get(Calendar.MONTH))}"
 
-    fun cycleStartDateFromKey(key: String): LocalDate? {
-        val parts = key.split("-")
-        val year = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val month = parts.getOrNull(1)?.toIntOrNull() ?: return null
-        return runCatching { LocalDate.of(year, month, 26) }.getOrNull()
-    }
-
     fun syncWorkScheduleToDatabase(cycleToSave: AppStore.ShiftCycle, schedulesToSave: Map<String, List<String?>>) {
         if (!AppStore.isCloudSyncEnabled(context)) {
             scope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueWorkSchedule(context, cycleToSave, schedulesToSave)
         scope.launch {
-            val result = runCatching {
-                CalendarApiRepository.updateWorkScheduleSettings(cycleToSave).getOrThrow()
-                schedulesToSave.forEach { (key, assignments) ->
-                    val cycleStart = cycleStartDateFromKey(key) ?: return@forEach
-                    CalendarApiRepository.updateWorkScheduleCycle(cycleStart, assignments).getOrThrow()
-                }
-            }
-            result
+            SyncRepository.syncPending(context)
                 .onSuccess { WidgetPrefs.refresh(context) }
                 .onFailure {
-                    Toast.makeText(context, "Schedule saved locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Schedule saved locally; will sync when online", Toast.LENGTH_SHORT).show()
                 }
         }
     }
@@ -102,17 +88,12 @@ fun ScheduleTabContent() {
             scope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueClearWorkSchedules(context, keysToClear)
         scope.launch {
-            val result = runCatching {
-                keysToClear.forEach { key ->
-                    val cycleStart = cycleStartDateFromKey(key) ?: return@forEach
-                    CalendarApiRepository.updateWorkScheduleCycle(cycleStart, AppStore.emptyDayAssignments()).getOrThrow()
-                }
-            }
-            result
+            SyncRepository.syncPending(context)
                 .onSuccess { WidgetPrefs.refresh(context) }
                 .onFailure {
-                    Toast.makeText(context, "Schedule deleted locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Schedule deleted locally; will sync when online", Toast.LENGTH_SHORT).show()
                 }
         }
     }

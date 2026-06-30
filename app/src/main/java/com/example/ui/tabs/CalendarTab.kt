@@ -41,15 +41,12 @@ import com.example.core.*
 import com.example.data.AppStore
 import com.example.data.CalendarApiMonthOverlays
 import com.example.data.CalendarApiNote
-import com.example.data.CalendarApiRepository
+import com.example.data.SyncRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Calendar
 
 // Data model for monthly agenda items
@@ -89,11 +86,14 @@ fun CalendarTabContent(
     val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
 
     var apiOverlaysResult by remember { mutableStateOf<Result<CalendarApiMonthOverlays>?>(null) }
-    val cloudSyncEnabled = remember(agendaVersion) { AppStore.isCloudSyncEnabled(context) }
+    val cloudSyncEnabled = AppStore.isCloudSyncEnabled(context) &&
+        context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
+            .getBoolean("cloud_sync_disclosure_seen", false)
     LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
         apiOverlaysResult = null
         if (cloudSyncEnabled) {
-            apiOverlaysResult = CalendarApiRepository.fetchMonthOverlays(
+            apiOverlaysResult = SyncRepository.refreshMonth(
+                context = context,
                 year = year,
                 month = month,
                 forceRefresh = agendaVersion > 0
@@ -136,18 +136,15 @@ fun CalendarTabContent(
                 val holidayDate = runCatching { LocalDate.of(year, holiday.month, holiday.day) }
                     .getOrNull()
                     ?: return@forEach
-                CalendarApiRepository.createHolidayEvent(
-                    date = holidayDate,
-                    nameKm = holiday.nameKm,
-                    nameEn = holiday.nameEn
-                ).onSuccess { remoteEvent ->
-                    AppStore.setCustomHolidayRemoteEventId(context, holiday.id, remoteEvent.id)
-                    repairedAny = true
-                }
+                SyncRepository.enqueueCustomHolidayUpsert(context, holiday, holidayDate)
+                repairedAny = true
             }
         if (repairedAny) {
-            WidgetPrefs.refresh(context)
-            agendaVersion++
+            SyncRepository.syncPending(context)
+                .onSuccess {
+                    WidgetPrefs.refresh(context)
+                    agendaVersion++
+                }
         }
     }
 
@@ -675,22 +672,15 @@ private fun DayDetailDialog(
             return
         }
         val clean = text.trim()
+        SyncRepository.enqueueNoteUpsert(context, localId, selectedDate, clean, remoteId)
         widgetScope.launch {
             WidgetPrefs.refresh(context)
-            val result = if (remoteId.isNullOrBlank()) {
-                CalendarApiRepository.createNote(selectedDate, clean)
-                    .onSuccess { remoteNote ->
-                        AppStore.setNoteRemoteId(context, date.year, date.month, date.day, localId, remoteNote.id)
-                    }
-            } else {
-                CalendarApiRepository.updateNote(remoteId, selectedDate, clean)
-            }
-            result
+            SyncRepository.syncPending(context)
                 .onSuccess {
                     bump()
                     WidgetPrefs.refresh(context)
                 }
-                .onFailure { showApiSyncFailed() }
+                .onFailure { showApiSyncFailed("Saved locally; will sync when online") }
         }
     }
 
@@ -703,23 +693,16 @@ private fun DayDetailDialog(
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueNoteDelete(context, "remote-note-$remoteId", remoteId, selectedDate)
         widgetScope.launch {
-            CalendarApiRepository.deleteNote(remoteId, selectedDate)
+            SyncRepository.syncPending(context)
                 .onSuccess {
                     bump()
                     WidgetPrefs.refresh(context)
                 }
-                .onFailure { showApiSyncFailed() }
+                .onFailure { showApiSyncFailed("Deleted locally; will sync when online") }
         }
     }
-
-    fun eventDate(triggerMs: Long): LocalDate =
-        Instant.ofEpochMilli(triggerMs).atZone(ZoneId.systemDefault()).toLocalDate()
-
-    fun eventStartsAt(triggerMs: Long): String =
-        Instant.ofEpochMilli(triggerMs)
-            .atZone(ZoneId.systemDefault())
-            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
     fun syncSavedReminder(reminder: AppStore.Reminder) {
         if (reminder.kind != "reminder") return
@@ -727,24 +710,15 @@ private fun DayDetailDialog(
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueReminderUpsert(context, reminder)
         widgetScope.launch {
             WidgetPrefs.refresh(context)
-            val dateForEvent = eventDate(reminder.triggerMs)
-            CalendarApiRepository.createEvent(
-                date = dateForEvent,
-                title = reminder.title,
-                startsAt = eventStartsAt(reminder.triggerMs),
-                allDay = false,
-                description = reminder.message,
-                color = "#EAB308",
-                reminderMinutesBefore = 0
-            )
-                .onSuccess { event ->
-                    AppStore.setReminderRemoteEventId(context, reminder.requestCode, event.id)
+            SyncRepository.syncPending(context)
+                .onSuccess {
                     bump()
                     WidgetPrefs.refresh(context)
                 }
-                .onFailure { showApiSyncFailed() }
+                .onFailure { showApiSyncFailed("Saved locally; will sync when online") }
         }
     }
 
@@ -757,13 +731,14 @@ private fun DayDetailDialog(
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueReminderDelete(context, remoteEventId, triggerMs)
         widgetScope.launch {
-            CalendarApiRepository.deleteEvent(remoteEventId, eventDate(triggerMs))
+            SyncRepository.syncPending(context)
                 .onSuccess {
                     bump()
                     WidgetPrefs.refresh(context)
                 }
-                .onFailure { showApiSyncFailed() }
+                .onFailure { showApiSyncFailed("Deleted locally; will sync when online") }
         }
     }
 
@@ -772,19 +747,15 @@ private fun DayDetailDialog(
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueCustomHolidayUpsert(context, holiday, selectedDate)
         widgetScope.launch {
             WidgetPrefs.refresh(context)
-            CalendarApiRepository.createHolidayEvent(
-                date = selectedDate,
-                nameKm = holiday.nameKm,
-                nameEn = holiday.nameEn
-            )
-                .onSuccess { remoteEvent ->
-                    AppStore.setCustomHolidayRemoteEventId(context, holiday.id, remoteEvent.id)
+            SyncRepository.syncPending(context)
+                .onSuccess {
                     bump()
                     WidgetPrefs.refresh(context)
                 }
-                .onFailure { showApiSyncFailed() }
+                .onFailure { showApiSyncFailed("Saved locally; will sync when online") }
         }
     }
 
@@ -798,10 +769,11 @@ private fun DayDetailDialog(
             widgetScope.launch { WidgetPrefs.refresh(context) }
             return
         }
+        SyncRepository.enqueueCustomHolidayDelete(context, holiday, selectedDate)
         widgetScope.launch {
-            CalendarApiRepository.deleteHolidayEvent(remoteEventId, selectedDate)
+            SyncRepository.syncPending(context)
                 .onSuccess { WidgetPrefs.refresh(context) }
-                .onFailure { showApiSyncFailed("Deleted locally; API database sync failed") }
+                .onFailure { showApiSyncFailed("Deleted locally; will sync when online") }
         }
     }
 

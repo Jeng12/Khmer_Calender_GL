@@ -76,6 +76,7 @@ private data class UpcomingHoliday(val year: Int, val month: Int, val day: Int, 
 fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
     val lang = LocalAppLanguage.current
+    val context = LocalContext.current
     val calendar = remember { java.util.Calendar.getInstance() }
     val currentYear = calendar.get(java.util.Calendar.YEAR)
     val currentMonth = calendar.get(java.util.Calendar.MONTH) + 1
@@ -104,8 +105,14 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
         out
     }
     var apiUpcomingHolidays by remember { mutableStateOf<List<UpcomingHoliday>?>(null) }
-    LaunchedEffect(currentYear, currentMonth, currentDay) {
-        HolidayRepository.fetchHolidays(currentYear).onSuccess { holidays ->
+    val includeDatabaseHolidayEvents = AppStore.isCloudSyncEnabled(context) &&
+        context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
+            .getBoolean("cloud_sync_disclosure_seen", false)
+    LaunchedEffect(currentYear, currentMonth, currentDay, includeDatabaseHolidayEvents) {
+        HolidayRepository.fetchHolidays(
+            year = currentYear,
+            includeDatabaseEvents = includeDatabaseHolidayEvents
+        ).onSuccess { holidays ->
             apiUpcomingHolidays = holidays
                 .filter { holiday ->
                     KhmerCalendarHelper.getSerialDay(

@@ -96,11 +96,15 @@ fun HolidaysTabContent(
 
     fun deleteCustomHolidayFromDatabase(holiday: AppStore.CustomHoliday) {
         if (!AppStore.isCloudSyncEnabled(context)) return
-        val remoteEventId = holiday.remoteHolidayEventId?.takeIf { it.isNotBlank() } ?: return
+        if (holiday.remoteHolidayEventId.isNullOrBlank()) return
+        val date = runCatching { java.time.LocalDate.of(java.time.LocalDate.now().year, holiday.month, holiday.day) }
+            .getOrNull()
+            ?: return
+        SyncRepository.enqueueCustomHolidayDelete(context, holiday, date)
         scope.launch {
-            CalendarApiRepository.deleteHolidayEvent(remoteEventId)
+            SyncRepository.syncPending(context)
                 .onFailure {
-                    Toast.makeText(context, "Deleted locally; API database sync failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Deleted locally; will sync when online", Toast.LENGTH_SHORT).show()
                 }
         }
     }
@@ -140,8 +144,14 @@ fun HolidaysTabContent(
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
-    LaunchedEffect(refreshKey) {
-        holidaysResult = HolidayRepository.fetchHolidays()
+    val includeDatabaseHolidayEvents = AppStore.isCloudSyncEnabled(context) &&
+        context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
+            .getBoolean("cloud_sync_disclosure_seen", false)
+    LaunchedEffect(refreshKey, includeDatabaseHolidayEvents) {
+        holidaysResult = HolidayRepository.fetchHolidays(
+            forceRefresh = refreshKey > 0,
+            includeDatabaseEvents = includeDatabaseHolidayEvents
+        )
         isRefreshing = false
     }
     val isLoading = holidaysResult == null

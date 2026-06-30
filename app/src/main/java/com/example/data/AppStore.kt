@@ -44,10 +44,20 @@ object AppStore {
 
     fun dateKey(year: Int, month: Int, day: Int) = "${year}_${month}_$day"
 
+    private fun parseDateKey(key: String): Triple<Int, Int, Int>? {
+        val parts = key.split("_")
+        if (parts.size != 3) return null
+        val year = parts[0].toIntOrNull() ?: return null
+        val month = parts[1].toIntOrNull() ?: return null
+        val day = parts[2].toIntOrNull() ?: return null
+        return Triple(year, month, day)
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // NOTES — multiple per day
     // ─────────────────────────────────────────────────────────────────────────
     data class Note(val id: String, val text: String, val ts: Long, val remoteId: String? = null)
+    data class DatedNote(val year: Int, val month: Int, val day: Int, val note: Note)
 
     private fun notesListKey(year: Int, month: Int, day: Int) = "${dateKey(year, month, day)}__notes"
 
@@ -109,8 +119,42 @@ object AppStore {
         writeNotes(c, year, month, day, updated)
     }
 
+    fun upsertSyncedNote(c: Context, year: Int, month: Int, day: Int, remoteId: String, text: String): Note? {
+        val cleanRemoteId = remoteId.trim()
+        val cleanText = text.trim()
+        if (cleanRemoteId.isEmpty() || cleanText.isEmpty()) return null
+        val remoteLocalId = "remote-note-$cleanRemoteId"
+        var saved: Note? = null
+        var matched = false
+        val updated = getNotes(c, year, month, day).map { note ->
+            if (note.remoteId == cleanRemoteId || note.id == remoteLocalId) {
+                matched = true
+                note.copy(
+                    id = note.id.ifBlank { remoteLocalId },
+                    text = cleanText,
+                    ts = note.ts.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                    remoteId = cleanRemoteId
+                ).also { saved = it }
+            } else {
+                note
+            }
+        }.let { notes ->
+            if (matched) notes
+            else notes + Note(remoteLocalId, cleanText, System.currentTimeMillis(), cleanRemoteId).also { saved = it }
+        }
+        writeNotes(c, year, month, day, updated)
+        return saved
+    }
+
     fun deleteNote(c: Context, year: Int, month: Int, day: Int, id: String) {
         val updated = getNotes(c, year, month, day).filterNot { it.id == id }
+        writeNotes(c, year, month, day, updated)
+    }
+
+    fun deleteNoteByRemoteId(c: Context, year: Int, month: Int, day: Int, remoteId: String) {
+        val cleanRemoteId = remoteId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        val updated = getNotes(c, year, month, day).filterNot { it.remoteId == cleanRemoteId }
         writeNotes(c, year, month, day, updated)
     }
 
@@ -138,6 +182,26 @@ object AppStore {
     /** Days (1..31) of the given month that have at least one note. */
     fun daysWithNotes(c: Context, year: Int, month: Int): Set<Int> =
         (1..31).filter { getNotes(c, year, month, it).isNotEmpty() }.toSet()
+
+    fun getAllNotes(c: Context): List<DatedNote> {
+        val p = notesPrefs(c)
+        val structuredDateKeys = p.all.keys
+            .filter { it.endsWith("__notes") }
+            .map { it.removeSuffix("__notes") }
+            .toSet()
+        val dateKeys = p.all.keys.mapNotNull { key ->
+            when {
+                key.endsWith("__notes") -> key.removeSuffix("__notes")
+                key in structuredDateKeys -> null
+                key.contains("__") -> null
+                else -> key
+            }?.let(::parseDateKey)
+        }.distinct()
+
+        return dateKeys.flatMap { (year, month, day) ->
+            getNotes(c, year, month, day).map { note -> DatedNote(year, month, day, note) }
+        }.sortedWith(compareBy({ it.year }, { it.month }, { it.day }, { it.note.ts }))
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // REMINDERS / EVENTS — multiple per day, unique request code
@@ -210,6 +274,37 @@ object AppStore {
         saveReminders(c, updated)
     }
 
+    fun upsertSyncedReminder(
+        c: Context,
+        remoteEventId: String,
+        triggerMs: Long,
+        title: String,
+        message: String
+    ): Reminder? {
+        val cleanRemoteId = remoteEventId.trim()
+        if (cleanRemoteId.isEmpty() || triggerMs <= 0L) return null
+        val existing = getReminders(c).firstOrNull { it.remoteEventId == cleanRemoteId }
+        val reminder = Reminder(
+            requestCode = existing?.requestCode ?: stableRemoteRequestCode(cleanRemoteId),
+            triggerMs = triggerMs,
+            title = title.trim().ifBlank { "Reminder" },
+            message = message.trim(),
+            ringtoneUri = existing?.ringtoneUri,
+            insistent = existing?.insistent ?: false,
+            kind = "reminder",
+            shiftId = null,
+            remoteEventId = cleanRemoteId
+        )
+        upsertReminder(c, reminder)
+        return reminder
+    }
+
+    fun deleteReminderByRemoteEventId(c: Context, remoteEventId: String) {
+        val cleanRemoteId = remoteEventId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        saveReminders(c, getReminders(c).filterNot { it.remoteEventId == cleanRemoteId })
+    }
+
     /** A fresh, monotonically increasing request code so reminders never collide. */
     fun nextRequestCode(c: Context): Int {
         val s = settings(c)
@@ -217,6 +312,9 @@ object AppStore {
         s.edit().putInt("next_request_code", next).apply()
         return next
     }
+
+    private fun stableRemoteRequestCode(remoteId: String): Int =
+        500_000 + (remoteId.hashCode() and 0x3fffffff)
 
     // ─────────────────────────────────────────────────────────────────────────
     // CUSTOM HOLIDAYS — user added, recurring yearly on a Gregorian month/day
@@ -279,6 +377,48 @@ object AppStore {
             if (it.id == id) it.copy(remoteHolidayEventId = cleanRemoteId) else it
         }
         saveCustomHolidays(c, updated)
+    }
+
+    fun upsertSyncedCustomHoliday(
+        c: Context,
+        month: Int,
+        day: Int,
+        nameKm: String,
+        nameEn: String,
+        remoteHolidayEventId: String
+    ): CustomHoliday? {
+        val cleanRemoteId = remoteHolidayEventId.trim()
+        val km = nameKm.trim().ifBlank { nameEn.trim() }
+        val en = nameEn.trim().ifBlank { km }
+        if (cleanRemoteId.isEmpty() || km.isEmpty() || month !in 1..12 || day !in 1..31) return null
+        val existing = getCustomHolidays(c).firstOrNull { it.remoteHolidayEventId == cleanRemoteId }
+        val holiday = existing?.copy(
+            month = month,
+            day = day,
+            nameKm = km,
+            nameEn = en,
+            remoteHolidayEventId = cleanRemoteId
+        ) ?: CustomHoliday(
+            id = "remote-holiday-$cleanRemoteId",
+            month = month,
+            day = day,
+            nameKm = km,
+            nameEn = en,
+            remoteHolidayEventId = cleanRemoteId
+        )
+        val updated = if (existing == null) {
+            getCustomHolidays(c) + holiday
+        } else {
+            getCustomHolidays(c).map { if (it.id == existing.id) holiday else it }
+        }
+        saveCustomHolidays(c, updated)
+        return holiday
+    }
+
+    fun deleteCustomHolidayByRemoteEventId(c: Context, remoteHolidayEventId: String) {
+        val cleanRemoteId = remoteHolidayEventId.trim()
+        if (cleanRemoteId.isEmpty()) return
+        saveCustomHolidays(c, getCustomHolidays(c).filterNot { it.remoteHolidayEventId == cleanRemoteId })
     }
 
     fun deleteCustomHoliday(c: Context, id: String): CustomHoliday? {
@@ -526,6 +666,12 @@ object AppStore {
 
     fun setCloudSyncEnabled(c: Context, enabled: Boolean) {
         settings(c).edit().putBoolean("cloud_sync_enabled", enabled).apply()
+        if (enabled) {
+            c.getSharedPreferences("khmer_calendar_sync", Context.MODE_PRIVATE)
+                .edit()
+                .remove("initial_sync_queued")
+                .apply()
+        }
     }
 
     data class AiContentReport(
@@ -586,6 +732,7 @@ object AppStore {
         holidaysPrefs(c).edit().clear().apply()
         schedulePrefs(c).edit().clear().apply()
         aiReportsPrefs(c).edit().clear().apply()
+        c.getSharedPreferences("khmer_calendar_sync", Context.MODE_PRIVATE).edit().clear().apply()
         settings(c).edit()
             .remove("user_name")
             .remove("profile_image_uri")
