@@ -21,7 +21,7 @@ Audit date: 2026-06-28
 - Package: `com.aistudio.khmercalendar.fksajr`
 - Target SDK: 36
 - Main data stores: SharedPreferences JSON files and `profile_picture.jpg`
-- Remote API: `https://api-calender-sigma.vercel.app/api/v1`
+- Remote API: `https://api-calender-sigma.vercel.app/api/v1` with bearer-token authentication from `/auth/login` and `/auth/register`
 - AI provider: Firebase AI / Gemini for auspicious-day explanations
 - Permissions after this review: `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `VIBRATE`
 
@@ -41,7 +41,7 @@ Audit date: 2026-06-28
 | Policy area | Applies? | Current status | Verification and required action |
 | --- | --- | --- | --- |
 | Target API level | Yes | Pass | `targetSdk = 36`, above Google Play's API 35+ new-app/update requirement for 2025+. |
-| User Data policy | Yes | App-side mitigated; Play/owner action required | In-app disclosure and local deletion are implemented. Data is sent over HTTPS. A hosted privacy policy must accurately disclose notes, reminders/events, work schedules, custom holidays, profile image locality, Firebase AI prompts, and API sync. |
+| User Data policy | Yes | App-side mitigated; Play/owner action required | In-app disclosure and local deletion are implemented. Calendar API data is sent over HTTPS with bearer-token authentication and per-user scoping. A hosted privacy policy must accurately disclose notes, reminders/events, work schedules, custom holidays, profile image locality, Firebase AI prompts, and API sync. |
 | Data Safety section | Yes | Play Console action required | Complete the Data Safety form. Declare user-entered app activity/content that can be synced to the API; AI provider handling; encryption in transit; deletion/control options; no sale of data. |
 | Privacy Policy | Yes | Play Console action required | Add an active privacy policy URL in Play Console and an equivalent in-app/store listing disclosure. The app currently has in-app disclosure but not a hosted URL in this repo. |
 | Permissions and sensitive APIs | Yes | Pass with declaration review | Permission set is scoped to network sync/AI, notifications, reminder alarms, boot re-arm, and vibration. `USE_EXACT_ALARM` was removed. `SCHEDULE_EXACT_ALARM` should be justified as user-facing calendar reminders if Play Console requests a declaration. |
@@ -56,7 +56,7 @@ Audit date: 2026-06-28
 | Malware / deceptive behavior | Yes | Pass | No hidden downloads, SMS/call billing, phishing, rooting, or surveillance behavior found. Network usage is tied to calendar API/AI functionality and disclosed in-app. |
 | Device and network abuse | Yes | Pass | Network calls are direct HTTPS API/AI requests, not background abuse. API writes only happen through user calendar actions and respect the sync toggle. |
 | Spam / minimum functionality | Yes | Pass | App provides real calendar, notes, reminders, holidays, conversion, widgets, and work schedule features. |
-| Account deletion / sign-in details | No after fix | Pass | Fake login/register is no longer reachable in normal app flow. No restricted sign-in details are needed for review. |
+| Account deletion / sign-in details | Yes | Needs policy/product follow-up | Login/register now use the Calendar API auth endpoints. Add any required account deletion/self-service instructions to the privacy policy and Play Console declarations before production release. |
 | App signing / release security | Yes | Needs release setup | Release signing reads keystore credentials from env vars. Before Play submission, configure Play App Signing/upload key securely and do not commit real keystores or passwords. |
 | Backup / restore data handling | Yes | Pass | SharedPreferences and local profile image are excluded from backup/device transfer rules to reduce unintended personal-data movement. |
 
@@ -64,5 +64,5 @@ Audit date: 2026-06-28
 
 1. Publish a privacy policy URL and add it in Play Console and app listing.
 2. Complete Data Safety, target audience, ads, content rating, and any permissions declarations in Play Console.
-3. Decide whether the public calendar API is acceptable for real users. For production-grade privacy, the API should add authentication, per-user scoping, server-side deletion, and abuse/rate limiting.
+3. Keep Calendar API authentication and per-user scoping enabled in production; continue monitoring server-side deletion and abuse/rate limiting before broad release.
 4. Review AI reports operationally. The app now stores reports locally; a production backend endpoint would make developer moderation stronger.

@@ -78,6 +78,7 @@ fun KhmerCalendarApp() {
     var screenState by remember { mutableStateOf(AppScreen.SPLASH) }
     var currentTab by remember { mutableStateOf(AppTab.CALENDAR) }
     var showCloudSyncDisclosure by remember { mutableStateOf(false) }
+    var authInProgress by remember { mutableStateOf(false) }
 
     // App-wide language, persisted across launches. Defaults to Khmer.
     val context = LocalContext.current
@@ -199,9 +200,15 @@ fun KhmerCalendarApp() {
                         onSignUp = { screenState = AppScreen.REGISTER },
                         onForgot = { screenState = AppScreen.FORGOT },
                         onSubmit = { email, password ->
-                            when (val result = AuthStore.signIn(context, email, password)) {
-                                is AuthStore.AuthResult.Success -> enterMainApp(result.session)
-                                is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            if (!authInProgress) {
+                                authInProgress = true
+                                scope.launch {
+                                    when (val result = AuthStore.signIn(context, email, password)) {
+                                        is AuthStore.AuthResult.Success -> enterMainApp(result.session)
+                                        is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                    }
+                                    authInProgress = false
+                                }
                             }
                         }
                     )
@@ -209,9 +216,15 @@ fun KhmerCalendarApp() {
                         onBack = { screenState = AppScreen.LOGIN },
                         onRegister = {},
                         onSubmit = { firstName, lastName, email, password ->
-                            when (val result = AuthStore.register(context, firstName, lastName, email, password)) {
-                                is AuthStore.AuthResult.Success -> enterMainApp(result.session)
-                                is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            if (!authInProgress) {
+                                authInProgress = true
+                                scope.launch {
+                                    when (val result = AuthStore.register(context, firstName, lastName, email, password)) {
+                                        is AuthStore.AuthResult.Success -> enterMainApp(result.session)
+                                        is AuthStore.AuthResult.Error -> Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                    }
+                                    authInProgress = false
+                                }
                             }
                         }
                     )

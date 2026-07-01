@@ -2,14 +2,18 @@ package com.example.data
 
 import android.content.Context
 import org.json.JSONObject
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.UUID
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object AuthStore {
     private const val AUTH_FILE = "khmer_calendar_auth"
     private const val SESSION_KEY = "current_session"
     private const val LAST_USER_KEY = "last_active_user_id"
+    private const val AUTH_BASE_URL = "https://api-calender-sigma.vercel.app/api/v1"
+    private const val TIMEOUT_MS = 20_000
 
     data class Session(
         val userId: String,
@@ -30,51 +34,52 @@ object AuthStore {
 
     fun isSignedIn(c: Context): Boolean = currentSession(c) != null
 
-    fun register(
+    suspend fun register(
         c: Context,
         firstName: String,
         lastName: String,
         email: String,
         password: String
-    ): AuthResult {
+    ): AuthResult = withContext(Dispatchers.IO) {
         val cleanEmail = normalizeEmail(email)
-        if (cleanEmail.isBlank()) return AuthResult.Error("Email is required")
-        if (password.length < 6) return AuthResult.Error("Password must be at least 6 characters")
-        val accountKey = accountKey(cleanEmail)
-        if (prefs(c).contains(accountKey)) return AuthResult.Error("An account already exists for this email")
-
+        if (cleanEmail.isBlank()) return@withContext AuthResult.Error("Email is required")
+        if (password.length < 6) return@withContext AuthResult.Error("Password must be at least 6 characters")
         val displayName = listOf(firstName.trim(), lastName.trim())
             .filter { it.isNotBlank() }
             .joinToString(" ")
             .ifBlank { cleanEmail.substringBefore("@") }
-        val userId = sha256("khmer-calendar-user:$cleanEmail").take(32)
-        val salt = randomHex(16)
-        val account = JSONObject()
-            .put("user_id", userId)
-            .put("display_name", displayName)
-            .put("email", cleanEmail)
-            .put("salt", salt)
-            .put("password_hash", passwordHash(cleanEmail, password, salt))
-        prefs(c).edit().putString(accountKey, account.toString()).apply()
 
-        return activateSession(c, account)
+        runCatching {
+            val body = postJson(
+                "/auth/register",
+                JSONObject()
+                    .put("name", displayName)
+                    .put("email", cleanEmail)
+                    .put("password", password)
+            )
+            activateSession(c, parseAuthSession(body))
+        }.getOrElse { AuthResult.Error(authErrorMessage(it, "Registration failed")) }
     }
 
-    fun signIn(c: Context, email: String, password: String): AuthResult {
+    suspend fun signIn(c: Context, email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
         val cleanEmail = normalizeEmail(email)
-        val account = prefs(c).getString(accountKey(cleanEmail), null)?.let {
-            runCatching { JSONObject(it) }.getOrNull()
-        } ?: return AuthResult.Error("Account not found")
-        val salt = account.optString("salt")
-        val expected = account.optString("password_hash")
-        if (expected.isBlank() || expected != passwordHash(cleanEmail, password, salt)) {
-            return AuthResult.Error("Incorrect email or password")
-        }
-        return activateSession(c, account)
+        if (cleanEmail.isBlank()) return@withContext AuthResult.Error("Email is required")
+        if (password.isBlank()) return@withContext AuthResult.Error("Password is required")
+
+        runCatching {
+            val body = postJson(
+                "/auth/login",
+                JSONObject()
+                    .put("email", cleanEmail)
+                    .put("password", password)
+            )
+            activateSession(c, parseAuthSession(body))
+        }.getOrElse { AuthResult.Error(authErrorMessage(it, "Incorrect email or password")) }
     }
 
     fun signOut(c: Context) {
         prefs(c).edit().remove(SESSION_KEY).apply()
+        setInMemorySession(null)
     }
 
     fun clearForTests(c: Context) {
@@ -97,14 +102,11 @@ object AuthStore {
 
     private var inMemorySession: Session? = null
 
-    private fun activateSession(c: Context, account: JSONObject): AuthResult {
-        val userId = account.optString("user_id")
-        val session = Session(
-            userId = userId,
-            displayName = account.optString("display_name").ifBlank { account.optString("email") },
-            email = account.optString("email"),
-            accessToken = randomToken()
-        )
+    internal fun saveSessionForTests(c: Context, session: Session): AuthResult =
+        activateSession(c, session)
+
+    private fun activateSession(c: Context, session: Session): AuthResult {
+        val userId = session.userId
         val p = prefs(c)
         val previousUserId = p.getString(LAST_USER_KEY, null)
         if (previousUserId != null && previousUserId != userId) {
@@ -120,6 +122,7 @@ object AuthStore {
 
     private fun parseSession(raw: String): Session? = runCatching {
         val o = JSONObject(raw)
+        if (!o.optBoolean("api_authenticated", false)) return@runCatching null
         Session(
             userId = o.optString("user_id"),
             displayName = o.optString("display_name"),
@@ -133,23 +136,65 @@ object AuthStore {
         .put("display_name", session.displayName)
         .put("email", session.email)
         .put("access_token", session.accessToken)
+        .put("api_authenticated", true)
 
     private fun normalizeEmail(email: String): String = email.trim().lowercase()
-    private fun accountKey(email: String): String = "account_${sha256(email)}"
 
-    private fun passwordHash(email: String, password: String, salt: String): String =
-        sha256("$salt:$email:$password")
+    private fun postJson(path: String, payload: JSONObject): String {
+        val conn = (URL(AUTH_BASE_URL + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = TIMEOUT_MS
+            readTimeout = TIMEOUT_MS
+            doOutput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
+        }
 
-    private fun randomToken(): String = "${UUID.randomUUID()}-${randomHex(16)}"
-
-    private fun randomHex(bytes: Int): String {
-        val data = ByteArray(bytes)
-        SecureRandom().nextBytes(data)
-        return data.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        try {
+            conn.outputStream.bufferedWriter(Charsets.UTF_8).use { it.write(payload.toString()) }
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                .orEmpty()
+            if (code !in 200..299) throw IOException("HTTP $code: ${body.take(200)}")
+            val trimmed = body.trimStart()
+            if (!trimmed.startsWith("{")) throw IOException("Authentication API returned an invalid response")
+            return body
+        } finally {
+            conn.disconnect()
+        }
     }
 
-    private fun sha256(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun parseAuthSession(body: String): Session {
+        val data = JSONObject(body).getJSONObject("data")
+        val user = data.getJSONObject("user")
+        val token = data.optString("token").trim()
+        val userId = user.opt("id")?.toString()?.trim().orEmpty()
+        val email = user.optString("email").trim()
+        val name = user.optString("name").trim().ifBlank { email.substringBefore("@") }
+        if (userId.isBlank() || email.isBlank() || token.isBlank()) {
+            throw IOException("Authentication API returned an incomplete session")
+        }
+        return Session(
+            userId = userId,
+            displayName = name,
+            email = email,
+            accessToken = token
+        )
     }
+
+    private fun authErrorMessage(error: Throwable, fallback: String): String {
+        val message = error.message.orEmpty()
+        return when {
+            "HTTP 401" in message || "HTTP 403" in message -> "Incorrect email or password"
+            "HTTP 409" in message -> "An account already exists for this email"
+            "HTTP 422" in message -> "Please check your account details"
+            message.contains("Unable to resolve host", ignoreCase = true) ||
+                message.contains("failed to connect", ignoreCase = true) -> "Cannot reach Calendar API. Check your connection."
+            else -> fallback
+        }
+    }
+
 }

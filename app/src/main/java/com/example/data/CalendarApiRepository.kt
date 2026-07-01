@@ -124,8 +124,11 @@ object CalendarApiRepository {
     private var authSession: AuthStore.Session? = null
 
     fun setAuthSession(session: AuthStore.Session?) {
+        if (authSession?.userId != session?.userId) {
+            monthCache.clear()
+            overlayCache.clear()
+        }
         authSession = session
-        overlayCache.clear()
     }
 
     suspend fun fetchMonth(
@@ -134,7 +137,8 @@ object CalendarApiRepository {
         forceRefresh: Boolean = false
     ): Result<CalendarApiMonth> = withContext(Dispatchers.IO) {
         runCatching {
-            val key = "$year-$month"
+            val session = requireAuthSession()
+            val key = cacheKey(session, year, month)
             if (!forceRefresh) monthCache[key]?.let { return@runCatching it }
 
             val body = getJson("/calendar/month?year=$year&month=$month")
@@ -148,7 +152,8 @@ object CalendarApiRepository {
         forceRefresh: Boolean = false
     ): Result<CalendarApiMonthOverlays> = withContext(Dispatchers.IO) {
         runCatching {
-            val key = "$year-$month"
+            val session = requireAuthSession()
+            val key = cacheKey(session, year, month)
             if (!forceRefresh) overlayCache[key]?.let { return@runCatching it }
 
             val from = LocalDate.of(year, month, 1)
@@ -479,20 +484,31 @@ object CalendarApiRepository {
     }
 
     private fun HttpURLConnection.applyAuthHeaders() {
-        val session = authSession ?: return
+        val session = requireAuthSession()
         setRequestProperty("Authorization", "Bearer ${session.accessToken}")
         setRequestProperty("X-Calendar-User-Id", session.userId)
         setRequestProperty("X-Calendar-User-Email", session.email)
     }
 
+    private fun requireAuthSession(): AuthStore.Session {
+        val session = authSession
+        if (session == null || session.userId.isBlank() || session.accessToken.isBlank()) {
+            throw IOException("Calendar API authentication is required")
+        }
+        return session
+    }
+
+    private fun cacheKey(session: AuthStore.Session, year: Int, month: Int): String =
+        "${session.userId}:$year-$month"
+
     private fun invalidateMonth(date: LocalDate) {
-        val key = "${date.year}-${date.monthValue}"
-        monthCache.remove(key)
-        overlayCache.remove(key)
+        val monthSuffix = ":${date.year}-${date.monthValue}"
+        monthCache.keys.removeAll { it.endsWith(monthSuffix) }
+        overlayCache.keys.removeAll { it.endsWith(monthSuffix) }
     }
 
     private fun invalidateHolidayEventCaches(date: LocalDate?) {
-        date?.let { monthCache.remove("${it.year}-${it.monthValue}") }
+        date?.let(::invalidateMonth)
         overlayCache.clear()
     }
 

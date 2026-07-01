@@ -14,6 +14,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import java.time.LocalDate
 
 @RunWith(RobolectricTestRunner::class)
@@ -25,6 +27,7 @@ class AppStorePrivacyTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        CalendarApiRepository.setAuthSession(null)
         AuthStore.clearForTests(context)
         AppStore.clearLocalUserData(context)
         AppStore.setCloudSyncEnabled(context, true)
@@ -34,6 +37,7 @@ class AppStorePrivacyTest {
     fun tearDown() {
         AppStore.clearLocalUserData(context)
         AuthStore.clearForTests(context)
+        CalendarApiRepository.setAuthSession(null)
         AppStore.setCloudSyncEnabled(context, true)
     }
 
@@ -92,18 +96,44 @@ class AppStorePrivacyTest {
 
     @Test
     fun authSessionPersistsAndSwitchingAccountsClearsLocalCalendarData() {
-        val first = AuthStore.register(context, "First", "User", "first@example.com", "secret1")
+        val firstSession = AuthStore.Session("api-user-1", "First User", "first@example.com", "token-one")
+        val first = AuthStore.saveSessionForTests(context, firstSession)
         assertTrue(first is AuthStore.AuthResult.Success)
         AppStore.addNote(context, 2026, 6, 28, "First user note")
 
-        val second = AuthStore.register(context, "Second", "User", "second@example.com", "secret2")
+        val secondSession = AuthStore.Session("api-user-2", "Second User", "second@example.com", "token-two")
+        val second = AuthStore.saveSessionForTests(context, secondSession)
         assertTrue(second is AuthStore.AuthResult.Success)
 
-        val firstSession = (first as AuthStore.AuthResult.Success).session
-        val secondSession = (second as AuthStore.AuthResult.Success).session
         assertNotEquals(firstSession.userId, secondSession.userId)
         assertEquals(secondSession.email, AuthStore.currentSession(context)?.email)
         assertTrue(AppStore.getNotes(context, 2026, 6, 28).isEmpty())
+    }
+
+    @Test
+    fun legacyLocalOnlySessionIsNotAcceptedForCalendarApiAuth() {
+        val legacy = JSONObject()
+            .put("user_id", "legacy-user")
+            .put("display_name", "Legacy User")
+            .put("email", "legacy@example.com")
+            .put("access_token", "local-only-token")
+        context.getSharedPreferences("khmer_calendar_auth", Context.MODE_PRIVATE)
+            .edit()
+            .putString("current_session", legacy.toString())
+            .apply()
+
+        assertNull(AuthStore.currentSession(context))
+        assertTrue(AuthStore.authHeaders().isEmpty())
+    }
+
+    @Test
+    fun calendarApiCallsRequireAuthenticatedSession() = runTest {
+        CalendarApiRepository.setAuthSession(null)
+
+        val result = CalendarApiRepository.convertDate(2026, 7, 1)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("authentication", ignoreCase = true) == true)
     }
 
     @Test
