@@ -486,14 +486,15 @@ object AppStore {
     const val CYCLE_SLOTS = 31
 
     data class SalaryCalculatorSettings(
-        val salaryMode: String = "hourly",
         val hourlyRate: String = "",
-        val dailyRate: String = "",
+        val overtimeRate: String = "",
+        val nightShiftRate: String = "",
+        val holidayDayRate: String = "",
+        val holidayNightRate: String = "",
         val benefits: String = "",
-        val overtime: String = "",
         val bonuses: String = "",
         val allowances: String = "",
-        val taxDeductions: String = "",
+        val taxVatPercent: String = "",
         val otherDeductions: String = ""
     )
 
@@ -620,19 +621,24 @@ object AppStore {
     /** Public saver for the whole per-month schedule map. */
     fun saveMonthlySchedules(c: Context, map: Map<String, List<String?>>) = saveCycleSnapshots(c, map)
 
-    fun getSalaryCalculatorSettings(c: Context): SalaryCalculatorSettings {
-        val raw = schedulePrefs(c).getString("salary_calculator", null) ?: return SalaryCalculatorSettings()
+    fun getSalaryCalculatorSettings(c: Context, monthKey: String? = null): SalaryCalculatorSettings {
+        val p = schedulePrefs(c)
+        val raw = monthKey
+            ?.let { p.getString("salary_calculator_$it", null) }
+            ?: p.getString("salary_calculator", null)
+            ?: return SalaryCalculatorSettings()
         return try {
             val o = JSONObject(raw)
             SalaryCalculatorSettings(
-                salaryMode = o.optString("salaryMode", "hourly").takeIf { it == "hourly" || it == "daily" } ?: "hourly",
                 hourlyRate = o.optString("hourlyRate"),
-                dailyRate = o.optString("dailyRate"),
+                overtimeRate = o.optString("overtimeRate").ifBlank { o.optString("overtime") },
+                nightShiftRate = o.optString("nightShiftRate"),
+                holidayDayRate = o.optString("holidayDayRate"),
+                holidayNightRate = o.optString("holidayNightRate"),
                 benefits = o.optString("benefits"),
-                overtime = o.optString("overtime"),
                 bonuses = o.optString("bonuses"),
                 allowances = o.optString("allowances"),
-                taxDeductions = o.optString("taxDeductions"),
+                taxVatPercent = o.optString("taxVatPercent").ifBlank { o.optString("taxDeductions") },
                 otherDeductions = o.optString("otherDeductions")
             )
         } catch (_: Exception) {
@@ -640,19 +646,21 @@ object AppStore {
         }
     }
 
-    fun saveSalaryCalculatorSettings(c: Context, settings: SalaryCalculatorSettings) {
+    fun saveSalaryCalculatorSettings(c: Context, settings: SalaryCalculatorSettings, monthKey: String? = null) {
         val o = JSONObject().apply {
-            put("salaryMode", settings.salaryMode)
             put("hourlyRate", settings.hourlyRate)
-            put("dailyRate", settings.dailyRate)
+            put("overtimeRate", settings.overtimeRate)
+            put("nightShiftRate", settings.nightShiftRate)
+            put("holidayDayRate", settings.holidayDayRate)
+            put("holidayNightRate", settings.holidayNightRate)
             put("benefits", settings.benefits)
-            put("overtime", settings.overtime)
             put("bonuses", settings.bonuses)
             put("allowances", settings.allowances)
-            put("taxDeductions", settings.taxDeductions)
+            put("taxVatPercent", settings.taxVatPercent)
             put("otherDeductions", settings.otherDeductions)
         }
-        schedulePrefs(c).edit().putString("salary_calculator", o.toString()).apply()
+        val key = monthKey?.let { "salary_calculator_$it" } ?: "salary_calculator"
+        schedulePrefs(c).edit().putString(key, o.toString()).apply()
     }
 
     /** Remove every monthly schedule (used when the user deletes the schedule). */

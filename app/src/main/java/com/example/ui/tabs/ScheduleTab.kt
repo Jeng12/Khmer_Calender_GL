@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,7 +20,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -59,33 +57,6 @@ fun ScheduleTabContent() {
         AppStore.migrateLegacyTemplate(context)
         mutableStateOf(AppStore.getCycleSnapshots(context))
     }
-    val savedSalary = remember { AppStore.getSalaryCalculatorSettings(context) }
-    var salaryMode by remember { mutableStateOf(savedSalary.salaryMode) }
-    var hourlyRate by remember { mutableStateOf(savedSalary.hourlyRate) }
-    var dailyRate by remember { mutableStateOf(savedSalary.dailyRate) }
-    var benefits by remember { mutableStateOf(savedSalary.benefits) }
-    var overtime by remember { mutableStateOf(savedSalary.overtime) }
-    var bonuses by remember { mutableStateOf(savedSalary.bonuses) }
-    var allowances by remember { mutableStateOf(savedSalary.allowances) }
-    var taxDeductions by remember { mutableStateOf(savedSalary.taxDeductions) }
-    var otherDeductions by remember { mutableStateOf(savedSalary.otherDeductions) }
-
-    fun currentSalarySettings() = AppStore.SalaryCalculatorSettings(
-        salaryMode = salaryMode,
-        hourlyRate = hourlyRate,
-        dailyRate = dailyRate,
-        benefits = benefits,
-        overtime = overtime,
-        bonuses = bonuses,
-        allowances = allowances,
-        taxDeductions = taxDeductions,
-        otherDeductions = otherDeductions
-    )
-
-    LaunchedEffect(salaryMode, hourlyRate, dailyRate, benefits, overtime, bonuses, allowances, taxDeductions, otherDeductions) {
-        AppStore.saveSalaryCalculatorSettings(context, currentSalarySettings())
-    }
-
     val today = remember { Calendar.getInstance() }
     val tY = today.get(Calendar.YEAR); val tM = today.get(Calendar.MONTH) + 1; val tD = today.get(Calendar.DAY_OF_MONTH)
 
@@ -482,55 +453,6 @@ fun ScheduleTabContent() {
                     }
                 }
 
-                item {
-                    val workingDays = viewedAssignments.count { !it.isNullOrBlank() }
-                    val totalHours = workingDays * 8
-                    val rate = if (salaryMode == "hourly") hourlyRate.moneyValue() else dailyRate.moneyValue()
-                    val baseSalary = if (salaryMode == "hourly") totalHours * rate else workingDays * rate
-                    val additions = benefits.moneyValue() + overtime.moneyValue() + bonuses.moneyValue() + allowances.moneyValue()
-                    val deductions = taxDeductions.moneyValue() + otherDeductions.moneyValue()
-                    val finalTotal = baseSalary + additions - deductions
-
-                    SectionLabel(tr("គណនាប្រាក់ខែ (SALARY CALCULATOR)", "SALARY CALCULATOR"))
-                    Spacer(Modifier.height(6.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(plumSurface, RoundedCornerShape(12.dp))
-                            .border(1.dp, deepBorder, RoundedCornerShape(12.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SalaryModeChip("Hourly", salaryMode == "hourly", Modifier.weight(1f)) { salaryMode = "hourly" }
-                            SalaryModeChip("Daily", salaryMode == "daily", Modifier.weight(1f)) { salaryMode = "daily" }
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SalaryInput("Hourly rate", hourlyRate, { hourlyRate = it }, Modifier.weight(1f), salaryMode != "hourly")
-                            SalaryInput("Daily rate", dailyRate, { dailyRate = it }, Modifier.weight(1f), salaryMode != "daily")
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SalaryInput("Benefits", benefits, { benefits = it }, Modifier.weight(1f))
-                            SalaryInput("Overtime", overtime, { overtime = it }, Modifier.weight(1f))
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SalaryInput("Bonuses", bonuses, { bonuses = it }, Modifier.weight(1f))
-                            SalaryInput("Allowances", allowances, { allowances = it }, Modifier.weight(1f))
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SalaryInput("VAT / tax", taxDeductions, { taxDeductions = it }, Modifier.weight(1f))
-                            SalaryInput("Other deduct.", otherDeductions, { otherDeductions = it }, Modifier.weight(1f))
-                        }
-                        HorizontalDivider(color = deepBorder)
-                        SalarySummaryRow("Working days", workingDays.toString())
-                        SalarySummaryRow("Working hours", "$totalHours h")
-                        SalarySummaryRow("Base salary", baseSalary.moneyLabel())
-                        SalarySummaryRow("Benefits + overtime + bonuses + allowances", additions.moneyLabel())
-                        SalarySummaryRow("Tax + other deductions", "-${deductions.moneyLabel()}")
-                        SalarySummaryRow("Final total", finalTotal.moneyLabel(), highlight = true)
-                    }
-                }
-
                 // ── Reminder settings ─────────────────────────────────────────
                 item {
                     SectionLabel(tr("ការរំលឹក (REMINDERS)", "REMINDERS"))
@@ -620,7 +542,6 @@ fun ScheduleTabContent() {
                         onClick = {
                             AppStore.saveShiftCycle(context, c)
                             AppStore.saveMonthlySchedules(context, schedules)
-                            AppStore.saveSalaryCalculatorSettings(context, currentSalarySettings())
                             if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -704,64 +625,6 @@ private fun ShiftChip(label: String, active: Boolean, activeColor: Color, onClic
         Text(label, fontSize = 11.sp, color = if (active) OnAccent else sandText, fontWeight = FontWeight.Bold)
     }
 }
-
-@Composable
-private fun SalaryModeChip(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val (_, _, plumSurface, _, deepBorder, _, sandText, _, _) = LocalAppColors.current
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (active) TraditionalGold else plumSurface)
-            .border(1.dp, if (active) TraditionalGold else deepBorder, RoundedCornerShape(10.dp))
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, fontSize = 11.sp, color = if (active) OnAccent else sandText, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun SalaryInput(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    disabled: Boolean = false
-) {
-    val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
-    OutlinedTextField(
-        value = value,
-        onValueChange = { input -> onValueChange(input.filter { it.isDigit() || it == '.' }.take(12)) },
-        enabled = !disabled,
-        label = { Text(label, fontSize = 10.sp, color = goldSubText) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        textStyle = TextStyle(color = sandText, fontSize = 12.sp),
-        modifier = modifier,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = TraditionalGold,
-            unfocusedBorderColor = deepBorder,
-            disabledBorderColor = deepBorder.copy(0.5f),
-            focusedContainerColor = plumSurface,
-            unfocusedContainerColor = plumSurface,
-            disabledContainerColor = plumSurface.copy(0.45f)
-        )
-    )
-}
-
-@Composable
-private fun SalarySummaryRow(label: String, value: String, highlight: Boolean = false) {
-    val (_, _, _, _, _, _, sandText, goldSubText, _) = LocalAppColors.current
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontSize = if (highlight) 12.sp else 10.sp, color = if (highlight) sandText else goldSubText, fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal)
-        Text(value, fontSize = if (highlight) 13.sp else 11.sp, color = if (highlight) TraditionalGold else sandText, fontWeight = FontWeight.Bold)
-    }
-}
-
-private fun String.moneyValue(): Double = trim().toDoubleOrNull() ?: 0.0
-
-private fun Double.moneyLabel(): String = "$" + "%,.2f".format(this)
 
 @Composable
 private fun ShiftTimeEditor(

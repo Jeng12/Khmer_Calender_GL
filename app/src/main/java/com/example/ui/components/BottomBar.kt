@@ -87,7 +87,7 @@ fun CustomBottomBar(
         ) {
             // Home Tab
             BottomBarItem(
-                emoji = "🏠",
+                emoji = "\uD83C\uDFE0",
                 label = tr("ទំព័រដើម", "Home"),
                 subLabel = "Home",
                 isSelected = currentTab == AppTab.HOME,
@@ -95,7 +95,7 @@ fun CustomBottomBar(
             )
             // Calendar Tab
             BottomBarItem(
-                emoji = "📅",
+                emoji = "\uD83D\uDCC5",
                 label = tr("ប្រតិទិន", "Calendar"),
                 subLabel = "Calendar",
                 isSelected = currentTab == AppTab.CALENDAR,
@@ -103,23 +103,23 @@ fun CustomBottomBar(
             )
             // Holidays Tab
             BottomBarItem(
-                emoji = "🎉",
+                emoji = "\uD83C\uDF89",
                 label = tr("ថ្ងៃបុណ្យ", "Holidays"),
                 subLabel = "Holidays",
                 isSelected = currentTab == AppTab.HOLIDAYS,
                 onClick = { onTabSelect(AppTab.HOLIDAYS) }
             )
-            // Convert Tab
+            // Salary Tab
             BottomBarItem(
-                emoji = "🔄",
-                label = tr("បំលែង", "Convert"),
-                subLabel = "Convert",
+                emoji = "\uD83D\uDCB0",
+                label = tr("បំលែង", "Salary"),
+                subLabel = "Salary",
                 isSelected = currentTab == AppTab.CONVERT,
                 onClick = { onTabSelect(AppTab.CONVERT) }
             )
             // Work Schedule Tab
             BottomBarItem(
-                emoji = "🏭",
+                emoji = "\uD83C\uDFED",
                 label = tr("កាលវិភាគ", "Schedule"),
                 subLabel = "Work Schedule",
                 isSelected = currentTab == AppTab.SCHEDULE,
@@ -127,7 +127,7 @@ fun CustomBottomBar(
             )
             // Profile Tab
             BottomBarItem(
-                emoji = "👤",
+                emoji = "\uD83D\uDC64",
                 label = tr("ប្រវត្តិរូប", "Profile"),
                 subLabel = "Profile",
                 isSelected = currentTab == AppTab.PROFILE,

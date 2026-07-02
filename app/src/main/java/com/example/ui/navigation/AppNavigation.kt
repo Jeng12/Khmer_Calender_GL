@@ -395,13 +395,7 @@ fun MainAppLayout(
                         selectedFilter = selectedHolidayFilter,
                         onFilterChange = onHolidayFilterChange
                     )
-                    AppTab.CONVERT -> DateConvertContent(
-                        year = convertYear,
-                        month = convertMonth,
-                        day = convertDay,
-                        convertedDate = convertedKhDate,
-                        onConvert = onConvertClick
-                    )
+                    AppTab.CONVERT -> SalaryCalculatorTabContent()
                     AppTab.SCHEDULE -> ScheduleTabContent()
                     AppTab.PROFILE -> ProfileSettingsContent(
                         onLogOut = onLogOut,
