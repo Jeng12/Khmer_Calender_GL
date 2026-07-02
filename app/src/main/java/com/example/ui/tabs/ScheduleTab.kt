@@ -59,15 +59,32 @@ fun ScheduleTabContent() {
         AppStore.migrateLegacyTemplate(context)
         mutableStateOf(AppStore.getCycleSnapshots(context))
     }
-    var salaryMode by remember { mutableStateOf("hourly") }
-    var hourlyRate by remember { mutableStateOf("") }
-    var dailyRate by remember { mutableStateOf("") }
-    var benefits by remember { mutableStateOf("") }
-    var overtime by remember { mutableStateOf("") }
-    var bonuses by remember { mutableStateOf("") }
-    var allowances by remember { mutableStateOf("") }
-    var taxDeductions by remember { mutableStateOf("") }
-    var otherDeductions by remember { mutableStateOf("") }
+    val savedSalary = remember { AppStore.getSalaryCalculatorSettings(context) }
+    var salaryMode by remember { mutableStateOf(savedSalary.salaryMode) }
+    var hourlyRate by remember { mutableStateOf(savedSalary.hourlyRate) }
+    var dailyRate by remember { mutableStateOf(savedSalary.dailyRate) }
+    var benefits by remember { mutableStateOf(savedSalary.benefits) }
+    var overtime by remember { mutableStateOf(savedSalary.overtime) }
+    var bonuses by remember { mutableStateOf(savedSalary.bonuses) }
+    var allowances by remember { mutableStateOf(savedSalary.allowances) }
+    var taxDeductions by remember { mutableStateOf(savedSalary.taxDeductions) }
+    var otherDeductions by remember { mutableStateOf(savedSalary.otherDeductions) }
+
+    fun currentSalarySettings() = AppStore.SalaryCalculatorSettings(
+        salaryMode = salaryMode,
+        hourlyRate = hourlyRate,
+        dailyRate = dailyRate,
+        benefits = benefits,
+        overtime = overtime,
+        bonuses = bonuses,
+        allowances = allowances,
+        taxDeductions = taxDeductions,
+        otherDeductions = otherDeductions
+    )
+
+    LaunchedEffect(salaryMode, hourlyRate, dailyRate, benefits, overtime, bonuses, allowances, taxDeductions, otherDeductions) {
+        AppStore.saveSalaryCalculatorSettings(context, currentSalarySettings())
+    }
 
     val today = remember { Calendar.getInstance() }
     val tY = today.get(Calendar.YEAR); val tM = today.get(Calendar.MONTH) + 1; val tD = today.get(Calendar.DAY_OF_MONTH)
@@ -603,6 +620,7 @@ fun ScheduleTabContent() {
                         onClick = {
                             AppStore.saveShiftCycle(context, c)
                             AppStore.saveMonthlySchedules(context, schedules)
+                            AppStore.saveSalaryCalculatorSettings(context, currentSalarySettings())
                             if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)

@@ -485,6 +485,18 @@ object AppStore {
     /** Max number of day slots in a cycle (longest 26th→25th span is 31 days). */
     const val CYCLE_SLOTS = 31
 
+    data class SalaryCalculatorSettings(
+        val salaryMode: String = "hourly",
+        val hourlyRate: String = "",
+        val dailyRate: String = "",
+        val benefits: String = "",
+        val overtime: String = "",
+        val bonuses: String = "",
+        val allowances: String = "",
+        val taxDeductions: String = "",
+        val otherDeductions: String = ""
+    )
+
     fun emptyDayAssignments(): List<String?> = List(CYCLE_SLOTS) { null }
 
     /** Built-in presets matching the standard 2- and 3-shift systems. */
@@ -607,6 +619,41 @@ object AppStore {
 
     /** Public saver for the whole per-month schedule map. */
     fun saveMonthlySchedules(c: Context, map: Map<String, List<String?>>) = saveCycleSnapshots(c, map)
+
+    fun getSalaryCalculatorSettings(c: Context): SalaryCalculatorSettings {
+        val raw = schedulePrefs(c).getString("salary_calculator", null) ?: return SalaryCalculatorSettings()
+        return try {
+            val o = JSONObject(raw)
+            SalaryCalculatorSettings(
+                salaryMode = o.optString("salaryMode", "hourly").takeIf { it == "hourly" || it == "daily" } ?: "hourly",
+                hourlyRate = o.optString("hourlyRate"),
+                dailyRate = o.optString("dailyRate"),
+                benefits = o.optString("benefits"),
+                overtime = o.optString("overtime"),
+                bonuses = o.optString("bonuses"),
+                allowances = o.optString("allowances"),
+                taxDeductions = o.optString("taxDeductions"),
+                otherDeductions = o.optString("otherDeductions")
+            )
+        } catch (_: Exception) {
+            SalaryCalculatorSettings()
+        }
+    }
+
+    fun saveSalaryCalculatorSettings(c: Context, settings: SalaryCalculatorSettings) {
+        val o = JSONObject().apply {
+            put("salaryMode", settings.salaryMode)
+            put("hourlyRate", settings.hourlyRate)
+            put("dailyRate", settings.dailyRate)
+            put("benefits", settings.benefits)
+            put("overtime", settings.overtime)
+            put("bonuses", settings.bonuses)
+            put("allowances", settings.allowances)
+            put("taxDeductions", settings.taxDeductions)
+            put("otherDeductions", settings.otherDeductions)
+        }
+        schedulePrefs(c).edit().putString("salary_calculator", o.toString()).apply()
+    }
 
     /** Remove every monthly schedule (used when the user deletes the schedule). */
     fun clearAllSchedules(c: Context) {

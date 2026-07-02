@@ -98,7 +98,7 @@ fun HolidaysTabContent(
     fun deleteCustomHolidayFromDatabase(holiday: AppStore.CustomHoliday) {
         if (!AppStore.isCloudSyncEnabled(context)) return
         if (holiday.remoteHolidayEventId.isNullOrBlank()) return
-        val date = runCatching { java.time.LocalDate.of(java.time.LocalDate.now().year, holiday.month, holiday.day) }
+        val date = runCatching { java.time.LocalDate.of(displayedYear, holiday.month, holiday.day) }
             .getOrNull()
             ?: return
         SyncRepository.enqueueCustomHolidayDelete(context, holiday, date)
@@ -161,6 +161,7 @@ fun HolidaysTabContent(
     val isLoading = holidaysResult == null
     val apiHolidays = holidaysResult?.getOrNull().orEmpty()
     val loadFailed = holidaysResult?.isFailure == true || (holidaysResult != null && apiHolidays.isEmpty())
+    val loadErrorMessage = holidaysResult?.exceptionOrNull()?.message
 
     val holidaysList: List<HolidayRow> = if (apiHolidays.isNotEmpty()) {
         apiHolidays.map { h ->
@@ -191,7 +192,7 @@ fun HolidaysTabContent(
         item {
             Column {
                 Text(tr("ថ្ងៃបុណ្យ (Cambodian Holidays)", "Cambodian Holidays"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = SandText)
-                Text("National & Buddhist Public Holidays in Cambodia", fontSize = 9.sp, color = LotusPink)
+                Text("National & Buddhist Public Holidays in Cambodia - $displayedYear", fontSize = 9.sp, color = LotusPink)
                 Text(tr("ទាញចុះក្រោមដើម្បីផ្ទុកឡើងវិញ", "Pull down to refresh"), fontSize = 9.sp, color = GoldSubText)
             }
         }
@@ -286,7 +287,10 @@ fun HolidaysTabContent(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
-                        tr("⚠ មិនអាចភ្ជាប់អ៊ីនធឺណិត — បង្ហាញទិន្នន័យក្នុងកម្មវិធី", "⚠ Offline — showing bundled holidays"),
+                        tr(
+                            "⚠ មិនអាចទាញយកទិន្នន័យ API — បង្ហាញទិន្នន័យក្នុងកម្មវិធី",
+                            "API holiday events could not load${loadErrorMessage?.let { ": ${it.take(80)}" } ?: ""}. Showing bundled holidays."
+                        ),
                         fontSize = 10.sp,
                         color = LotusPink
                     )
@@ -297,6 +301,21 @@ fun HolidaysTabContent(
         // Filter and render holidays
         val filteredHolidays = if (selectedFilter == "ទាំងអស់") holidaysList
             else holidaysList.filter { it.type == selectedFilter }
+
+        if (!isLoading && filteredHolidays.isEmpty()) {
+            item {
+                Text(
+                    if (selectedFilter == BUDDHIST) {
+                        tr("មិនមានព្រឹត្តិការណ៍ព្រះពុទ្ធសម្រាប់ឆ្នាំនេះ", "No Buddhist events found for $displayedYear.")
+                    } else {
+                        tr("មិនមានថ្ងៃបុណ្យសម្រាប់ឆ្នាំនេះ", "No holidays found for $displayedYear.")
+                    },
+                    fontSize = 11.sp,
+                    color = DimColor,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            }
+        }
 
         items(filteredHolidays) { holiday ->
             val isBuddhist = holiday.type == BUDDHIST

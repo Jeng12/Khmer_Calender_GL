@@ -26,7 +26,13 @@ data class Holiday(
     /** Religious holidays (Visak Bochea, Meak Bochea, Pchum Ben…) map to the Buddhist bucket. */
     val isBuddhist: Boolean get() =
         type.equals("religious", ignoreCase = true) ||
-            type.equals("buddhist", ignoreCase = true)
+            type.equals("buddhist", ignoreCase = true) ||
+            type.contains("buddh", ignoreCase = true) ||
+            type.contains("relig", ignoreCase = true) ||
+            nameEn.contains("Bochea", ignoreCase = true) ||
+            nameEn.contains("Pchum", ignoreCase = true) ||
+            nameEn.contains("Visak", ignoreCase = true) ||
+            nameEn.contains("Meak", ignoreCase = true)
 }
 
 /**
@@ -86,6 +92,7 @@ object HolidayRepository {
             }
 
             val parsed = ((publicHolidays ?: builtIn) + userHolidayEvents)
+                .filter { it.date.year == targetYear }
                 .distinctBy { "${it.date}:${it.nameKh}:${it.nameEn}" }
                 .sortedBy { it.date }
 
