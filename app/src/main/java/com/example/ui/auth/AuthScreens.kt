@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -451,6 +453,8 @@ fun RegisterScreenContent(
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
     var nameError by remember { mutableStateOf<String?>(null) }
+    var acceptedTerms by remember { mutableStateOf(false) }
+    var agreementError by remember { mutableStateOf<String?>(null) }
 
     fun validateAndRegister() {
         val emailRegex = Regex("^[^@]+@[^@]+\\.[^@]+")
@@ -465,7 +469,12 @@ fun RegisterScreenContent(
             password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
-        if (nameError == null && emailError == null && passwordError == null) {
+        agreementError = if (!acceptedTerms) {
+            tr(lang, "សូមយល់ព្រមតាមលក្ខខណ្ឌ និងគោលការណ៍។", "Please agree to the Terms & Policies.")
+        } else {
+            null
+        }
+        if (nameError == null && emailError == null && passwordError == null && agreementError == null) {
             onSubmit(fn.trim(), ln.trim(), email.trim(), password)
         }
     }
@@ -500,6 +509,9 @@ fun RegisterScreenContent(
                     value = ln,
                     onValueChange = { ln = it; nameError = null },
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("register_last_name_input"),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = PlumSurface,
                         unfocusedBorderColor = if (nameError != null) CrimsonHoliday else DeepBorder
@@ -513,6 +525,9 @@ fun RegisterScreenContent(
                     value = fn,
                     onValueChange = { fn = it; nameError = null },
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("register_first_name_input"),
                     colors = OutlinedTextFieldDefaults.colors(
                         unfocusedContainerColor = PlumSurface,
                         unfocusedBorderColor = if (nameError != null) CrimsonHoliday else DeepBorder
@@ -531,7 +546,9 @@ fun RegisterScreenContent(
             value = email,
             onValueChange = { email = it; emailError = null },
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("register_email_input"),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedContainerColor = PlumSurface,
                 unfocusedBorderColor = if (emailError != null) CrimsonHoliday else DeepBorder
@@ -548,7 +565,9 @@ fun RegisterScreenContent(
             value = password,
             onValueChange = { password = it; passwordError = null },
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("register_password_input"),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedContainerColor = PlumSurface,
                 unfocusedBorderColor = if (passwordError != null) CrimsonHoliday else DeepBorder
@@ -561,19 +580,48 @@ fun RegisterScreenContent(
         Spacer(modifier = Modifier.height(20.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = acceptedTerms,
+                    role = Role.Checkbox,
+                    onValueChange = {
+                        acceptedTerms = it
+                        agreementError = null
+                    }
+                )
+                .testTag("register_terms_row")
+                .padding(vertical = 4.dp)
         ) {
-            Box(
+            Checkbox(
+                checked = acceptedTerms,
+                onCheckedChange = null,
                 modifier = Modifier
-                    .size(14.dp)
-                    .border(1.dp, TraditionalGold, RoundedCornerShape(3.dp))
-                    .background(TraditionalGold.copy(0.2f))
+                    .size(24.dp)
+                    .testTag("register_terms_checkbox"),
+                colors = CheckboxDefaults.colors(
+                    checkedColor = TraditionalGold,
+                    uncheckedColor = if (agreementError != null) CrimsonHoliday else TraditionalGold,
+                    checkmarkColor = OnAccent
+                )
             )
             Text(
                 text = tr("ខ្ញុំយល់ព្រមតាម លក្ខខណ្ឌ និង គោលការណ៍ របស់កម្មវិធី។", "I agree to the app's Terms & Policies."),
                 color = GoldSubText,
                 fontSize = 10.sp,
-                lineHeight = 15.sp
+                lineHeight = 15.sp,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (agreementError != null) {
+            Text(
+                agreementError!!,
+                fontSize = 9.sp,
+                color = CrimsonHoliday,
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .testTag("register_agreement_error")
             )
         }
 
@@ -583,7 +631,8 @@ fun RegisterScreenContent(
             colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(48.dp)
+                .testTag("register_button"),
             shape = RoundedCornerShape(12.dp)
         ) {
             Text(tr("ចុះឈ្មោះភ្លាមៗ", "Register Now"), color = OnAccent, fontWeight = FontWeight.Bold)
