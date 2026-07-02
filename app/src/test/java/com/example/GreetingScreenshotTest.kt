@@ -105,8 +105,6 @@ class GreetingScreenshotTest {
           convertDay = "25",
           convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
           onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -133,8 +131,6 @@ class GreetingScreenshotTest {
           convertDay = "25",
           convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
           onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -142,34 +138,6 @@ class GreetingScreenshotTest {
       }
     }
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/main_calendar.png")
-  }
-
-  @Test
-  fun test_main_app_layout_auspicious() {
-    composeTestRule.setContent {
-      MyApplicationTheme {
-        MainAppLayout(
-          currentTab = AppTab.AUSPICIOUS,
-          onTabChange = {},
-          calendarYear = 2026,
-          calendarMonth = 5,
-          selectedDayIndex = 15,
-          onCalendarMonthChange = { _, _ -> },
-          onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
-          selectedHolidayFilter = "ទាំងអស់",
-          onHolidayFilterChange = {},
-          onLogOut = {}
-        )
-      }
-    }
-    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/main_auspicious.png")
   }
 
   @Test
@@ -189,8 +157,6 @@ class GreetingScreenshotTest {
           convertDay = "25",
           convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
           onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -217,8 +183,6 @@ class GreetingScreenshotTest {
           convertDay = "25",
           convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
           onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -245,8 +209,6 @@ class GreetingScreenshotTest {
           convertDay = "25",
           convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
           onConvertClick = { _, _, _ -> },
-          selectedAuspiciousFilter = "ទាំងអស់",
-          onAuspiciousFilterChange = {},
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}

@@ -258,13 +258,6 @@ class KhmerCalendarHelperTest {
     }
 
     @Test
-    fun getGregorianMonthDays_containsAuspiciousDays() {
-        val days = KhmerCalendarHelper.getGregorianMonthDays(2026, 5)
-        val auspicious = days.filter { it.isAuspicious }
-        assertTrue("May 2026 should have at least one auspicious day", auspicious.isNotEmpty())
-    }
-
-    @Test
     fun getGregorianMonthDays_daysAreSequential() {
         val days = KhmerCalendarHelper.getGregorianMonthDays(2026, 5)
         for (i in 0 until days.size - 1) {
@@ -382,45 +375,6 @@ class KhmerCalendarHelperTest {
         }
     }
 
-    // ─── Auspicious Days ─────────────────────────────────────────────────────
-
-    @Test
-    fun getKhmerDate_auspiciousType_presentWhenAuspicious() {
-        val days = KhmerCalendarHelper.getGregorianMonthDays(2026, 5)
-        for (kd in days) {
-            if (kd.isAuspicious) {
-                assertNotNull("Auspicious type should be set when isAuspicious=true", kd.auspiciousType)
-                assertTrue("Auspicious type should not be empty", kd.auspiciousType!!.isNotEmpty())
-            }
-        }
-    }
-
-    @Test
-    fun getKhmerDate_auspiciousType_nullWhenNotAuspicious() {
-        val days = KhmerCalendarHelper.getGregorianMonthDays(2026, 5)
-        for (kd in days) {
-            if (!kd.isAuspicious) {
-                assertNull("Auspicious type should be null when isAuspicious=false", kd.auspiciousType)
-            }
-        }
-    }
-
-    @Test
-    fun getKhmerDate_auspiciousType_isOneOfFourCategories() {
-        val validTypes = setOf(
-            "ពិធីមង្គលការ (Wedding)",
-            "ឡើងផ្ទះថ្មី (Housewarming)",
-            "បើកអាជីវកម្ម (Business)",
-            "ធ្វើដំណើរស្វែងរកលាភ (Travel)"
-        )
-        for (month in 1..12) {
-            val days = KhmerCalendarHelper.getGregorianMonthDays(2026, month)
-            for (kd in days.filter { it.isAuspicious }) {
-                assertTrue("Auspicious type '${kd.auspiciousType}' is not a valid category",
-                    kd.auspiciousType in validTypes)
-            }
-        }
-    }
 
     // ─── Edge Cases ──────────────────────────────────────────────────────────
 

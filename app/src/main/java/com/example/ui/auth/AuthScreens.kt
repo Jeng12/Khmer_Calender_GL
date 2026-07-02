@@ -200,7 +200,7 @@ fun OnboardingScreenContent(onContinue: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Track traditional Khmer lunar dates, auspicious days for blessings, Buddhist ceremonies, and public holidays instantly.",
+                text = "Track traditional Khmer lunar dates, Buddhist ceremonies, and public holidays instantly.",
                 textAlign = TextAlign.Center,
                 fontSize = 12.sp,
                 color = GoldSubText,

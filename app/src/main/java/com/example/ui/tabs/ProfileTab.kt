@@ -206,7 +206,7 @@ fun ProfileSettingsContent(
             title = { Text("Delete local app data?", color = SandText) },
             text = {
                 Text(
-                    "This removes notes, reminders, custom holidays, work schedules, AI reports, and the local profile image from this device. Data already synced to the API database is not deleted here.",
+                    "This removes notes, reminders, custom holidays, work schedules, cached holidays, and the local profile image from this device. Data already synced to the API database is not deleted here.",
                     color = GoldSubText,
                     fontSize = 12.sp,
                     lineHeight = 17.sp
@@ -623,26 +623,11 @@ fun ProfileSettingsContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("AI explanations", fontSize = 11.sp, color = SandText, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Auspicious-day context is sent to Firebase/Google AI only when AI Explain is tapped. AI responses can be reported in-app.",
-                        fontSize = 10.sp,
-                        color = GoldSubText,
-                        lineHeight = 14.sp
-                    )
-                }
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(DeepBorder))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text("Device permissions", fontSize = 11.sp, color = SandText, fontWeight = FontWeight.Bold)
                     Text(
-                        "Notifications, exact alarms, boot completed, internet, and network state are used for reminders, widgets, API sync, and AI explanations.",
+                        "Notifications, exact alarms, boot completed, internet, and network state are used for reminders, widgets, API sync, and holiday refresh.",
                         fontSize = 10.sp,
                         color = GoldSubText,
                         lineHeight = 14.sp

@@ -70,7 +70,7 @@ enum class AppScreen {
 }
 
 enum class AppTab {
-    HOME, CALENDAR, AUSPICIOUS, HOLIDAYS, CONVERT, SCHEDULE, PROFILE
+    HOME, CALENDAR, HOLIDAYS, CONVERT, SCHEDULE, PROFILE
 }
 
 @Composable
@@ -105,9 +105,6 @@ fun KhmerCalendarApp() {
     var convertMonth by remember { mutableStateOf("5") }
     var convertDay by remember { mutableStateOf("25") }
     var convertedKhDate by remember { mutableStateOf<KhmerDate?>(null) }
-
-    // Auspicious filter state
-    var selectedAuspiciousFilter by remember { mutableStateOf("ទាំងអស់") }
 
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
@@ -270,8 +267,6 @@ fun KhmerCalendarApp() {
                                     .onSuccess { convertedKhDate = it }
                             }
                         },
-                        selectedAuspiciousFilter = selectedAuspiciousFilter,
-                        onAuspiciousFilterChange = { selectedAuspiciousFilter = it },
                         selectedHolidayFilter = selectedHolidayFilter,
                         onHolidayFilterChange = { selectedHolidayFilter = it },
                         onLogOut = {
@@ -358,8 +353,6 @@ fun MainAppLayout(
     convertDay: String,
     convertedKhDate: KhmerDate?,
     onConvertClick: (String, String, String) -> Unit,
-    selectedAuspiciousFilter: String,
-    onAuspiciousFilterChange: (String) -> Unit,
     selectedHolidayFilter: String,
     onHolidayFilterChange: (String) -> Unit,
     onLogOut: () -> Unit,
@@ -394,12 +387,6 @@ fun MainAppLayout(
                         onMonthChange = onCalendarMonthChange,
                         onDayChange = onDaySelect,
                         onGoToToday = onGoToToday
-                    )
-                    AppTab.AUSPICIOUS -> AuspiciousTabContent(
-                        calendarYear = calendarYear,
-                        calendarMonth = calendarMonth,
-                        selectedFilter = selectedAuspiciousFilter,
-                        onFilterChange = onAuspiciousFilterChange
                     )
                     AppTab.HOLIDAYS -> HolidaysTabContent(
                         selectedFilter = selectedHolidayFilter,

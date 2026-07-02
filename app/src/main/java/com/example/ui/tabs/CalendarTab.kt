@@ -41,6 +41,8 @@ import com.example.core.*
 import com.example.data.AppStore
 import com.example.data.CalendarApiMonthOverlays
 import com.example.data.CalendarApiNote
+import com.example.data.Holiday
+import com.example.data.HolidayRepository
 import com.example.data.SyncRepository
 import com.example.data.WorkCycleEngine
 import com.example.ui.theme.*
@@ -119,6 +121,22 @@ fun CalendarTabContent(
     val apiWorkShiftsByDay = remember(apiOverlays) {
         apiOverlays?.workShifts.orEmpty().associateBy { it.date.dayOfMonth }
     }
+    var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
+    LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
+        holidaysResult = HolidayRepository.fetchHolidays(
+            context = context,
+            year = year,
+            forceRefresh = agendaVersion > 0,
+            includeDatabaseEvents = cloudSyncEnabled
+        )
+    }
+    val holidaysByDay = remember(holidaysResult, year, month) {
+        holidaysResult
+            ?.getOrNull()
+            .orEmpty()
+            .filter { it.date.year == year && it.date.monthValue == month }
+            .groupBy { it.date.dayOfMonth }
+    }
 
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
     val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
@@ -174,17 +192,34 @@ fun CalendarTabContent(
         agendaVersion,
         lang,
         daysList,
+        holidaysByDay,
         apiNotesByDay,
         apiEventsByDay,
         apiHolidayEventsByDay
     ) {
         val list = mutableListOf<AgendaItem>()
+        val officialHolidayKeys = mutableSetOf<String>()
 
-        // 1. Built-in holidays
-        daysList.forEachIndexed { index, khDate ->
-            val d = index + 1
-            if (khDate.holiday != null) {
-                list.add(AgendaItem(d, AgendaType.HOLIDAY, localizeDual(lang, khDate.holiday!!), holidayLabel, isPastDay(d)))
+        // 1. Public holidays and Buddhist events from API/cache, with local calendar fallback.
+        if (holidaysByDay.isNotEmpty()) {
+            holidaysByDay.forEach { (d, holidays) ->
+                holidays.forEach { holiday ->
+                    officialHolidayKeys.add("${holiday.date}:${holiday.nameKh}:${holiday.nameEn}")
+                    val title = if (lang == AppLanguage.EN) holiday.nameEn else holiday.nameKh
+                    val subtitle = if (holiday.isBuddhist) {
+                        tr(lang, "ព្រះពុទ្ធ", "Buddhist event")
+                    } else {
+                        holidayLabel
+                    }
+                    list.add(AgendaItem(d, AgendaType.HOLIDAY, title, subtitle, isPastDay(d), if (holiday.isBuddhist) "🪷" else null))
+                }
+            }
+        } else {
+            daysList.forEachIndexed { index, khDate ->
+                val d = index + 1
+                if (khDate.holiday != null) {
+                    list.add(AgendaItem(d, AgendaType.HOLIDAY, localizeDual(lang, khDate.holiday!!), holidayLabel, isPastDay(d)))
+                }
             }
         }
 
@@ -230,7 +265,10 @@ fun CalendarTabContent(
             holidays.forEach { event ->
                 if (event.id !in localRemoteHolidayEventIds) {
                     val title = if (lang == AppLanguage.EN) event.nameEn else event.nameKm
-                    list.add(AgendaItem(d, AgendaType.HOLIDAY, title, customHolidayLabel, isPastDay(d)))
+                    val key = "${event.occurrenceDate ?: event.date}:${event.nameKm}:${event.nameEn}"
+                    if (key !in officialHolidayKeys) {
+                        list.add(AgendaItem(d, AgendaType.HOLIDAY, title, customHolidayLabel, isPastDay(d)))
+                    }
                 }
             }
         }
@@ -254,6 +292,7 @@ fun CalendarTabContent(
         DayDetailDialog(
             date = dialogDate,
             lang = lang,
+            officialHolidays = holidaysByDay[dialogDate.day].orEmpty(),
             remoteNotes = apiNotesByDay[dialogDate.day].orEmpty(),
             onDismiss = { showDayDetailDialog = false },
             onDataChange = { agendaVersion++ }
@@ -397,6 +436,9 @@ fun CalendarTabContent(
                 val animCustomHolidayDays = remember(ym, agendaVersion, animApiHolidayDays) {
                     AppStore.customHolidaysForMonth(context, animMonth).map { it.day }.toSet() + animApiHolidayDays
                 }
+                val animOfficialHolidayDays = remember(ym, holidaysByDay) {
+                    if (animYear == year && animMonth == month) holidaysByDay.keys else emptySet()
+                }
                 val animApiWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, apiWorkShiftsByDay) {
                     if (animYear != year || animMonth != month) emptyMap()
                     else apiWorkShiftsByDay.mapNotNull { (day, workShift) ->
@@ -450,7 +492,9 @@ fun CalendarTabContent(
                                     val dateInfo  = animDays[dayNumber - 1]
                                     val isSelected = dayNumber == selectedDay && animYear == year && animMonth == month
                                     val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
-                                    val isHoliday  = dateInfo.holiday != null || dayNumber in animCustomHolidayDays
+                                    val isHoliday  = dateInfo.holiday != null ||
+                                        dayNumber in animOfficialHolidayDays ||
+                                        dayNumber in animCustomHolidayDays
                                     val isWeekend  = col == 0 || col == 6
                                     val hasNote    = dayNumber in animNotes
                                     val workShift  = animWorkingDays[dayNumber]
@@ -517,8 +561,7 @@ fun CalendarTabContent(
                                                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                                                 modifier = Modifier.height(5.dp)
                                             ) {
-                                                if (dateInfo.isAuspicious) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(JadeGreen))
-                                                else if (isHoliday) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
+                                                if (isHoliday) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
                                                 if (hasNote) Box(
                                                     modifier = Modifier
                                                         .width(10.dp).height(4.dp)
@@ -598,7 +641,6 @@ fun CalendarTabContent(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                LegendIndicator(JadeGreen, tr("ថ្ងៃមង្គល", "Auspicious"))
                 LegendIndicator(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"))
                 LegendIndicator(SkyBlue, tr("ចំណាំ", "Note"))
                 LegendIndicator(LightGold, tr("ការងារ", "Work"))
@@ -648,6 +690,7 @@ private fun LegendIndicator(color: Color, label: String) {
 private fun DayDetailDialog(
     date: KhmerDate,
     lang: AppLanguage,
+    officialHolidays: List<Holiday> = emptyList(),
     remoteNotes: List<CalendarApiNote> = emptyList(),
     onDismiss: () -> Unit,
     onDataChange: () -> Unit
@@ -871,12 +914,22 @@ private fun DayDetailDialog(
                         DetailRow(tr("ពុទ្ធសករាជ", "Buddhist Era"), num(lang, date.BE), sandText, goldSubText)
                         DetailRow(tr("ឆ្នាំ", "Zodiac"), zodiac(lang, date.zodiac), sandText, goldSubText)
 
-                        if (date.isAuspicious) {
-                            DetailRow(tr("ថ្ងៃមង្គល", "Auspicious"), localizeDual(lang, date.auspiciousType ?: "General"), JadeGreen, goldSubText)
-                        }
                         if (date.holiday != null) {
                             DetailRow(tr("ថ្ងៃបុណ្យ", "Holiday"), localizeDual(lang, date.holiday!!), LotusPink, goldSubText)
                         }
+                        officialHolidays
+                            .filterNot { holiday ->
+                                date.holiday != null &&
+                                    (holiday.nameKh == date.holiday || holiday.nameEn == date.holiday)
+                            }
+                            .forEach { holiday ->
+                                DetailRow(
+                                    if (holiday.isBuddhist) tr("ព្រឹត្តិការណ៍ព្រះពុទ្ធ", "Buddhist event") else tr("ថ្ងៃឈប់សម្រាក", "Public holiday"),
+                                    if (lang == AppLanguage.EN) holiday.nameEn else holiday.nameKh,
+                                    if (holiday.isBuddhist) TraditionalGold else LotusPink,
+                                    goldSubText
+                                )
+                            }
                     }
                 }
 

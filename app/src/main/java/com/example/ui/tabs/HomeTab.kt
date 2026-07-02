@@ -110,6 +110,7 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
             .getBoolean("cloud_sync_disclosure_seen", false)
     LaunchedEffect(currentYear, currentMonth, currentDay, includeDatabaseHolidayEvents) {
         HolidayRepository.fetchHolidays(
+            context = context,
             year = currentYear,
             includeDatabaseEvents = includeDatabaseHolidayEvents
         ).onSuccess { holidays ->
@@ -269,11 +270,11 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 )
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
-                    emoji = "🌿",
-                    title = tr("ថ្ងៃមង្គល", "Auspicious"),
-                    subtitle = "Auspicious",
-                    accentColor = JadeGreen,
-                    onClick = { onTabSelect(AppTab.AUSPICIOUS) }
+                    emoji = "🎊",
+                    title = tr("ថ្ងៃបុណ្យ", "Holidays"),
+                    subtitle = "Holidays",
+                    accentColor = LotusPink,
+                    onClick = { onTabSelect(AppTab.HOLIDAYS) }
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -281,14 +282,6 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                QuickGridCard(
-                    modifier = Modifier.weight(1f),
-                    emoji = "🎊",
-                    title = tr("ថ្ងៃបុណ្យ", "Holidays"),
-                    subtitle = "Holidays",
-                    accentColor = LotusPink,
-                    onClick = { onTabSelect(AppTab.HOLIDAYS) }
-                )
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🔄",

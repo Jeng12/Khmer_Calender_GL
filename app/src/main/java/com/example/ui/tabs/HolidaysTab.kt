@@ -149,6 +149,7 @@ fun HolidaysTabContent(
             .getBoolean("cloud_sync_disclosure_seen", false)
     LaunchedEffect(refreshKey, includeDatabaseHolidayEvents) {
         holidaysResult = HolidayRepository.fetchHolidays(
+            context = context,
             forceRefresh = refreshKey > 0,
             includeDatabaseEvents = includeDatabaseHolidayEvents
         )

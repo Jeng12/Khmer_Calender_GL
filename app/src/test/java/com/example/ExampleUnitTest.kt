@@ -80,13 +80,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun getGregorianMonthDays_containsAuspiciousDays() {
-        val days = KhmerCalendarHelper.getGregorianMonthDays(2026, 5)
-        val auspicious = days.filter { it.isAuspicious }
-        assertTrue("May 2026 should have at least one auspicious day", auspicious.isNotEmpty())
-    }
-
-    @Test
     fun getKhmerDate_nonHolidayIsNull() {
         // May 3 2026 is a regular day
         val kd = KhmerCalendarHelper.getKhmerDate(2026, 5, 3)

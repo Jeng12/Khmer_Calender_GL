@@ -247,18 +247,15 @@ fun KhmerDatePickerContent(
                     val khDate = monthDays.getOrNull(idx)
                     val isSelected = dayNum == selectedDay
                     val isHoliday = khDate?.holiday != null
-                    val isAuspicious = khDate?.isAuspicious == true
 
                     val bgColor = when {
                         isSelected -> TraditionalGold
                         isHoliday  -> CrimsonHoliday.copy(alpha = 0.25f)
-                        isAuspicious -> JadeGreen.copy(alpha = 0.15f)
                         else -> Color.Transparent
                     }
                     val textColor = when {
                         isSelected -> OnAccent
                         isHoliday  -> CrimsonHoliday
-                        isAuspicious -> JadeGreen
                         else -> colors.text
                     }
 
@@ -344,21 +341,6 @@ fun KhmerDatePickerContent(
                             textAlign = TextAlign.Center
                         )
                     }
-                    if (selectedDayKhmerDate.isAuspicious && selectedDayKhmerDate.auspiciousType != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(JadeGreen.copy(alpha = 0.2f))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "✨ ${selectedDayKhmerDate.auspiciousType}",
-                                color = JadeGreen,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
                 }
             }
 
@@ -371,7 +353,6 @@ fun KhmerDatePickerContent(
             ) {
                 LegendItem(color = TraditionalGold, label = "ជ្រើស")
                 LegendItem(color = CrimsonHoliday, label = "បុណ្យ")
-                LegendItem(color = JadeGreen, label = "ថ្ងៃល្អ")
             }
 
             Spacer(Modifier.height(8.dp))

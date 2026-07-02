@@ -17,9 +17,7 @@ data class KhmerDate(
     val zodiac: String,          // "ឆ្នាំдето"
     val BE: Int,                 // 2570
     val moonEmoji: String,       // "🌕"
-    val holiday: String?,        // E.g. "វិសាខបូជា"
-    val isAuspicious: Boolean,
-    val auspiciousType: String?  // "ពិធីមង្គលការ", "ឡើងផ្ទះថ្មី", "បើកអាជីវកម្ម"
+    val holiday: String?         // E.g. "វិសាខបូជា"
 )
 
 object KhmerCalendarHelper {
@@ -269,16 +267,6 @@ object KhmerCalendarHelper {
             holiday = "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ"
         }
 
-        val isAuspicious = (offset % 30) in listOf(2, 6, 10, 11, 18, 25)
-        val auspiciousType = if (isAuspicious) {
-            when (displayLunarDay % 4) {
-                0    -> "ពិធីមង្គលការ (Wedding)"
-                1    -> "ឡើងផ្ទះថ្មី (Housewarming)"
-                2    -> "បើកអាជីវកម្ម (Business)"
-                else -> "ធ្វើដំណើរស្វែងរកលាភ (Travel)"
-            }
-        } else null
-
         return KhmerDate(
             day = day, month = month, year = year,
             dayOfWeek = KH_DAYS[dowIdx],
@@ -291,9 +279,7 @@ object KhmerCalendarHelper {
             zodiac = ms.zodiac,
             BE = ms.be,
             moonEmoji = moonEmoji,
-            holiday = holiday,
-            isAuspicious = isAuspicious,
-            auspiciousType = auspiciousType
+            holiday = holiday
         )
     }
 

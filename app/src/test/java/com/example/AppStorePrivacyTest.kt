@@ -51,10 +51,11 @@ class AppStorePrivacyTest {
     }
 
     @Test
-    fun clearLocalUserDataRemovesCalendarProfileAndAiDataButKeepsSyncChoice() {
+    fun clearLocalUserDataRemovesCalendarProfileAndHolidayCacheButKeepsSyncChoice() {
         AppStore.setCloudSyncEnabled(context, false)
         AppStore.addNote(context, 2026, 6, 28, "Private note")
         AppStore.addCustomHoliday(context, 6, 28, "Holiday", "Holiday")
+        AppStore.saveCachedHolidays(context, 2026, "[]")
         AppStore.saveShiftCycle(
             context,
             AppStore.ShiftCycle(
@@ -65,19 +66,13 @@ class AppStorePrivacyTest {
                 reminderMinutesBefore = 30
             )
         )
-        AppStore.addAiContentReport(
-            c = context,
-            dateLabel = "June 28, 2026",
-            content = "AI output",
-            reason = "Wrong"
-        )
 
         AppStore.clearLocalUserData(context)
 
         assertTrue(AppStore.getNotes(context, 2026, 6, 28).isEmpty())
         assertTrue(AppStore.getCustomHolidays(context).isEmpty())
+        assertNull(AppStore.getCachedHolidays(context, 2026))
         assertNull(AppStore.getShiftCycle(context))
-        assertTrue(AppStore.getAiContentReports(context).isEmpty())
         assertFalse(AppStore.isCloudSyncEnabled(context))
     }
 
@@ -134,18 +129,6 @@ class AppStorePrivacyTest {
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("authentication", ignoreCase = true) == true)
-    }
-
-    @Test
-    fun aiContentReportsAreStoredNewestLast() {
-        AppStore.addAiContentReport(context, "Day 1", "Text 1", "Reason 1")
-        AppStore.addAiContentReport(context, "Day 2", "Text 2", "Reason 2")
-
-        val reports = AppStore.getAiContentReports(context)
-
-        assertEquals(2, reports.size)
-        assertEquals("Day 1", reports[0].dateLabel)
-        assertEquals("Reason 2", reports[1].reason)
     }
 
     @Test

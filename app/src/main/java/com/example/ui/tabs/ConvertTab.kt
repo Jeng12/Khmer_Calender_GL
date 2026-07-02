@@ -511,31 +511,6 @@ private fun ConversionResultCard(date: KhmerDate) {
                     }
                 }
             }
-
-            // Auspicious alert
-            if (date.isAuspicious) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(JadeGreen.copy(0.1f), RoundedCornerShape(10.dp))
-                        .border(1.dp, JadeGreen.copy(0.45f), RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("🌿", fontSize = 16.sp)
-                    Column {
-                        Text(tr("ថ្ងៃមង្គល", "Auspicious"), fontSize = 9.sp, color = JadeGreen.copy(0.7f))
-                        Text(
-                            localizeDual(lang, date.auspiciousType ?: tr(lang, "ថ្ងៃល្អ", "Good day")),
-                            fontSize = 12.sp,
-                            color = JadeGreen,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
         }
     }
 }

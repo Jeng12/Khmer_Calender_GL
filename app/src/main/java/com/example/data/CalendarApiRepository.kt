@@ -191,6 +191,12 @@ object CalendarApiRepository {
         }
     }
 
+    suspend fun fetchPublicHolidays(year: Int): Result<List<CalendarApiHolidayEvent>> = withContext(Dispatchers.IO) {
+        runCatching {
+            parseHolidayList(getJson("/public-holidays?year=$year"))
+        }
+    }
+
     suspend fun fetchHolidayEvents(
         from: LocalDate,
         to: LocalDate,
@@ -573,6 +579,20 @@ object CalendarApiRepository {
     private fun <T> parseDataList(body: String, mapper: (JSONObject) -> T?): List<T> =
         JSONObject(body).optJSONArray("data").mapObjects(mapper)
 
+    private fun parseHolidayList(body: String): List<CalendarApiHolidayEvent> {
+        val trimmed = body.trimStart()
+        val arr = if (trimmed.startsWith("[")) {
+            JSONArray(body)
+        } else {
+            val obj = JSONObject(body)
+            obj.optJSONArray("data")
+                ?: obj.optJSONArray("holidays")
+                ?: obj.optJSONObject("data")?.optJSONArray("holidays")
+                ?: JSONArray()
+        }
+        return arr.mapObjects(::parseHolidayEvent)
+    }
+
     private fun parseDayPayload(payload: JSONObject): CalendarApiDay {
         val calendarObj = payload.optJSONObject("calendar") ?: payload
         val khmerDate = parseKhmerDate(calendarObj)
@@ -614,9 +634,7 @@ object CalendarApiRepository {
             zodiac = o.cleanString("zodiac") ?: fallback?.zodiac.orEmpty(),
             BE = o.optInt("buddhist_era", fallback?.BE ?: 0),
             moonEmoji = o.cleanString("moon_phase") ?: fallback?.moonEmoji.orEmpty(),
-            holiday = o.cleanString("holiday"),
-            isAuspicious = o.optBoolean("is_auspicious", fallback?.isAuspicious ?: false),
-            auspiciousType = o.cleanString("auspicious_type")
+            holiday = o.cleanString("holiday")
         )
     }
 
@@ -650,9 +668,24 @@ object CalendarApiRepository {
     }
 
     private fun parseHolidayEvent(o: JSONObject): CalendarApiHolidayEvent? {
-        val date = parseDate(o.cleanString("date")) ?: return null
-        val nameKm = o.cleanString("name_km").orEmpty()
-        val nameEn = o.cleanString("name_en").orEmpty()
+        val date = parseDate(
+            o.cleanString("date")
+                ?: o.cleanString("holiday_date")
+                ?: o.cleanString("occurrence_date")
+        ) ?: return null
+        val nameKm = o.cleanString("name_km")
+            ?: o.cleanString("nameKh")
+            ?: o.cleanString("name_kh")
+            ?: o.cleanString("title_km")
+            ?: o.cleanString("titleKh")
+            ?: o.cleanString("name")
+            ?: ""
+        val nameEn = o.cleanString("name_en")
+            ?: o.cleanString("nameEn")
+            ?: o.cleanString("title_en")
+            ?: o.cleanString("titleEn")
+            ?: o.cleanString("name")
+            ?: ""
         if (nameKm.isBlank() && nameEn.isBlank()) return null
 
         return CalendarApiHolidayEvent(
@@ -661,8 +694,11 @@ object CalendarApiRepository {
             nameEn = nameEn.ifBlank { nameKm },
             date = date,
             occurrenceDate = parseDate(o.cleanString("occurrence_date")),
-            type = o.cleanString("type") ?: "custom",
-            description = o.cleanString("description"),
+            type = o.cleanString("type")
+                ?: o.cleanString("category")
+                ?: o.cleanString("holiday_type")
+                ?: "national",
+            description = o.cleanString("description") ?: o.cleanString("desc"),
             notes = o.cleanString("notes")
         )
     }

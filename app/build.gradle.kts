@@ -7,8 +7,7 @@ plugins {
   // is separate and is still required.
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
-  // KSP only needed when Room or Moshi codegen are active
-  // alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
 }
 
@@ -74,7 +73,6 @@ android {
 
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
-  implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   // implementation(libs.androidx.camera.camera2)
@@ -94,17 +92,17 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   // implementation(libs.androidx.navigation.compose)
-  // Room — not yet used in runtime code; re-enable when entities/DAOs are added
-  // implementation(libs.androidx.room.ktx)
-  // implementation(libs.androidx.room.runtime)
+  // Room
+  implementation(libs.androidx.room.ktx)
+  implementation(libs.androidx.room.runtime)
+  "ksp"(libs.androidx.room.compiler)
+
   implementation(libs.coil.compose)
   // Retrofit/Moshi/OkHttp — not yet used; re-enable when network layer is added
   // implementation(libs.converter.moshi)
   // implementation(libs.moshi.kotlin)
   // implementation(libs.okhttp)
   // implementation(libs.retrofit)
-  // Firebase AI — enabled for Gemini integration
-  implementation(libs.firebase.ai)
   // Glance — home-screen App Widget written in Compose-style code
   implementation(libs.glance.appwidget)
   implementation(libs.kotlinx.coroutines.android)
