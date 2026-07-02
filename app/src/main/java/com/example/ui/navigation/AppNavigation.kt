@@ -196,6 +196,7 @@ fun KhmerCalendarApp() {
                         onSignIn = {},
                         onSignUp = { screenState = AppScreen.REGISTER },
                         onForgot = { screenState = AppScreen.FORGOT },
+                        isSubmitting = authInProgress,
                         onSubmit = { email, password ->
                             if (!authInProgress) {
                                 authInProgress = true
@@ -212,6 +213,7 @@ fun KhmerCalendarApp() {
                     AppScreen.REGISTER -> RegisterScreenContent(
                         onBack = { screenState = AppScreen.LOGIN },
                         onRegister = {},
+                        isSubmitting = authInProgress,
                         onSubmit = { firstName, lastName, email, password ->
                             if (!authInProgress) {
                                 authInProgress = true
@@ -389,6 +391,7 @@ fun MainAppLayout(
                         onGoToToday = onGoToToday
                     )
                     AppTab.HOLIDAYS -> HolidaysTabContent(
+                        displayedYear = calendarYear,
                         selectedFilter = selectedHolidayFilter,
                         onFilterChange = onHolidayFilterChange
                     )

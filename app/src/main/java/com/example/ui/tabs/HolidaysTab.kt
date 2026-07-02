@@ -69,6 +69,7 @@ import com.example.ui.tabs.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HolidaysTabContent(
+    displayedYear: Int,
     selectedFilter: String,
     onFilterChange: (String) -> Unit
 ) {
@@ -147,9 +148,11 @@ fun HolidaysTabContent(
     val includeDatabaseHolidayEvents = AppStore.isCloudSyncEnabled(context) &&
         context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
             .getBoolean("cloud_sync_disclosure_seen", false)
-    LaunchedEffect(refreshKey, includeDatabaseHolidayEvents) {
+    LaunchedEffect(displayedYear, refreshKey, includeDatabaseHolidayEvents) {
+        holidaysResult = null
         holidaysResult = HolidayRepository.fetchHolidays(
             context = context,
+            year = displayedYear,
             forceRefresh = refreshKey > 0,
             includeDatabaseEvents = includeDatabaseHolidayEvents
         )

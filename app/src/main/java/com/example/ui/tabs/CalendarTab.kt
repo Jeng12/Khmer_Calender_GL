@@ -123,6 +123,7 @@ fun CalendarTabContent(
     }
     var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
     LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
+        holidaysResult = null
         holidaysResult = HolidayRepository.fetchHolidays(
             context = context,
             year = year,

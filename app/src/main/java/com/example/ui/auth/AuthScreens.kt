@@ -255,6 +255,7 @@ fun LoginScreenContent(
     onSignIn: () -> Unit,
     onSignUp: () -> Unit,
     onForgot: () -> Unit,
+    isSubmitting: Boolean = false,
     onSubmit: (String, String) -> Unit = { _, _ -> onSignIn() }
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
@@ -276,7 +277,7 @@ fun LoginScreenContent(
             password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
             else -> null
         }
-        if (emailError == null && passwordError == null) onSubmit(email.trim(), password)
+        if (emailError == null && passwordError == null && !isSubmitting) onSubmit(email.trim(), password)
     }
 
     Column(
@@ -316,6 +317,7 @@ fun LoginScreenContent(
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it; emailError = null },
+                enabled = !isSubmitting,
                 textStyle = LocalTextStyle.current.copy(color = SandText, fontSize = 13.sp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -339,6 +341,7 @@ fun LoginScreenContent(
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it; passwordError = null },
+                enabled = !isSubmitting,
                 textStyle = LocalTextStyle.current.copy(color = SandText, fontSize = 13.sp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -364,7 +367,7 @@ fun LoginScreenContent(
                     text = tr("ភ្លេចពាក្យសម្ងាត់?", "Forgot password?"),
                     color = TraditionalGold,
                     fontSize = 11.sp,
-                    modifier = Modifier.clickable { onForgot() }
+                    modifier = Modifier.clickable(enabled = !isSubmitting) { onForgot() }
                 )
             }
 
@@ -372,6 +375,7 @@ fun LoginScreenContent(
 
             Button(
                 onClick = { validateAndSignIn() },
+                enabled = !isSubmitting,
                 colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -379,6 +383,10 @@ fun LoginScreenContent(
                     .testTag("login_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OnAccent)
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(tr("ចូលគណនី (Sign In)", "Sign In"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
@@ -442,6 +450,7 @@ fun LoginScreenContent(
 fun RegisterScreenContent(
     onBack: () -> Unit,
     onRegister: () -> Unit,
+    isSubmitting: Boolean = false,
     onSubmit: (String, String, String, String) -> Unit = { _, _, _, _ -> onRegister() }
 ) {
     val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
@@ -474,7 +483,7 @@ fun RegisterScreenContent(
         } else {
             null
         }
-        if (nameError == null && emailError == null && passwordError == null && agreementError == null) {
+        if (nameError == null && emailError == null && passwordError == null && agreementError == null && !isSubmitting) {
             onSubmit(fn.trim(), ln.trim(), email.trim(), password)
         }
     }
@@ -489,7 +498,7 @@ fun RegisterScreenContent(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.clickable { onBack() }
+            modifier = Modifier.clickable(enabled = !isSubmitting) { onBack() }
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TraditionalGold, modifier = Modifier.size(16.dp))
             Text(tr("ត្រឡប់ក្រោយ (Back)", "Back"), color = TraditionalGold, fontSize = 11.sp)
@@ -508,6 +517,7 @@ fun RegisterScreenContent(
                 OutlinedTextField(
                     value = ln,
                     onValueChange = { ln = it; nameError = null },
+                    enabled = !isSubmitting,
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -524,6 +534,7 @@ fun RegisterScreenContent(
                 OutlinedTextField(
                     value = fn,
                     onValueChange = { fn = it; nameError = null },
+                    enabled = !isSubmitting,
                     textStyle = TextStyle(color = SandText, fontSize = 12.sp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -545,6 +556,7 @@ fun RegisterScreenContent(
         OutlinedTextField(
             value = email,
             onValueChange = { email = it; emailError = null },
+            enabled = !isSubmitting,
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -564,6 +576,7 @@ fun RegisterScreenContent(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it; passwordError = null },
+            enabled = !isSubmitting,
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
             modifier = Modifier
                 .fillMaxWidth()
@@ -585,6 +598,7 @@ fun RegisterScreenContent(
                 .fillMaxWidth()
                 .toggleable(
                     value = acceptedTerms,
+                    enabled = !isSubmitting,
                     role = Role.Checkbox,
                     onValueChange = {
                         acceptedTerms = it
@@ -628,6 +642,7 @@ fun RegisterScreenContent(
         Spacer(modifier = Modifier.height(24.dp))
         Button(
             onClick = { validateAndRegister() },
+            enabled = !isSubmitting,
             colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold),
             modifier = Modifier
                 .fillMaxWidth()
@@ -635,6 +650,10 @@ fun RegisterScreenContent(
                 .testTag("register_button"),
             shape = RoundedCornerShape(12.dp)
         ) {
+            if (isSubmitting) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = OnAccent)
+                Spacer(Modifier.width(8.dp))
+            }
             Text(tr("ចុះឈ្មោះភ្លាមៗ", "Register Now"), color = OnAccent, fontWeight = FontWeight.Bold)
         }
     }
