@@ -101,6 +101,39 @@ object AuthStore {
         inMemorySession = session
     }
 
+    suspend fun fetchProfile(c: Context, accessToken: String): Session? = withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = (URL("$AUTH_BASE_URL/auth/me").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = TIMEOUT_MS
+                readTimeout = TIMEOUT_MS
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $accessToken")
+                setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
+            }
+            val code = conn.responseCode
+            val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()
+                ?.use { it.readText() }
+                .orEmpty()
+            if (code !in 200..299) throw IOException("HTTP $code")
+            val root = JSONObject(body)
+            val dataObj = root.optJSONObject("data") ?: root
+            val user = dataObj.optJSONObject("user") ?: dataObj
+            val userId = user.opt("id")?.toString()?.trim().orEmpty()
+            val email = user.optString("email").trim()
+            val name = user.optString("name").trim().ifBlank { email.substringBefore("@") }
+            val createdAt = user.optString("createdAt").ifBlank { user.optString("created_at") }.trim()
+            Session(
+                userId = userId,
+                displayName = name,
+                email = email,
+                accessToken = accessToken,
+                createdAt = createdAt.takeIf { it.isNotBlank() }
+            )
+        }.getOrNull()
+    }
+
     private var inMemorySession: Session? = null
 
     internal fun saveSessionForTests(c: Context, session: Session): AuthResult =

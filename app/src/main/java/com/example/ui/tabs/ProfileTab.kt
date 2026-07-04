@@ -115,9 +115,25 @@ fun ProfileSettingsContent(
     var profileImageUri by remember { mutableStateOf(prefs.getString("profile_image_uri", null)?.let { Uri.parse(it) }) }
     var cloudSyncEnabled by remember { mutableStateOf(AppStore.isCloudSyncEnabled(context)) }
     var showClearDataDialog by remember { mutableStateOf(false) }
-    val memberSinceYear = remember {
-        val session = AuthStore.currentSession(context)
-        session?.createdAt?.take(4)?.toIntOrNull() ?: prefs.getInt("member_since", 2024)
+    var memberSinceYear by remember {
+        mutableIntStateOf(
+            AuthStore.currentSession(context)?.createdAt?.take(4)?.toIntOrNull()
+                ?: prefs.getInt("member_since", 2024)
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        val s = AuthStore.currentSession(context)
+        if (s != null) {
+            val updated = AuthStore.fetchProfile(context, s.accessToken)
+            if (updated != null) {
+                val year = updated.createdAt?.take(4)?.toIntOrNull()
+                if (year != null) {
+                    prefs.edit().putInt("member_since", year).apply()
+                    memberSinceYear = year
+                }
+            }
+        }
     }
 
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
