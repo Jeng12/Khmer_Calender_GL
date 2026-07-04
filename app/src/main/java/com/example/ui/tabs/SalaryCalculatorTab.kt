@@ -147,8 +147,27 @@ fun SalaryCalculatorTabContent() {
                     Spacer(modifier = Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Hourly rate", settings.hourlyRate, { settings = settings.copy(hourlyRate = it) }, Modifier.weight(1f))
-                    SalaryInput("Daily rate", settings.dailyRate, { settings = settings.copy(dailyRate = it) }, Modifier.weight(1f))
+                    val displayHourly = if (settings.basicSalary.isNotBlank()) {
+                        if (summary.hourlyRate > 0) String.format("%.2f", summary.hourlyRate) else ""
+                    } else settings.hourlyRate
+                    val displayDaily = if (settings.basicSalary.isNotBlank()) {
+                        if (summary.dailyRate > 0) String.format("%.2f", summary.dailyRate) else ""
+                    } else settings.dailyRate
+
+                    SalaryInput(
+                        label = "Hourly rate",
+                        value = displayHourly,
+                        onValueChange = { if (settings.basicSalary.isBlank()) settings = settings.copy(hourlyRate = it) },
+                        modifier = Modifier.weight(1f),
+                        enabled = settings.basicSalary.isBlank()
+                    )
+                    SalaryInput(
+                        label = "Daily rate",
+                        value = displayDaily,
+                        onValueChange = { if (settings.basicSalary.isBlank()) settings = settings.copy(dailyRate = it) },
+                        modifier = Modifier.weight(1f),
+                        enabled = settings.basicSalary.isBlank()
+                    )
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Overtime x", settings.overtimeRate, { settings = settings.copy(overtimeRate = it) }, Modifier.weight(1f))
@@ -236,7 +255,9 @@ internal data class SalarySummary(
     val grossSalary: Double,
     val taxDeduction: Double,
     val otherDeductions: Double,
-    val netSalary: Double
+    val netSalary: Double,
+    val hourlyRate: Double,
+    val dailyRate: Double
 )
 
 private fun buildSalarySummary(
@@ -366,7 +387,9 @@ internal fun calculateSalarySummary(
         grossSalary = gross,
         taxDeduction = tax,
         otherDeductions = otherDeductions,
-        netSalary = gross - tax - otherDeductions
+        netSalary = gross - tax - otherDeductions,
+        hourlyRate = hourlyRate,
+        dailyRate = dailyRate
     )
 }
 
@@ -381,7 +404,7 @@ private fun weekKey(year: Int, month: Int, day: Int): String {
 }
 
 @Composable
-private fun SalaryInput(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun SalaryInput(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
     OutlinedTextField(
         value = value,
@@ -391,6 +414,7 @@ private fun SalaryInput(label: String, value: String, onValueChange: (String) ->
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         textStyle = TextStyle(color = sandText, fontSize = 12.sp),
         modifier = modifier,
+        enabled = enabled,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = TraditionalGold,
             unfocusedBorderColor = deepBorder,
