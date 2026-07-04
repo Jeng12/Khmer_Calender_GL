@@ -265,13 +265,15 @@ private fun buildSalarySummary(
             toCal = to
         ).filterNot { it.blocked }
     }
-    return calculateSalarySummary(workDays, holidayDays, settings)
+    return calculateSalarySummary(workDays, holidayDays, settings, from, to)
 }
 
 internal fun calculateSalarySummary(
     workDays: List<WorkCycleEngine.WorkDay>,
     holidayDays: Set<Int>, // Set of YYYYMMDD integers
-    settings: AppStore.SalaryCalculatorSettings
+    settings: AppStore.SalaryCalculatorSettings,
+    fromCal: Calendar? = null,
+    toCal: Calendar? = null
 ): SalarySummary {
     val dayHours = workDays.filter { !it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
     val nightHours = workDays.filter { it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
@@ -288,16 +290,27 @@ internal fun calculateSalarySummary(
         .sumOf { week ->
             max(0.0, week.sumOf { (it.endMs - it.startMs) / HOUR_MS } - STANDARD_WEEKLY_HOURS)
         }
-        }
-
     val basicSalary = settings.basicSalary.moneyValue()
     var standardWorkDays = 0
-    val c = from.clone() as Calendar
-    while (!c.after(to)) {
-        if (c.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY) {
-            standardWorkDays++
+    if (basicSalary > 0) {
+        val from = fromCal ?: if (workDays.isNotEmpty()) {
+            val maxDay = workDays.maxByOrNull { it.year * 10000 + it.month * 100 + it.day }!!
+            WorkCycleEngine.cycleStart(maxDay.year, maxDay.month, 1)
+        } else null
+
+        val to = toCal ?: from?.let {
+            (it.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
         }
-        c.add(Calendar.DAY_OF_YEAR, 1)
+
+        if (from != null && to != null) {
+            val c = from.clone() as Calendar
+            while (!c.after(to)) {
+                if (c.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY) {
+                    standardWorkDays++
+                }
+                c.add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
     }
 
     val hourlyRate = if (basicSalary > 0 && standardWorkDays > 0) {
