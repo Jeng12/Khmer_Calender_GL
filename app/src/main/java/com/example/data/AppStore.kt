@@ -487,10 +487,11 @@ object AppStore {
 
     data class SalaryCalculatorSettings(
         val hourlyRate: String = "",
-        val overtimeRate: String = "",
-        val nightShiftRate: String = "",
-        val holidayDayRate: String = "",
-        val holidayNightRate: String = "",
+        val dailyRate: String = "",
+        val overtimeRate: String = "1.5",
+        val nightShiftRate: String = "1.3",
+        val holidayDayRate: String = "2.0",
+        val holidayNightRate: String = "2.6",
         val benefits: String = "",
         val bonuses: String = "",
         val allowances: String = "",
@@ -631,10 +632,11 @@ object AppStore {
             val o = JSONObject(raw)
             SalaryCalculatorSettings(
                 hourlyRate = o.optString("hourlyRate"),
-                overtimeRate = o.optString("overtimeRate").ifBlank { o.optString("overtime") },
-                nightShiftRate = o.optString("nightShiftRate"),
-                holidayDayRate = o.optString("holidayDayRate"),
-                holidayNightRate = o.optString("holidayNightRate"),
+                dailyRate = o.optString("dailyRate"),
+                overtimeRate = o.optString("overtimeRate").ifBlank { o.optString("overtime").ifBlank { "1.5" } },
+                nightShiftRate = o.optString("nightShiftRate").ifBlank { "1.3" },
+                holidayDayRate = o.optString("holidayDayRate").ifBlank { "2.0" },
+                holidayNightRate = o.optString("holidayNightRate").ifBlank { "2.6" },
                 benefits = o.optString("benefits"),
                 bonuses = o.optString("bonuses"),
                 allowances = o.optString("allowances"),
@@ -649,6 +651,7 @@ object AppStore {
     fun saveSalaryCalculatorSettings(c: Context, settings: SalaryCalculatorSettings, monthKey: String? = null) {
         val o = JSONObject().apply {
             put("hourlyRate", settings.hourlyRate)
+            put("dailyRate", settings.dailyRate)
             put("overtimeRate", settings.overtimeRate)
             put("nightShiftRate", settings.nightShiftRate)
             put("holidayDayRate", settings.holidayDayRate)
