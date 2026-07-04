@@ -486,6 +486,7 @@ object AppStore {
     const val CYCLE_SLOTS = 31
 
     data class SalaryCalculatorSettings(
+        val basicSalary: String = "",
         val hourlyRate: String = "",
         val dailyRate: String = "",
         val overtimeRate: String = "1.5",
@@ -631,6 +632,7 @@ object AppStore {
         return try {
             val o = JSONObject(raw)
             SalaryCalculatorSettings(
+                basicSalary = o.optString("basicSalary"),
                 hourlyRate = o.optString("hourlyRate"),
                 dailyRate = o.optString("dailyRate"),
                 overtimeRate = o.optString("overtimeRate").ifBlank { o.optString("overtime").ifBlank { "1.5" } },
@@ -650,6 +652,7 @@ object AppStore {
 
     fun saveSalaryCalculatorSettings(c: Context, settings: SalaryCalculatorSettings, monthKey: String? = null) {
         val o = JSONObject().apply {
+            put("basicSalary", settings.basicSalary)
             put("hourlyRate", settings.hourlyRate)
             put("dailyRate", settings.dailyRate)
             put("overtimeRate", settings.overtimeRate)

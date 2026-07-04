@@ -143,6 +143,10 @@ fun SalaryCalculatorTabContent() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SalaryInput("Basic salary", settings.basicSalary, { settings = settings.copy(basicSalary = it) }, Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Hourly rate", settings.hourlyRate, { settings = settings.copy(hourlyRate = it) }, Modifier.weight(1f))
                     SalaryInput("Daily rate", settings.dailyRate, { settings = settings.copy(dailyRate = it) }, Modifier.weight(1f))
                 }
@@ -284,8 +288,30 @@ internal fun calculateSalarySummary(
         .sumOf { week ->
             max(0.0, week.sumOf { (it.endMs - it.startMs) / HOUR_MS } - STANDARD_WEEKLY_HOURS)
         }
+        }
 
-    val hourlyRate = settings.hourlyRate.moneyValue()
+    val basicSalary = settings.basicSalary.moneyValue()
+    var standardWorkDays = 0
+    val c = from.clone() as Calendar
+    while (!c.after(to)) {
+        if (c.get(Calendar.DAY_OF_WEEK) != Calendar.SUNDAY) {
+            standardWorkDays++
+        }
+        c.add(Calendar.DAY_OF_YEAR, 1)
+    }
+
+    val hourlyRate = if (basicSalary > 0 && standardWorkDays > 0) {
+        basicSalary / (standardWorkDays * 8.0)
+    } else {
+        settings.hourlyRate.moneyValue()
+    }
+    
+    val dailyRate = if (basicSalary > 0 && standardWorkDays > 0) {
+        basicSalary / standardWorkDays
+    } else {
+        settings.dailyRate.moneyValue()
+    }
+
     val otRate = settings.overtimeRate.moneyValue()
     val nRate = settings.nightShiftRate.moneyValue()
     val hdRate = settings.holidayDayRate.moneyValue()
@@ -300,7 +326,7 @@ internal fun calculateSalarySummary(
     val holidayDayPremium = holidayDayHours * hourlyRate * max(0.0, hdRate - 1.0)
     val holidayNightPremium = holidayNightHours * hourlyRate * max(0.0, hnRate - 1.0)
 
-    val defaultBonus = (settings.dailyRate.moneyValue() * (totalHours / 8.0)) / 6.0
+    val defaultBonus = (dailyRate * (totalHours / 8.0)) / 6.0
     val bonusPay = settings.bonuses.trim().toDoubleOrNull() ?: defaultBonus
     val additions = settings.benefits.moneyValue() + settings.allowances.moneyValue()
 
