@@ -52,6 +52,7 @@ import com.example.ui.theme.TraditionalGold
 import java.util.Calendar
 import kotlin.math.max
 
+private const val STANDARD_DAILY_HOURS = 8.0
 private const val STANDARD_WEEKLY_HOURS = 48.0
 private const val HOUR_MS = 3_600_000.0
 
@@ -135,22 +136,25 @@ fun SalaryCalculatorTabContent() {
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Hourly rate", settings.hourlyRate, { settings = settings.copy(hourlyRate = it) }, Modifier.weight(1f))
-                    SalaryInput("Overtime rate", settings.overtimeRate, { settings = settings.copy(overtimeRate = it) }, Modifier.weight(1f))
+                    SalaryInput("Daily rate", settings.dailyRate, { settings = settings.copy(dailyRate = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Night shift rate", settings.nightShiftRate, { settings = settings.copy(nightShiftRate = it) }, Modifier.weight(1f))
-                    SalaryInput("Holiday day rate", settings.holidayDayRate, { settings = settings.copy(holidayDayRate = it) }, Modifier.weight(1f))
+                    SalaryInput("Overtime x", settings.overtimeRate, { settings = settings.copy(overtimeRate = it) }, Modifier.weight(1f))
+                    SalaryInput("Night shift x", settings.nightShiftRate, { settings = settings.copy(nightShiftRate = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Holiday night rate", settings.holidayNightRate, { settings = settings.copy(holidayNightRate = it) }, Modifier.weight(1f))
+                    SalaryInput("Holiday day x", settings.holidayDayRate, { settings = settings.copy(holidayDayRate = it) }, Modifier.weight(1f))
+                    SalaryInput("Holiday night x", settings.holidayNightRate, { settings = settings.copy(holidayNightRate = it) }, Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Tax / VAT %", settings.taxVatPercent, { settings = settings.copy(taxVatPercent = it) }, Modifier.weight(1f))
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Benefits", settings.benefits, { settings = settings.copy(benefits = it) }, Modifier.weight(1f))
-                    SalaryInput("Bonuses", settings.bonuses, { settings = settings.copy(bonuses = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SalaryInput("Bonus override", settings.bonuses, { settings = settings.copy(bonuses = it) }, Modifier.weight(1f))
                     SalaryInput("Allowances", settings.allowances, { settings = settings.copy(allowances = it) }, Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SalaryInput("Other deductions", settings.otherDeductions, { settings = settings.copy(otherDeductions = it) }, Modifier.weight(1f))
                 }
             }
@@ -175,19 +179,21 @@ fun SalaryCalculatorTabContent() {
                     Text(tr("មិនអាចទាញថ្ងៃបុណ្យ API បាន។ ការគណនាថ្ងៃបុណ្យអាចមិនពេញលេញ។", "Holiday API failed. Holiday pay may be incomplete."), fontSize = 10.sp, color = CrimsonHoliday)
                 }
                 SalarySummaryRow("Working days", summary.workingDays.toString())
-                SalarySummaryRow("Total hours", summary.totalHours.hourLabel())
-                SalarySummaryRow("Regular hours", summary.regularHours.hourLabel())
-                SalarySummaryRow("Overtime hours", summary.overtimeHours.hourLabel())
+                SalarySummaryRow("Total work hours", summary.totalHours.hourLabel(), highlight = true)
+                SalarySummaryRow("Incl. Overtime", summary.overtimeHours.hourLabel())
+                HorizontalDivider(color = deepBorder, modifier = Modifier.padding(vertical = 4.dp))
+                SalarySummaryRow("Day hours", summary.dayHours.hourLabel())
                 SalarySummaryRow("Night shift hours", summary.nightHours.hourLabel())
                 SalarySummaryRow("Holiday day hours", summary.holidayDayHours.hourLabel())
                 SalarySummaryRow("Holiday night hours", summary.holidayNightHours.hourLabel())
                 HorizontalDivider(color = deepBorder)
-                SalarySummaryRow("Regular pay", summary.regularPay.moneyLabel())
-                SalarySummaryRow("Overtime pay", summary.overtimePay.moneyLabel())
-                SalarySummaryRow("Night shift pay", summary.nightPay.moneyLabel())
-                SalarySummaryRow("Holiday day pay", summary.holidayDayPay.moneyLabel())
-                SalarySummaryRow("Holiday night pay", summary.holidayNightPay.moneyLabel())
-                SalarySummaryRow("Benefits + bonuses + allowances", summary.additions.moneyLabel())
+                SalarySummaryRow("Base pay (Total × Rate)", summary.basePay.moneyLabel())
+                SalarySummaryRow("Overtime premium", summary.overtimePremium.moneyLabel())
+                SalarySummaryRow("Night shift premium", summary.nightPremium.moneyLabel())
+                SalarySummaryRow("Holiday day premium", summary.holidayDayPremium.moneyLabel())
+                SalarySummaryRow("Holiday night premium", summary.holidayNightPremium.moneyLabel())
+                SalarySummaryRow("Default/override bonus", summary.bonusPay.moneyLabel())
+                SalarySummaryRow("Benefits + allowances", summary.additions.moneyLabel())
                 SalarySummaryRow("Gross salary", summary.grossSalary.moneyLabel(), highlight = true)
                 SalarySummaryRow("Tax / VAT deduction", "-${summary.taxDeduction.moneyLabel()}")
                 SalarySummaryRow("Other deductions", "-${summary.otherDeductions.moneyLabel()}")
@@ -200,19 +206,20 @@ fun SalaryCalculatorTabContent() {
     }
 }
 
-private data class SalarySummary(
+internal data class SalarySummary(
     val workingDays: Int,
     val totalHours: Double,
-    val regularHours: Double,
-    val overtimeHours: Double,
+    val dayHours: Double,
     val nightHours: Double,
     val holidayDayHours: Double,
     val holidayNightHours: Double,
-    val regularPay: Double,
-    val overtimePay: Double,
-    val nightPay: Double,
-    val holidayDayPay: Double,
-    val holidayNightPay: Double,
+    val overtimeHours: Double,
+    val basePay: Double,
+    val overtimePremium: Double,
+    val nightPremium: Double,
+    val holidayDayPremium: Double,
+    val holidayNightPremium: Double,
+    val bonusPay: Double,
     val additions: Double,
     val grossSalary: Double,
     val taxDeduction: Double,
@@ -229,9 +236,14 @@ private fun buildSalarySummary(
 ): SalarySummary {
     val base = AppStore.getShiftCycle(context)
     val schedules = AppStore.getCycleSnapshots(context)
-    val from = Calendar.getInstance().apply { clear(); set(year, month - 1, 1) }
-    val to = Calendar.getInstance().apply { clear(); set(year, month - 1, from.getActualMaximum(Calendar.DAY_OF_MONTH)) }
-    val holidayDays = holidays.filter { it.date.year == year && it.date.monthValue == month }.map { it.date.dayOfMonth }.toSet()
+    val from = WorkCycleEngine.cycleStart(year, month, 26) // Start of 26-25 cycle
+    val to = (from.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
+
+    // Holiday categorization: check all days in the cycle range
+    val holidayDays = holidays.map { h ->
+        h.date.year * 10000 + h.date.monthValue * 100 + h.date.dayOfMonth
+    }.toSet()
+
     val workDays = if (base == null) {
         emptyList()
     } else {
@@ -241,40 +253,68 @@ private fun buildSalarySummary(
             toCal = to
         ).filterNot { it.blocked }
     }
+    return calculateSalarySummary(workDays, holidayDays, settings)
+}
 
-    val totalHours = workDays.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+internal fun calculateSalarySummary(
+    workDays: List<WorkCycleEngine.WorkDay>,
+    holidayDays: Set<Int>, // Set of YYYYMMDD integers
+    settings: AppStore.SalaryCalculatorSettings
+): SalarySummary {
+    val dayHours = workDays.filter { !it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+    val nightHours = workDays.filter { it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+    val holidayDayHours = workDays.filter { !it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+    val holidayNightHours = workDays.filter { it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+
+    // Total Work Hours = Day + Night + Holiday Day + Holiday Night
+    val totalHours = dayHours + nightHours + holidayDayHours + holidayNightHours
+
+    // Overtime = WeeklyOT per week (hours exceeding the regular weekly limit of 48 hours)
     val overtimeHours = workDays
         .groupBy { weekKey(it.year, it.month, it.day) }
         .values
-        .sumOf { week -> max(0.0, week.sumOf { (it.endMs - it.startMs) / HOUR_MS } - STANDARD_WEEKLY_HOURS) }
-    val regularHours = max(0.0, totalHours - overtimeHours)
-    val nightHours = workDays.filter { it.shift.isOvernight && it.day !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
-    val holidayDayHours = workDays.filter { !it.shift.isOvernight && it.day in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
-    val holidayNightHours = workDays.filter { it.shift.isOvernight && it.day in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
+        .sumOf { week ->
+            max(0.0, week.sumOf { (it.endMs - it.startMs) / HOUR_MS } - STANDARD_WEEKLY_HOURS)
+        }
 
-    val regularPay = regularHours * settings.hourlyRate.moneyValue()
-    val overtimePay = overtimeHours * settings.overtimeRate.moneyValue()
-    val nightPay = nightHours * settings.nightShiftRate.moneyValue()
-    val holidayDayPay = holidayDayHours * settings.holidayDayRate.moneyValue()
-    val holidayNightPay = holidayNightHours * settings.holidayNightRate.moneyValue()
-    val additions = settings.benefits.moneyValue() + settings.bonuses.moneyValue() + settings.allowances.moneyValue()
-    val gross = regularPay + overtimePay + nightPay + holidayDayPay + holidayNightPay + additions
+    val hourlyRate = settings.hourlyRate.moneyValue()
+    val otRate = settings.overtimeRate.moneyValue()
+    val nRate = settings.nightShiftRate.moneyValue()
+    val hdRate = settings.holidayDayRate.moneyValue()
+    val hnRate = settings.holidayNightRate.moneyValue()
+
+    // Base Pay = Total Work Hours × Hourly Rate
+    val basePay = totalHours * hourlyRate
+
+    // Premiums (Additional multiplier amount)
+    val overtimePremium = overtimeHours * hourlyRate * max(0.0, otRate - 1.0)
+    val nightPremium = nightHours * hourlyRate * max(0.0, nRate - 1.0)
+    val holidayDayPremium = holidayDayHours * hourlyRate * max(0.0, hdRate - 1.0)
+    val holidayNightPremium = holidayNightHours * hourlyRate * max(0.0, hnRate - 1.0)
+
+    val defaultBonus = (settings.dailyRate.moneyValue() * (totalHours / 8.0)) / 6.0
+    val bonusPay = settings.bonuses.trim().toDoubleOrNull() ?: defaultBonus
+    val additions = settings.benefits.moneyValue() + settings.allowances.moneyValue()
+
+    // Gross Pay = Base Pay + All Premiums + Bonuses + Additions
+    val gross = basePay + overtimePremium + nightPremium + holidayDayPremium + holidayNightPremium + bonusPay + additions
     val tax = gross * (settings.taxVatPercent.moneyValue() / 100.0)
     val otherDeductions = settings.otherDeductions.moneyValue()
 
     return SalarySummary(
         workingDays = workDays.size,
         totalHours = totalHours,
-        regularHours = regularHours,
-        overtimeHours = overtimeHours,
+        dayHours = dayHours,
         nightHours = nightHours,
         holidayDayHours = holidayDayHours,
         holidayNightHours = holidayNightHours,
-        regularPay = regularPay,
-        overtimePay = overtimePay,
-        nightPay = nightPay,
-        holidayDayPay = holidayDayPay,
-        holidayNightPay = holidayNightPay,
+        overtimeHours = overtimeHours,
+        basePay = basePay,
+        overtimePremium = overtimePremium,
+        nightPremium = nightPremium,
+        holidayDayPremium = holidayDayPremium,
+        holidayNightPremium = holidayNightPremium,
+        bonusPay = bonusPay,
         additions = additions,
         grossSalary = gross,
         taxDeduction = tax,
