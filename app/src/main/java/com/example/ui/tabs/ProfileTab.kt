@@ -115,6 +115,10 @@ fun ProfileSettingsContent(
     var profileImageUri by remember { mutableStateOf(prefs.getString("profile_image_uri", null)?.let { Uri.parse(it) }) }
     var cloudSyncEnabled by remember { mutableStateOf(AppStore.isCloudSyncEnabled(context)) }
     var showClearDataDialog by remember { mutableStateOf(false) }
+    val memberSinceYear = remember {
+        val session = AuthStore.currentSession(context)
+        session?.createdAt?.take(4)?.toIntOrNull() ?: prefs.getInt("member_since", 2024)
+    }
 
     val (NightBlack, _, PlumSurface, PlumCard, DeepBorder, _, SandText, GoldSubText, DimColor) = LocalAppColors.current
 
@@ -308,7 +312,23 @@ fun ProfileSettingsContent(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("✏️", fontSize = 12.sp)
                     }
-                    Text(tr("សមាជិកតាំងពីឆ្នាំ ២០២៤", "Member since 2024"), fontSize = 10.sp, color = GoldSubText)
+                    val memberYearStr = memberSinceYear.toString()
+                    val khmerYear = memberYearStr.map {
+                        when (it) {
+                            '0' -> '០'
+                            '1' -> '១'
+                            '2' -> '២'
+                            '3' -> '៣'
+                            '4' -> '៤'
+                            '5' -> '៥'
+                            '6' -> '៦'
+                            '7' -> '៧'
+                            '8' -> '៨'
+                            '9' -> '៩'
+                            else -> it
+                        }
+                    }.joinToString("")
+                    Text(tr("សមាជិកតាំងពីឆ្នាំ $khmerYear", "Member since $memberYearStr"), fontSize = 10.sp, color = GoldSubText)
                 }
             }
         }

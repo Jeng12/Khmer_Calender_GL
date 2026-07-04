@@ -116,8 +116,10 @@ fun KhmerCalendarApp() {
 
     fun enterMainApp(session: AuthStore.Session) {
         authSession = session
+        val memberSince = session.createdAt?.take(4)?.toIntOrNull() ?: 2024
         langPrefs.edit()
             .putString("user_name", session.displayName)
+            .putInt("member_since", memberSince)
             .putBoolean("logged_out", false)
             .apply()
         screenState = AppScreen.MAIN_APP

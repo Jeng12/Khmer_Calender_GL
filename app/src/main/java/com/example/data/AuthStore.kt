@@ -19,7 +19,8 @@ object AuthStore {
         val userId: String,
         val displayName: String,
         val email: String,
-        val accessToken: String
+        val accessToken: String,
+        val createdAt: String? = null
     )
 
     sealed class AuthResult {
@@ -127,7 +128,8 @@ object AuthStore {
             userId = o.optString("user_id"),
             displayName = o.optString("display_name"),
             email = o.optString("email"),
-            accessToken = o.optString("access_token")
+            accessToken = o.optString("access_token"),
+            createdAt = o.optString("created_at").takeIf { it.isNotBlank() }
         ).takeIf { it.userId.isNotBlank() && it.accessToken.isNotBlank() }
     }.getOrNull()
 
@@ -136,6 +138,7 @@ object AuthStore {
         .put("display_name", session.displayName)
         .put("email", session.email)
         .put("access_token", session.accessToken)
+        .put("created_at", session.createdAt)
         .put("api_authenticated", true)
 
     private fun normalizeEmail(email: String): String = email.trim().lowercase()
@@ -174,14 +177,13 @@ object AuthStore {
         val userId = user.opt("id")?.toString()?.trim().orEmpty()
         val email = user.optString("email").trim()
         val name = user.optString("name").trim().ifBlank { email.substringBefore("@") }
-        if (userId.isBlank() || email.isBlank() || token.isBlank()) {
-            throw IOException("Authentication API returned an incomplete session")
-        }
+        val createdAt = user.optString("createdAt").ifBlank { user.optString("created_at") }.trim()
         return Session(
             userId = userId,
             displayName = name,
             email = email,
-            accessToken = token
+            accessToken = token,
+            createdAt = createdAt.takeIf { it.isNotBlank() }
         )
     }
 
