@@ -118,8 +118,16 @@ fun SalaryCalculatorTabContent() {
             ) {
                 Text("<", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { changeMonth(-1) }.padding(horizontal = 16.dp, vertical = 4.dp))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("${GREG_MONTHS_EN[selectedMonth - 1]} $selectedYear", fontSize = 15.sp, color = sandText, fontWeight = FontWeight.Bold)
-                    Text(tr("ខែដែលត្រូវគណនា", "Selected salary month"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    val prevMonth = if (selectedMonth == 1) 12 else selectedMonth - 1
+                    val prevYear = if (selectedMonth == 1) selectedYear - 1 else selectedYear
+                    val prevMonthShort = GREG_MONTHS_EN[prevMonth - 1].take(3)
+                    val curMonthShort = GREG_MONTHS_EN[selectedMonth - 1].take(3)
+                    val rangeLabel = if (prevYear != selectedYear)
+                        "26 $prevMonthShort $prevYear – 25 $curMonthShort $selectedYear"
+                    else
+                        "26 $prevMonthShort – 25 $curMonthShort $selectedYear"
+                    Text(rangeLabel, fontSize = 14.sp, color = sandText, fontWeight = FontWeight.Bold)
+                    Text(tr("វដ្តប្រាក់ខែ", "Salary cycle"), fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                 }
                 Text(">", fontSize = 22.sp, color = TraditionalGold, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { changeMonth(1) }.padding(horizontal = 16.dp, vertical = 4.dp))
             }
