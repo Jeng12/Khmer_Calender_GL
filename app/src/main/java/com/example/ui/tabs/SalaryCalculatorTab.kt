@@ -244,7 +244,7 @@ private fun buildSalarySummary(
 ): SalarySummary {
     val base = AppStore.getShiftCycle(context)
     val schedules = AppStore.getCycleSnapshots(context)
-    val from = WorkCycleEngine.cycleStart(year, month, 26) // Start of 26-25 cycle
+    val from = WorkCycleEngine.cycleStart(year, month, 1) // Salary cycle: 26th of prev month → 25th of this month
     val to = (from.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
 
     // Holiday categorization: check all days in the cycle range
