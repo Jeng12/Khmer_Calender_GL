@@ -412,6 +412,18 @@ object CalendarApiRepository {
             ::parseEvent
         )
 
+    /**
+     * Public suspend version — called by SyncRepository.pullWorkScheduleFromRemote
+     * to fetch a wide date-range of work shifts for the initial full sync.
+     */
+    suspend fun fetchWorkShiftsPublic(from: LocalDate, to: LocalDate): List<CalendarApiWorkShift> =
+        withContext(Dispatchers.IO) {
+            parseDataList(
+                getJson("/work-schedule/days?from=${from.toString().urlEncoded()}&to=${to.toString().urlEncoded()}"),
+                ::parseWorkShift
+            )
+        }
+
     private fun fetchWorkShifts(from: LocalDate, to: LocalDate): List<CalendarApiWorkShift> =
         parseDataList(
             getJson("/work-schedule/days?from=${from.toString().urlEncoded()}&to=${to.toString().urlEncoded()}"),

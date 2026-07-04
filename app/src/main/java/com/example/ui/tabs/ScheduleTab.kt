@@ -7,6 +7,11 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +36,7 @@ import com.example.core.*
 import com.example.data.AppStore
 import com.example.data.SyncRepository
 import com.example.data.WorkCycleEngine
+import com.example.ui.components.ScheduleShimmer
 import com.example.ui.theme.*
 import com.example.widget.WidgetPrefs
 import kotlinx.coroutines.launch
@@ -97,6 +103,29 @@ fun ScheduleTabContent() {
         }
     }
 
+    var isLoadingSchedule by remember {
+        mutableStateOf(
+            AppStore.isCloudSyncEnabled(context) &&
+                cycle?.isConfigured != true &&
+                schedules.isEmpty()
+        )
+    }
+
+    // Pull the latest work schedule from the remote DB when the tab opens,
+    // then refresh local Compose state so the UI reflects the synced data.
+    LaunchedEffect(Unit) {
+        if (AppStore.isCloudSyncEnabled(context)) {
+            if (cycle?.isConfigured != true && schedules.isEmpty()) {
+                isLoadingSchedule = true
+            }
+            SyncRepository.pullWorkScheduleFromRemote(context)
+        }
+        cycle = AppStore.getShiftCycle(context)
+        schedules = AppStore.getCycleSnapshots(context)
+        isLoadingSchedule = false
+        WidgetPrefs.refresh(context)
+    }
+
     // Edit-shift dialog
     editingShift?.let { shift ->
         ShiftTimeEditor(
@@ -138,7 +167,19 @@ fun ScheduleTabContent() {
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(nightBlack)) {
+    AnimatedContent(
+        targetState = isLoadingSchedule,
+        transitionSpec = {
+            fadeIn(tween(250)) togetherWith fadeOut(tween(180))
+        },
+        label = "ScheduleLoading"
+    ) { loading ->
+        if (loading) {
+            Box(modifier = Modifier.fillMaxSize().background(nightBlack).padding(16.dp)) {
+                ScheduleShimmer()
+            }
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(nightBlack)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -581,6 +622,8 @@ fun ScheduleTabContent() {
             }
         }
     }
+}
+}
 }
 
 @Composable

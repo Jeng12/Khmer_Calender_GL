@@ -18,6 +18,8 @@ object SyncRepository {
     private const val OPS_KEY = "pending_ops"
     private const val INITIAL_SYNC_QUEUED_KEY = "initial_sync_queued"
     private const val LAST_SUCCESS_MS_KEY = "last_success_ms"
+    private const val MONTH_CACHE_MAX_AGE_MS = 30L * 60L * 1000L
+    private const val WORK_SCHEDULE_PULL_MAX_AGE_MS = 6L * 60L * 60L * 1000L
 
     private const val TYPE_NOTE = "note"
     private const val TYPE_REMINDER = "reminder"
@@ -229,14 +231,71 @@ object SyncRepository {
         if (!AppStore.isCloudSyncEnabled(context)) {
             return Result.failure(IOException("Cloud sync is disabled"))
         }
+        if (!forceRefresh && readOps(context).isEmpty()) {
+            val cached = loadCachedMonthOverlays(context, year, month, MONTH_CACHE_MAX_AGE_MS)
+            if (cached != null) return Result.success(cached)
+        }
         syncPending(context)
         return CalendarApiRepository.fetchMonthOverlays(year, month, forceRefresh)
             .onSuccess { overlays ->
                 materializeMonthOverlays(context, overlays)
+                saveCachedMonthOverlays(context, overlays)
                 prefs(context).edit()
                     .putLong("last_refresh_${year}_$month", System.currentTimeMillis())
                     .apply()
             }
+            .recoverCatching { error ->
+                loadCachedMonthOverlays(context, year, month, maxAgeMs = null)
+                    ?: throw error
+            }
+    }
+
+    fun loadCachedMonthOverlays(
+        context: Context,
+        year: Int,
+        month: Int,
+        maxAgeMs: Long? = null
+    ): CalendarApiMonthOverlays? {
+        val p = prefs(context)
+        val key = monthCacheKey(year, month)
+        val savedAt = p.getLong("${key}_saved_at", 0L)
+        if (maxAgeMs != null && savedAt > 0L && System.currentTimeMillis() - savedAt > maxAgeMs) {
+            return null
+        }
+        val raw = p.getString(key, null) ?: return null
+        return runCatching { parseCachedMonthOverlays(JSONObject(raw)) }.getOrNull()
+    }
+
+    /**
+     * Pull the full work schedule from the remote DB and materialize it locally.
+     * Fetches a 6-month window (3 months back + 3 months forward) so the schedule
+     * tab always has current data after login or when cloud sync is first enabled.
+     * Only runs when cloud sync is enabled and there are no unsent local schedule changes.
+     */
+    suspend fun pullWorkScheduleFromRemote(context: Context): Result<Unit> {
+        if (!AppStore.isCloudSyncEnabled(context)) return Result.success(Unit)
+        // Don't overwrite local unsent changes
+        val hasPendingCycleOps = readOps(context).any {
+            it.type == TYPE_SCHEDULE && (it.action == ACTION_CYCLE || it.action == ACTION_SETTINGS)
+        }
+        if (hasPendingCycleOps) return Result.success(Unit)
+        val p = prefs(context)
+        val lastPull = p.getLong("work_schedule_last_pull_ms", 0L)
+        val hasLocalSchedule = AppStore.getShiftCycle(context)?.isConfigured == true ||
+            AppStore.getCycleSnapshots(context).isNotEmpty()
+        if (hasLocalSchedule && System.currentTimeMillis() - lastPull < WORK_SCHEDULE_PULL_MAX_AGE_MS) {
+            return Result.success(Unit)
+        }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val today = java.time.LocalDate.now()
+                val from = today.minusMonths(3).withDayOfMonth(1)
+                val to = today.plusMonths(3).withDayOfMonth(today.plusMonths(3).lengthOfMonth())
+                val shifts = CalendarApiRepository.fetchWorkShiftsPublic(from, to)
+                materializeWorkShifts(context, shifts)
+                p.edit().putLong("work_schedule_last_pull_ms", System.currentTimeMillis()).apply()
+            }
+        }
     }
 
     suspend fun syncPending(context: Context): Result<Int> {
@@ -310,7 +369,13 @@ object SyncRepository {
             )
         }
 
-        if (readOps(context).none { it.type == TYPE_SCHEDULE }) {
+        // Only skip remote work shifts if there are unsent local changes (ACTION_CYCLE or
+        // ACTION_SETTINGS pending), to avoid overwriting in-flight edits. Sent ops that are
+        // still in the list but already processed don't block the pull.
+        val hasUnsentScheduleOps = readOps(context).any {
+            it.type == TYPE_SCHEDULE && (it.action == ACTION_CYCLE || it.action == ACTION_SETTINGS)
+        }
+        if (!hasUnsentScheduleOps) {
             materializeWorkShifts(context, overlays.workShifts)
         }
     }
@@ -639,6 +704,131 @@ object SyncRepository {
         prefs(context).edit().putString(OPS_KEY, arr.toString()).apply()
     }
 
+    private fun saveCachedMonthOverlays(context: Context, overlays: CalendarApiMonthOverlays) {
+        val key = monthCacheKey(overlays.year, overlays.month)
+        prefs(context).edit()
+            .putString(key, monthOverlaysJson(overlays).toString())
+            .putLong("${key}_saved_at", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun monthCacheKey(year: Int, month: Int): String = "month_overlays_${year}_$month"
+
+    private fun monthOverlaysJson(overlays: CalendarApiMonthOverlays): JSONObject = JSONObject()
+        .put("year", overlays.year)
+        .put("month", overlays.month)
+        .put("notes", JSONArray().apply {
+            overlays.notes.forEach { note ->
+                put(JSONObject()
+                    .put("id", note.id)
+                    .put("date", note.date.toString())
+                    .put("text", note.text))
+            }
+        })
+        .put("events", JSONArray().apply {
+            overlays.events.forEach { event ->
+                put(JSONObject()
+                    .put("id", event.id)
+                    .put("title", event.title)
+                    .put("description", event.description)
+                    .put("starts_at", event.startsAt)
+                    .put("ends_at", event.endsAt)
+                    .put("all_day", event.allDay)
+                    .put("location", event.location)
+                    .put("color", event.color)
+                    .put("reminder_minutes_before", event.reminderMinutesBefore))
+            }
+        })
+        .put("holiday_events", JSONArray().apply {
+            overlays.holidayEvents.forEach { holiday ->
+                put(JSONObject()
+                    .put("id", holiday.id)
+                    .put("name_km", holiday.nameKm)
+                    .put("name_en", holiday.nameEn)
+                    .put("date", holiday.date.toString())
+                    .put("occurrence_date", holiday.occurrenceDate?.toString())
+                    .put("type", holiday.type)
+                    .put("description", holiday.description)
+                    .put("notes", holiday.notes))
+            }
+        })
+        .put("work_shifts", JSONArray().apply {
+            overlays.workShifts.forEach { shift ->
+                put(JSONObject()
+                    .put("date", shift.date.toString())
+                    .put("day_offset", shift.dayOffset)
+                    .put("starts_at", shift.startsAt)
+                    .put("ends_at", shift.endsAt)
+                    .put("blocked", shift.blocked)
+                    .put("shift_template", shift.shiftTemplate?.let { template ->
+                        JSONObject()
+                            .put("id", template.id)
+                            .put("code", template.code)
+                            .put("name", template.name)
+                            .put("start_time", template.startTime)
+                            .put("end_time", template.endTime)
+                            .put("is_overnight", template.isOvernight)
+                    }))
+            }
+        })
+
+    private fun parseCachedMonthOverlays(o: JSONObject): CalendarApiMonthOverlays =
+        CalendarApiMonthOverlays(
+            year = o.optInt("year"),
+            month = o.optInt("month"),
+            notes = o.optJSONArray("notes").mapObjects { note ->
+                CalendarApiNote(
+                    id = note.optString("id"),
+                    date = parseDate(note.optString("date")) ?: return@mapObjects null,
+                    text = note.optString("text")
+                )
+            },
+            events = o.optJSONArray("events").mapObjects { event ->
+                CalendarApiEvent(
+                    id = event.optString("id"),
+                    title = event.optString("title"),
+                    description = event.optString("description").takeIf { it.isNotBlank() && it != "null" },
+                    startsAt = event.optString("starts_at").takeIf { it.isNotBlank() && it != "null" },
+                    endsAt = event.optString("ends_at").takeIf { it.isNotBlank() && it != "null" },
+                    allDay = event.optBoolean("all_day", false),
+                    location = event.optString("location").takeIf { it.isNotBlank() && it != "null" },
+                    color = event.optString("color").takeIf { it.isNotBlank() && it != "null" },
+                    reminderMinutesBefore = if (event.isNull("reminder_minutes_before")) null else event.optInt("reminder_minutes_before")
+                )
+            },
+            holidayEvents = o.optJSONArray("holiday_events").mapObjects { holiday ->
+                CalendarApiHolidayEvent(
+                    id = holiday.optString("id"),
+                    nameKm = holiday.optString("name_km"),
+                    nameEn = holiday.optString("name_en"),
+                    date = parseDate(holiday.optString("date")) ?: return@mapObjects null,
+                    occurrenceDate = parseDate(holiday.optString("occurrence_date").takeIf { it.isNotBlank() && it != "null" }),
+                    type = holiday.optString("type"),
+                    description = holiday.optString("description").takeIf { it.isNotBlank() && it != "null" },
+                    notes = holiday.optString("notes").takeIf { it.isNotBlank() && it != "null" }
+                )
+            },
+            workShifts = o.optJSONArray("work_shifts").mapObjects { shift ->
+                CalendarApiWorkShift(
+                    date = parseDate(shift.optString("date")) ?: return@mapObjects null,
+                    dayOffset = if (shift.isNull("day_offset")) null else shift.optInt("day_offset"),
+                    shiftTemplate = shift.optJSONObject("shift_template")?.let { template ->
+                        CalendarApiShiftTemplate(
+                            id = template.optString("id"),
+                            code = template.optString("code"),
+                            name = template.optString("name"),
+                            startTime = template.optString("start_time"),
+                            endTime = template.optString("end_time"),
+                            isOvernight = template.optBoolean("is_overnight", false)
+                        )
+                    },
+                    startsAt = shift.optString("starts_at").takeIf { it.isNotBlank() && it != "null" },
+                    endsAt = shift.optString("ends_at").takeIf { it.isNotBlank() && it != "null" },
+                    blocked = shift.optBoolean("blocked", false)
+                )
+            }
+        )
+
     private fun entityKey(type: String, remoteId: String?, localId: String?): String {
         val id = remoteId?.takeIf { it.isNotBlank() } ?: localId.orEmpty()
         return "$type:$id"
@@ -724,6 +914,11 @@ object SyncRepository {
 
     private fun parseDate(value: String?): LocalDate? =
         value?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() }
+
+    private fun <T> JSONArray?.mapObjects(mapper: (JSONObject) -> T?): List<T> {
+        if (this == null) return emptyList()
+        return (0 until length()).mapNotNull { i -> optJSONObject(i)?.let(mapper) }
+    }
 
     private fun Throwable.isNotFound(): Boolean =
         message?.contains("HTTP 404", ignoreCase = true) == true

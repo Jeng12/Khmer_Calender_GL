@@ -62,6 +62,13 @@ object HolidayRepository {
             val cacheKey = "$targetYear:$includeDatabaseEvents"
             val cached = cache[cacheKey]
             if (!forceRefresh && cached != null) return@runCatching cached
+            if (!forceRefresh && includeDatabaseEvents) {
+                val persistent = loadFromPersistentCache(context, targetYear)
+                if (persistent.isNotEmpty()) {
+                    cache = cache + (cacheKey to persistent)
+                    return@runCatching persistent
+                }
+            }
 
             val builtIn = builtInHolidays(targetYear)
 

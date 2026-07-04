@@ -52,6 +52,7 @@ import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.example.ui.components.HomeHolidayShimmer
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import com.example.calendar.*
@@ -317,43 +318,56 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
 
         // Upcoming public holidays — real data from the calendar engine; tap to open the calendar.
         item {
-            Text(tr("ព្រឹត្តិការណ៍ខាងមុខ (UPCOMING EVENTS)", "UPCOMING EVENTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            val isLoadingHolidays = includeDatabaseHolidayEvents && apiUpcomingHolidays == null
+            Text(tr("\u1794\u17D2\u179A\u17BD\u178F\u17D2\u178F\u17B7\u1780\u17B6\u179A\u178E\u17CB\u1781\u17B6\u1784\u1798\u17BB\u1781 (UPCOMING EVENTS)", "UPCOMING EVENTS"), fontSize = 10.sp, color = DimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (upcomingHolidays.isEmpty()) {
-                Text(tr("គ្មានព្រឹត្តិការណ៍ខាងមុខ", "No upcoming events"), fontSize = 11.sp, color = DimColor)
-            } else {
-                upcomingHolidays.forEach { ev ->
-                    val daysLeft = (KhmerCalendarHelper.getSerialDay(ev.year, ev.month, ev.day) - todaySerial).coerceAtLeast(0)
-                    val whenText = when (daysLeft) {
-                        0 -> tr("ថ្ងៃនេះ", "Today")
-                        1 -> tr("ស្អែក", "Tomorrow")
-                        else -> tr("នៅ ${num(lang, daysLeft)} ថ្ងៃទៀត", "in $daysLeft days")
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .background(PlumCard, RoundedCornerShape(12.dp))
-                            .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
-                            .clickable { onTabSelect(AppTab.CALENDAR) }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
+            AnimatedContent(
+                targetState = isLoadingHolidays,
+                transitionSpec = {
+                    fadeIn(tween(250)) togetherWith fadeOut(tween(180))
+                },
+                label = "UpcomingEventsLoading"
+            ) { loading ->
+                if (loading) {
+                    HomeHolidayShimmer()
+                } else if (upcomingHolidays.isEmpty()) {
+                    Text(tr("\u1782\u17D2\u1798\u17B6\u1793\u1794\u17D2\u179A\u17BD\u178F\u17D2\u178F\u17B7\u1780\u17B6\u179A\u178E\u17CB\u1781\u17B6\u1784\u1798\u17BB\u1781", "No upcoming events"), fontSize = 11.sp, color = DimColor)
+                } else {
+                    Column {
+                        upcomingHolidays.forEach { ev ->
+                            val daysLeft = (KhmerCalendarHelper.getSerialDay(ev.year, ev.month, ev.day) - todaySerial).coerceAtLeast(0)
+                            val whenText = when (daysLeft) {
+                                0 -> tr("\u178F\u17D2\u1784\u17C1\u1793\u17C1\u17C7", "Today")
+                                1 -> tr("\u179F\u17D0\u17C2\u1780", "Tomorrow")
+                                else -> tr("\u1793\u17C5 ${num(lang, daysLeft)} \u178F\u17D2\u1784\u17C1\u1791\u17B8\u178F", "in $daysLeft days")
+                            }
+                        Row(
                             modifier = Modifier
-                                .size(36.dp)
-                                .background(TraditionalGold.copy(0.12f), RoundedCornerShape(10.dp)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .background(PlumCard, RoundedCornerShape(12.dp))
+                                .border(1.dp, DeepBorder, RoundedCornerShape(12.dp))
+                                .clickable { onTabSelect(AppTab.CALENDAR) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("🎉", fontSize = 16.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(TraditionalGold.copy(0.12f), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("\uD83C\uDF89", fontSize = 16.sp)
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(localizeDual(lang, ev.name), fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text("${num(lang, ev.day)} ${gregMonth(lang, ev.month - 1)} \u00B7 $whenText", fontSize = 9.sp, color = TraditionalGold)
+                            }
+                            Text("\u203A", fontSize = 18.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(localizeDual(lang, ev.name), fontSize = 12.sp, color = SandText, fontWeight = FontWeight.Bold, maxLines = 1)
-                            Text("${num(lang, ev.day)} ${gregMonth(lang, ev.month - 1)} · $whenText", fontSize = 9.sp, color = TraditionalGold)
                         }
-                        Text("›", fontSize = 18.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -370,10 +384,10 @@ fun QuickGridCard(
     accentColor: Color,
     onClick: () -> Unit
 ) {
-    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val (_, _, _, plumCard, _, _, sandText, _, dimColor) = LocalAppColors.current
     Box(
         modifier = modifier
-            .background(PlumCard, RoundedCornerShape(12.dp))
+            .background(plumCard, RoundedCornerShape(12.dp))
             .border(BorderStroke(1.dp, accentColor.copy(alpha = 0.25f)), RoundedCornerShape(12.dp))
             .clickable { onClick() }
             .padding(12.dp)
@@ -384,8 +398,8 @@ fun QuickGridCard(
         ) {
             Text(emoji, fontSize = 24.sp)
             Column {
-                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = SandText)
-                Text(subtitle, fontSize = 9.sp, color = DimColor)
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = sandText)
+                Text(subtitle, fontSize = 9.sp, color = dimColor)
             }
         }
     }

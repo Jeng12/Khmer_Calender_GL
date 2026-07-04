@@ -9,7 +9,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import com.example.ui.components.CalendarAgendaShimmer
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -87,13 +92,27 @@ fun CalendarTabContent(
     val todayMonth = todayCal.get(Calendar.MONTH) + 1
     val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
 
-    var apiOverlaysResult by remember { mutableStateOf<Result<CalendarApiMonthOverlays>?>(null) }
     val cloudSyncEnabled = AppStore.isCloudSyncEnabled(context) &&
         context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
             .getBoolean("cloud_sync_disclosure_seen", false)
+    var apiOverlaysResult by remember(year, month, cloudSyncEnabled) {
+        mutableStateOf(
+            if (cloudSyncEnabled) {
+                SyncRepository.loadCachedMonthOverlays(context, year, month, maxAgeMs = null)
+                    ?.let { Result.success(it) }
+            } else {
+                null
+            }
+        )
+    }
     LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
-        apiOverlaysResult = null
         if (cloudSyncEnabled) {
+            val cached = SyncRepository.loadCachedMonthOverlays(context, year, month, maxAgeMs = null)
+            if (cached != null && apiOverlaysResult == null) {
+                apiOverlaysResult = Result.success(cached)
+            } else if (cached == null) {
+                apiOverlaysResult = null
+            }
             apiOverlaysResult = SyncRepository.refreshMonth(
                 context = context,
                 year = year,
@@ -299,6 +318,7 @@ fun CalendarTabContent(
             onDataChange = { agendaVersion++ }
         )
     }
+    val isLoadingAgenda = cloudSyncEnabled && apiOverlaysResult == null
 
     LazyColumn(
         modifier = Modifier
@@ -598,43 +618,77 @@ fun CalendarTabContent(
 
         // Monthly Agenda Section
         item {
-            Text(
-                text = tr("📅 កម្មវិធីប្រចាំខែ", "📅 Monthly Agenda"),
-                style = TextStyle(color = sandText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-            )
-        }
-
-        if (monthlyAgenda.isEmpty()) {
-            item {
+            ) {
                 Text(
-                    tr("គ្មានកម្មវិធីសម្រាប់ខែនេះទេ", "No events for this month"),
-                    fontSize = 12.sp, color = dimColor, textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
+                    text = tr("\uD83D\uDCC5 \u1780\u1798\u17D2\u1798\u179C\u17B7\u1792\u17B8\u1794\u17D2\u179A\u1785\u17B6\u17C6\u1781\u17C2", "\uD83D\uDCC5 Monthly Agenda"),
+                    style = TextStyle(color = sandText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 )
-            }
-        } else {
-            items(monthlyAgenda) { item ->
-                val accentColor = when (item.type) {
-                    AgendaType.HOLIDAY -> LotusPink
-                    AgendaType.NOTE -> SkyBlue
-                    AgendaType.REMINDER -> TraditionalGold
+                // Animated pulsing dot while cloud data is in flight
+                AnimatedVisibility(
+                    visible = isLoadingAgenda,
+                    enter = fadeIn(tween(300)),
+                    exit  = fadeOut(tween(300))
+                ) {
+                    val pulse = rememberInfiniteTransition(label = "dot")
+                    val dotAlpha by pulse.animateFloat(
+                        initialValue = 0.3f, targetValue = 1f,
+                        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+                        label = "dotAlpha"
+                    )
+                    Box(
+                        modifier = Modifier.size(7.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(TraditionalGold.copy(alpha = dotAlpha))
+                    )
                 }
-                val icon = item.icon ?: when (item.type) {
-                    AgendaType.HOLIDAY -> "🏮"
-                    AgendaType.NOTE -> "📝"
-                    AgendaType.REMINDER -> "⏰"
-                }
-                AgendaItemRow(
-                    icon = icon,
-                    title = item.title,
-                    subtitle = "${num(lang, item.day)} ${gregMonth(lang, month - 1)} · ${item.subtitle}",
-                    accentColor = if (item.isPast) Color.Gray else accentColor,
-                    isPast = item.isPast
-                )
             }
         }
 
+        item {
+            AnimatedContent(
+                targetState = isLoadingAgenda,
+                transitionSpec = {
+                    fadeIn(tween(250)) togetherWith fadeOut(tween(180))
+                },
+                label = "MonthlyAgendaLoading"
+            ) { loading ->
+                if (loading) {
+                    CalendarAgendaShimmer()
+                } else if (monthlyAgenda.isEmpty()) {
+                    Text(
+                        tr("\u1782\u17D2\u1798\u17B6\u1793\u1780\u1798\u17D2\u1798\u179C\u17B7\u1792\u17B8\u179F\u1798\u17D2\u179A\u17B6\u1794\u17CB\u1781\u17C2\u1793\u17C1\u17C7\u1791\u17C1", "No events for this month"),
+                        fontSize = 12.sp, color = dimColor, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        monthlyAgenda.forEach { item ->
+                            val accentColor = when (item.type) {
+                                AgendaType.HOLIDAY -> LotusPink
+                                AgendaType.NOTE -> SkyBlue
+                                AgendaType.REMINDER -> TraditionalGold
+                            }
+                            val icon = item.icon ?: when (item.type) {
+                                AgendaType.HOLIDAY -> "\uD83C\uDFEE"
+                                AgendaType.NOTE -> "\uD83D\uDCDD"
+                                AgendaType.REMINDER -> "\u23F0"
+                            }
+                            AgendaItemRow(
+                                icon = icon,
+                                title = item.title,
+                                subtitle = "${num(lang, item.day)} ${gregMonth(lang, month - 1)} \u00B7 ${item.subtitle}",
+                                accentColor = if (item.isPast) Color.Gray else accentColor,
+                                isPast = item.isPast
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // Legend Section
         item {
             Spacer(modifier = Modifier.height(8.dp))

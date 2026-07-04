@@ -166,7 +166,10 @@ fun KhmerCalendarApp() {
             authSession != null &&
             langPrefs.getBoolean("cloud_sync_disclosure_seen", false)
         ) {
+            // Push any local-only changes first, then pull the full work schedule
+            // from the DB so the ScheduleTab always shows up-to-date data.
             SyncRepository.syncPending(context)
+            SyncRepository.pullWorkScheduleFromRemote(context)
         }
     }
 
