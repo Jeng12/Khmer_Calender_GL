@@ -286,10 +286,10 @@ fun HomeTabContent(onTabSelect: (AppTab) -> Unit) {
                 QuickGridCard(
                     modifier = Modifier.weight(1f),
                     emoji = "🔄",
-                    title = tr("បំលែង", "Convert"),
-                    subtitle = "Convert",
+                    title = tr("ប្រាក់ខែ", "Salary"),
+                    subtitle = "Salary",
                     accentColor = SkyBlue,
-                    onClick = { onTabSelect(AppTab.CONVERT) }
+                    onClick = { onTabSelect(AppTab.SALARY) }
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))

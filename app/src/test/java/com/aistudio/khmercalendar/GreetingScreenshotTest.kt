@@ -2,7 +2,6 @@ package com.aistudio.khmercalendar
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
-import com.aistudio.khmercalendar.calendar.KhmerCalendarHelper
 import com.aistudio.khmercalendar.ui.auth.ForgotScreenContent
 import com.aistudio.khmercalendar.ui.auth.LoginScreenContent
 import com.aistudio.khmercalendar.ui.auth.OTPScreenContent
@@ -100,11 +99,6 @@ class GreetingScreenshotTest {
           selectedDayIndex = 15,
           onCalendarMonthChange = { _, _ -> },
           onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -126,11 +120,6 @@ class GreetingScreenshotTest {
           selectedDayIndex = 15,
           onCalendarMonthChange = { _, _ -> },
           onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -152,11 +141,6 @@ class GreetingScreenshotTest {
           selectedDayIndex = 15,
           onCalendarMonthChange = { _, _ -> },
           onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
@@ -167,29 +151,24 @@ class GreetingScreenshotTest {
   }
 
   @Test
-  fun test_main_app_layout_convert() {
+  fun test_main_app_layout_salary() {
     composeTestRule.setContent {
       MyApplicationTheme {
         MainAppLayout(
-          currentTab = AppTab.CONVERT,
+          currentTab = AppTab.SALARY,
           onTabChange = {},
           calendarYear = 2026,
           calendarMonth = 5,
           selectedDayIndex = 15,
           onCalendarMonthChange = { _, _ -> },
           onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}
         )
       }
     }
-    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/main_convert.png")
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/main_salary.png")
   }
 
   @Test
@@ -204,11 +183,6 @@ class GreetingScreenshotTest {
           selectedDayIndex = 15,
           onCalendarMonthChange = { _, _ -> },
           onDaySelect = {},
-          convertYear = "2026",
-          convertMonth = "5",
-          convertDay = "25",
-          convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25),
-          onConvertClick = { _, _, _ -> },
           selectedHolidayFilter = "ទាំងអស់",
           onHolidayFilterChange = {},
           onLogOut = {}

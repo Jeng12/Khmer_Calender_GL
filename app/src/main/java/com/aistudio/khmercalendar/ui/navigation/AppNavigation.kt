@@ -71,7 +71,7 @@ enum class AppScreen {
 }
 
 enum class AppTab {
-    HOME, CALENDAR, HOLIDAYS, CONVERT, SCHEDULE, PROFILE
+    HOME, CALENDAR, HOLIDAYS, SALARY, SCHEDULE, PROFILE
 }
 
 @Composable
@@ -100,12 +100,6 @@ fun KhmerCalendarApp() {
     var calendarYear by rememberSaveable { mutableIntStateOf(today.get(java.util.Calendar.YEAR)) }
     var calendarMonth by rememberSaveable { mutableIntStateOf(today.get(java.util.Calendar.MONTH) + 1) }
     var selectedDayIndex by rememberSaveable { mutableIntStateOf(today.get(java.util.Calendar.DAY_OF_MONTH)) }
-
-    // Conversion calculator state
-    var convertYear by rememberSaveable { mutableStateOf("2026") }
-    var convertMonth by rememberSaveable { mutableStateOf("5") }
-    var convertDay by rememberSaveable { mutableStateOf("25") }
-    var convertedKhDate by remember { mutableStateOf<KhmerDate?>(null) }
 
     // Holiday filter state
     var selectedHolidayFilter by remember { mutableStateOf("ទាំងអស់") }
@@ -141,13 +135,6 @@ fun KhmerCalendarApp() {
         ) {
             showCloudSyncDisclosure = true
         }
-    }
-
-    // Initialize Conversion date on first load
-    LaunchedEffect(Unit) {
-        convertedKhDate = KhmerCalendarHelper.getKhmerDate(2026, 5, 25)
-        CalendarApiRepository.convertDate(2026, 5, 25)
-            .onSuccess { convertedKhDate = it }
     }
 
     // Refresh home-screen widgets every time the app starts, so notes/events stay current.
@@ -258,25 +245,6 @@ fun KhmerCalendarApp() {
                             calendarMonth = cal.get(java.util.Calendar.MONTH) + 1
                             selectedDayIndex = cal.get(java.util.Calendar.DAY_OF_MONTH)
                         },
-                        convertYear = convertYear,
-                        convertMonth = convertMonth,
-                        convertDay = convertDay,
-                        convertedKhDate = convertedKhDate,
-                        onConvertClick = { y, m, d ->
-                            convertYear = y
-                            convertMonth = m
-                            convertDay = d
-                            val yearVal = y.toIntOrNull() ?: 2026
-                            val mVal = m.toIntOrNull() ?: 5
-                            val dVal = d.toIntOrNull() ?: 25
-                            convertedKhDate = runCatching {
-                                KhmerCalendarHelper.getKhmerDate(yearVal, mVal, dVal)
-                            }.getOrNull()
-                            scope.launch {
-                                CalendarApiRepository.convertDate(yearVal, mVal, dVal)
-                                    .onSuccess { convertedKhDate = it }
-                            }
-                        },
                         selectedHolidayFilter = selectedHolidayFilter,
                         onHolidayFilterChange = { selectedHolidayFilter = it },
                         onLogOut = {
@@ -358,11 +326,6 @@ fun MainAppLayout(
     onCalendarMonthChange: (Int, Int) -> Unit,
     onDaySelect: (Int) -> Unit,
     onGoToToday: () -> Unit = {},
-    convertYear: String,
-    convertMonth: String,
-    convertDay: String,
-    convertedKhDate: KhmerDate?,
-    onConvertClick: (String, String, String) -> Unit,
     selectedHolidayFilter: String,
     onHolidayFilterChange: (String) -> Unit,
     onLogOut: () -> Unit,
@@ -403,13 +366,7 @@ fun MainAppLayout(
                         selectedFilter = selectedHolidayFilter,
                         onFilterChange = onHolidayFilterChange
                     )
-                    AppTab.CONVERT -> DateConvertContent(
-                        year = convertYear,
-                        month = convertMonth,
-                        day = convertDay,
-                        convertedDate = convertedKhDate,
-                        onConvert = onConvertClick
-                    )
+                    AppTab.SALARY -> SalaryCalculatorTabContent()
                     AppTab.SCHEDULE -> ScheduleTabContent()
                     AppTab.PROFILE -> ProfileSettingsContent(
                         onLogOut = onLogOut,

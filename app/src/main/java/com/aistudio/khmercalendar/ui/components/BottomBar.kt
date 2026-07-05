@@ -109,13 +109,13 @@ fun CustomBottomBar(
                 isSelected = currentTab == AppTab.HOLIDAYS,
                 onClick = { onTabSelect(AppTab.HOLIDAYS) }
             )
-            // Convert Tab
+            // Salary Tab
             BottomBarItem(
-                emoji = "\uD83D\uDD04",
-                label = tr("បំលែង", "Convert"),
-                subLabel = "Convert",
-                isSelected = currentTab == AppTab.CONVERT,
-                onClick = { onTabSelect(AppTab.CONVERT) }
+                emoji = "\uD83D\uDCB0",
+                label = tr("ប្រាក់ខែ", "Salary"),
+                subLabel = "Salary",
+                isSelected = currentTab == AppTab.SALARY,
+                onClick = { onTabSelect(AppTab.SALARY) }
             )
             // Work Schedule Tab
             BottomBarItem(
