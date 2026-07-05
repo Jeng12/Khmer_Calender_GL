@@ -12,7 +12,7 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.aistudio.khmercalendar"
   compileSdk = 36
 
   defaultConfig {
