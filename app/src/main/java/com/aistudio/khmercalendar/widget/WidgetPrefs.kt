@@ -54,9 +54,10 @@ object WidgetPrefs {
         }
     }
 
-    /** Re-render every placed instance of both widgets (e.g. after a setting/data change). */
+    /** Re-render every placed instance of all widgets (e.g. after a setting/data change). */
     suspend fun refresh(ctx: Context) {
         KhmerCalendarWidget().updateAll(ctx)
         KhmerAgendaWidget().updateAll(ctx)
+        KhmerTimerWidget().updateAll(ctx)
     }
 }

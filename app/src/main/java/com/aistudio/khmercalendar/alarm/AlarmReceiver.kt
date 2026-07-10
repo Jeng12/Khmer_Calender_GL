@@ -12,6 +12,12 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.aistudio.khmercalendar.data.AppStore
+import com.aistudio.khmercalendar.widget.KhmerTimerWidget
+import com.aistudio.khmercalendar.widget.TimerWidgetState
+import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -28,6 +34,16 @@ class AlarmReceiver : BroadcastReceiver() {
         runCatching {
             val rc = intent.getIntExtra("requestCode", 0)
             if (rc != 0) AppStore.removeReminder(context, rc)
+        }
+
+        // Widget timer finished — flip the widget back to its picker face.
+        if (kind == "timer") {
+            TimerWidgetState.clearRunning(context)
+            val pending = goAsync()
+            CoroutineScope(Dispatchers.Default).launch {
+                runCatching { KhmerTimerWidget().updateAll(context) }
+                pending.finish()
+            }
         }
     }
 

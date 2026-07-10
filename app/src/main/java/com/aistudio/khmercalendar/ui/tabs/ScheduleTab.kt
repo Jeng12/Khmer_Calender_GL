@@ -261,6 +261,36 @@ fun ScheduleTabContent() {
                     }
                 }
 
+                // ── Cycle stats (worked days · hours · days off) ──────────────
+                item {
+                    val statsEnd = (viewedStartCal.clone() as Calendar).apply { add(Calendar.MONTH, 1); add(Calendar.DAY_OF_YEAR, -1) }
+                    val statsCtxStart = (viewedStartCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
+                    val startInt = vY * 10000 + vM * 100 + vD
+                    val statDays = WorkCycleEngine.buildWorkDays(cycleFor, statsCtxStart, statsEnd)
+                        .filter { it.year * 10000 + it.month * 100 + it.day >= startInt }
+                    val worked = statDays.count { !it.blocked }
+                    val totalHours = statDays.filterNot { it.blocked }.sumOf { (it.endMs - it.startMs) / 3_600_000.0 }
+                    val blockedCount = statDays.count { it.blocked }
+                    val cycleDays = (((statsEnd.timeInMillis - viewedStartCal.timeInMillis) / 86_400_000L) + 1).toInt()
+                    val hoursLabel = if (totalHours % 1.0 == 0.0) "${totalHours.toInt()}" else "%.1f".format(totalHours)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(plumCard, RoundedCornerShape(12.dp))
+                            .border(1.dp, TraditionalGold.copy(0.25f), RoundedCornerShape(12.dp))
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        CycleStat(num(lang, worked), tr(lang, "ថ្ងៃធ្វើការ", "Work days"))
+                        CycleStat(numStr(lang, hoursLabel), tr(lang, "ម៉ោងសរុប", "Total hours"))
+                        CycleStat(num(lang, (cycleDays - worked - blockedCount).coerceAtLeast(0)), tr(lang, "ថ្ងៃឈប់", "Days off"))
+                        if (blockedCount > 0) {
+                            CycleStat(num(lang, blockedCount), tr(lang, "⛔ គ្មានសម្រាក", "⛔ No rest"), CrimsonHoliday)
+                        }
+                    }
+                }
+
                 // ── Today's shift banner (current cycle only) ─────────────────
                 if (viewedOffset == 0) item {
                     val ctxStart = (today.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
@@ -401,7 +431,34 @@ fun ScheduleTabContent() {
                     })
                 }
                 item {
-                    SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SectionLabel(tr("កាលវិភាគប្រចាំថ្ងៃ (DAILY SCHEDULE)", "DAILY SCHEDULE"))
+                        // One-tap reuse of last cycle's pattern when it has any shifts.
+                        val prevStartCal = (viewedStartCal.clone() as Calendar).apply { add(Calendar.MONTH, -1) }
+                        val prevKey = AppStore.cycleKey(
+                            prevStartCal.get(Calendar.YEAR),
+                            prevStartCal.get(Calendar.MONTH) + 1,
+                            prevStartCal.get(Calendar.DAY_OF_MONTH)
+                        )
+                        val prevAssignments = schedules[prevKey]
+                        if (prevAssignments?.any { it != null } == true) {
+                            Text(
+                                tr(lang, "⧉ ចម្លងខួបមុន", "⧉ Copy last cycle"),
+                                fontSize = 9.sp, color = TraditionalGold, fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        setViewed(prevAssignments)
+                                        Toast.makeText(context, tr(lang, "បានចម្លងកាលវិភាគខួបមុន", "Copied last cycle's schedule"), Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     Text(
                         tr(lang, "ប្ដូរវេនបានគ្រប់ថ្ងៃ · ខែនេះមានកាលវិភាគផ្ទាល់ខ្លួន", "Tap any day to set its shift · this month has its own schedule"),
                         fontSize = 10.sp, color = dimColor, modifier = Modifier.padding(top = 4.dp)
@@ -630,6 +687,15 @@ fun ScheduleTabContent() {
 private fun SectionLabel(text: String) {
     val (_, _, _, _, _, _, _, _, dimColor) = LocalAppColors.current
     Text(text, fontSize = 10.sp, color = dimColor, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+}
+
+@Composable
+private fun CycleStat(value: String, label: String, valueColor: Color? = null) {
+    val (_, _, _, _, _, _, sandText, goldSubText, _) = LocalAppColors.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = valueColor ?: TraditionalGold)
+        Text(label, fontSize = 9.sp, color = goldSubText)
+    }
 }
 
 @Composable

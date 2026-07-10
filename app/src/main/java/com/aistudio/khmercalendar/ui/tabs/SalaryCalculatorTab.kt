@@ -66,11 +66,14 @@ fun SalaryCalculatorTabContent() {
     var selectedMonth by remember { mutableIntStateOf(today.get(Calendar.MONTH) + 1) }
     val monthKey = "%04d-%02d".format(selectedYear, selectedMonth)
 
-    var settings by remember(monthKey) { mutableStateOf(AppStore.getSalaryCalculatorSettings(context, monthKey)) }
+    val loadedSettings = remember(monthKey) { AppStore.getSalaryCalculatorSettings(context, monthKey) }
+    var settings by remember(monthKey) { mutableStateOf(loadedSettings) }
     var holidaysResult by remember(selectedYear) { mutableStateOf<Result<List<Holiday>>?>(null) }
 
+    // Persist only real edits — just browsing a month must not overwrite the
+    // "latest rates" fallback that new months inherit.
     LaunchedEffect(monthKey, settings) {
-        AppStore.saveSalaryCalculatorSettings(context, settings, monthKey)
+        if (settings != loadedSettings) AppStore.saveSalaryCalculatorSettings(context, settings, monthKey)
     }
 
     LaunchedEffect(selectedYear) {
@@ -143,7 +146,7 @@ fun SalaryCalculatorTabContent() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Basic salary", settings.basicSalary, { settings = settings.copy(basicSalary = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ប្រាក់ខែគោល", "Basic salary"), settings.basicSalary, { settings = settings.copy(basicSalary = it) }, Modifier.weight(1f))
                     Spacer(modifier = Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -155,14 +158,14 @@ fun SalaryCalculatorTabContent() {
                     } else settings.dailyRate
 
                     SalaryInput(
-                        label = "Hourly rate",
+                        label = tr("តម្លៃ/ម៉ោង", "Hourly rate"),
                         value = displayHourly,
                         onValueChange = { if (settings.basicSalary.isBlank()) settings = settings.copy(hourlyRate = it) },
                         modifier = Modifier.weight(1f),
                         enabled = settings.basicSalary.isBlank()
                     )
                     SalaryInput(
-                        label = "Daily rate",
+                        label = tr("តម្លៃ/ថ្ងៃ", "Daily rate"),
                         value = displayDaily,
                         onValueChange = { if (settings.basicSalary.isBlank()) settings = settings.copy(dailyRate = it) },
                         modifier = Modifier.weight(1f),
@@ -170,23 +173,23 @@ fun SalaryCalculatorTabContent() {
                     )
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Overtime x", settings.overtimeRate, { settings = settings.copy(overtimeRate = it) }, Modifier.weight(1f))
-                    SalaryInput("Night shift x", settings.nightShiftRate, { settings = settings.copy(nightShiftRate = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ម៉ោងបន្ថែម x", "Overtime x"), settings.overtimeRate, { settings = settings.copy(overtimeRate = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("វេនយប់ x", "Night shift x"), settings.nightShiftRate, { settings = settings.copy(nightShiftRate = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Holiday day x", settings.holidayDayRate, { settings = settings.copy(holidayDayRate = it) }, Modifier.weight(1f))
-                    SalaryInput("Holiday night x", settings.holidayNightRate, { settings = settings.copy(holidayNightRate = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("បុណ្យ (ថ្ងៃ) x", "Holiday day x"), settings.holidayDayRate, { settings = settings.copy(holidayDayRate = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("បុណ្យ (យប់) x", "Holiday night x"), settings.holidayNightRate, { settings = settings.copy(holidayNightRate = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Tax / VAT %", settings.taxVatPercent, { settings = settings.copy(taxVatPercent = it) }, Modifier.weight(1f))
-                    SalaryInput("Benefits", settings.benefits, { settings = settings.copy(benefits = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ពន្ធ / VAT %", "Tax / VAT %"), settings.taxVatPercent, { settings = settings.copy(taxVatPercent = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("អត្ថប្រយោជន៍", "Benefits"), settings.benefits, { settings = settings.copy(benefits = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Bonus override", settings.bonuses, { settings = settings.copy(bonuses = it) }, Modifier.weight(1f))
-                    SalaryInput("Allowances", settings.allowances, { settings = settings.copy(allowances = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ប្រាក់រង្វាន់", "Bonus override"), settings.bonuses, { settings = settings.copy(bonuses = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ប្រាក់ឧបត្ថម្ភ", "Allowances"), settings.allowances, { settings = settings.copy(allowances = it) }, Modifier.weight(1f))
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SalaryInput("Other deductions", settings.otherDeductions, { settings = settings.copy(otherDeductions = it) }, Modifier.weight(1f))
+                    SalaryInput(tr("ការកាត់ផ្សេងៗ", "Other deductions"), settings.otherDeductions, { settings = settings.copy(otherDeductions = it) }, Modifier.weight(1f))
                 }
             }
         }
@@ -209,26 +212,28 @@ fun SalaryCalculatorTabContent() {
                 } else if (holidaysResult?.isFailure == true) {
                     Text(tr("មិនអាចទាញថ្ងៃបុណ្យ API បាន។ ការគណនាថ្ងៃបុណ្យអាចមិនពេញលេញ។", "Holiday API failed. Holiday pay may be incomplete."), fontSize = 10.sp, color = CrimsonHoliday)
                 }
-                SalarySummaryRow("Working days", summary.workingDays.toString())
-                SalarySummaryRow("Total work hours", summary.totalHours.hourLabel(), highlight = true)
-                SalarySummaryRow("Incl. Overtime", summary.overtimeHours.hourLabel())
+                SalarySummaryRow(tr("ថ្ងៃធ្វើការ", "Working days"), summary.workingDays.toString())
+                SalarySummaryRow(tr("ម៉ោងធ្វើការសរុប", "Total work hours"), summary.totalHours.hourLabel(), highlight = true)
+                SalarySummaryRow(tr("ម៉ោងបន្ថែម (OT)", "Incl. Overtime"), summary.overtimeHours.hourLabel())
                 HorizontalDivider(color = deepBorder, modifier = Modifier.padding(vertical = 4.dp))
-                SalarySummaryRow("Day hours", summary.dayHours.hourLabel())
-                SalarySummaryRow("Night shift hours", summary.nightHours.hourLabel())
-                SalarySummaryRow("Holiday day hours", summary.holidayDayHours.hourLabel())
-                SalarySummaryRow("Holiday night hours", summary.holidayNightHours.hourLabel())
+                if (summary.hourlyRate > 0) SalarySummaryRow(tr("តម្លៃមួយម៉ោង", "Effective hourly rate"), summary.hourlyRate.moneyLabel())
+                if (summary.dailyRate > 0) SalarySummaryRow(tr("តម្លៃមួយថ្ងៃ", "Effective daily rate"), summary.dailyRate.moneyLabel())
+                SalarySummaryRow(tr("ម៉ោងវេនថ្ងៃ", "Day hours"), summary.dayHours.hourLabel())
+                SalarySummaryRow(tr("ម៉ោងវេនយប់", "Night shift hours"), summary.nightHours.hourLabel())
+                SalarySummaryRow(tr("ម៉ោងបុណ្យ (ថ្ងៃ)", "Holiday day hours"), summary.holidayDayHours.hourLabel())
+                SalarySummaryRow(tr("ម៉ោងបុណ្យ (យប់)", "Holiday night hours"), summary.holidayNightHours.hourLabel())
                 HorizontalDivider(color = deepBorder)
-                SalarySummaryRow("Base pay (Total × Rate)", summary.basePay.moneyLabel())
-                SalarySummaryRow("Overtime premium", summary.overtimePremium.moneyLabel())
-                SalarySummaryRow("Night shift premium", summary.nightPremium.moneyLabel())
-                SalarySummaryRow("Holiday day premium", summary.holidayDayPremium.moneyLabel())
-                SalarySummaryRow("Holiday night premium", summary.holidayNightPremium.moneyLabel())
-                SalarySummaryRow("Default/override bonus", summary.bonusPay.moneyLabel())
-                SalarySummaryRow("Benefits + allowances", summary.additions.moneyLabel())
-                SalarySummaryRow("Gross salary", summary.grossSalary.moneyLabel(), highlight = true)
-                SalarySummaryRow("Tax / VAT deduction", "-${summary.taxDeduction.moneyLabel()}")
-                SalarySummaryRow("Other deductions", "-${summary.otherDeductions.moneyLabel()}")
-                SalarySummaryRow("Net salary", summary.netSalary.moneyLabel(), highlight = true)
+                SalarySummaryRow(tr("ប្រាក់គោល (ម៉ោង × តម្លៃ)", "Base pay (Total × Rate)"), summary.basePay.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់ម៉ោងបន្ថែម", "Overtime premium"), summary.overtimePremium.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់វេនយប់", "Night shift premium"), summary.nightPremium.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់បុណ្យ (ថ្ងៃ)", "Holiday day premium"), summary.holidayDayPremium.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់បុណ្យ (យប់)", "Holiday night premium"), summary.holidayNightPremium.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់រង្វាន់", "Default/override bonus"), summary.bonusPay.moneyLabel())
+                SalarySummaryRow(tr("អត្ថប្រយោជន៍ + ឧបត្ថម្ភ", "Benefits + allowances"), summary.additions.moneyLabel())
+                SalarySummaryRow(tr("ប្រាក់ខែសរុប (Gross)", "Gross salary"), summary.grossSalary.moneyLabel(), highlight = true)
+                SalarySummaryRow(tr("កាត់ពន្ធ / VAT", "Tax / VAT deduction"), "-${summary.taxDeduction.moneyLabel()}")
+                SalarySummaryRow(tr("ការកាត់ផ្សេងៗ", "Other deductions"), "-${summary.otherDeductions.moneyLabel()}")
+                SalarySummaryRow(tr("ប្រាក់ខែសុទ្ធ (Net)", "Net salary"), summary.netSalary.moneyLabel(), highlight = true)
                 if (summary.workingDays == 0) {
                     Text(tr("មិនមានវេនការងារសម្រាប់ខែនេះ", "No saved work shifts for this month."), fontSize = 10.sp, color = dimColor)
                 }
@@ -408,7 +413,19 @@ private fun SalaryInput(label: String, value: String, onValueChange: (String) ->
     val (_, _, plumSurface, _, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
     OutlinedTextField(
         value = value,
-        onValueChange = { input -> onValueChange(input.filter { it.isDigit() || it == '.' }.take(12)) },
+        onValueChange = { input ->
+            // Digits with at most one decimal point, capped at 12 chars.
+            var dotSeen = false
+            val cleaned = buildString {
+                for (ch in input) {
+                    when {
+                        ch.isDigit() -> append(ch)
+                        ch == '.' && !dotSeen -> { dotSeen = true; append(ch) }
+                    }
+                }
+            }.take(12)
+            onValueChange(cleaned)
+        },
         label = { Text(label, fontSize = 10.sp, color = goldSubText) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),

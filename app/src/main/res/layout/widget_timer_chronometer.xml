@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live countdown text for the timer widget. A Chronometer ticks every second
+     on its own, so the widget shows real seconds without waking the app. -->
+<Chronometer xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/timer_widget_chronometer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:textSize="32sp"
+    android:textStyle="bold"
+    android:fontFamily="sans-serif-light"
+    android:textColor="#F5F0E8" />

@@ -665,8 +665,13 @@ object AppStore {
             put("taxVatPercent", settings.taxVatPercent)
             put("otherDeductions", settings.otherDeductions)
         }
-        val key = monthKey?.let { "salary_calculator_$it" } ?: "salary_calculator"
-        schedulePrefs(c).edit().putString(key, o.toString()).apply()
+        val json = o.toString()
+        val editor = schedulePrefs(c).edit()
+        monthKey?.let { editor.putString("salary_calculator_$it", json) }
+        // Always mirror to the month-less key: a month with no saved settings
+        // falls back to it, so new months inherit the latest rates entered.
+        editor.putString("salary_calculator", json)
+        editor.apply()
     }
 
     /** Remove every monthly schedule (used when the user deletes the schedule). */
