@@ -3,6 +3,8 @@ package com.aistudio.khmercalendar.data
 import com.aistudio.khmercalendar.calendar.KhmerCalendarHelper
 import com.aistudio.khmercalendar.calendar.KhmerDate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.time.LocalDate
+import java.util.LinkedHashMap
 
 data class CalendarApiMonth(
     val year: Int,
@@ -118,15 +121,20 @@ data class CalendarApiShiftTemplate(
 object CalendarApiRepository {
     const val BASE_URL = "https://api-calender-sigma.vercel.app/api/v1"
     private const val TIMEOUT_MS = 20_000
+    private const val CACHE_MAX_AGE_MS = 10L * 60L * 1000L
 
-    private val monthCache = mutableMapOf<String, CalendarApiMonth>()
-    private val overlayCache = mutableMapOf<String, CalendarApiMonthOverlays>()
+    private val monthCache = TimedLruCache<String, CalendarApiMonth>(maxSize = 24)
+    private val overlayCache = TimedLruCache<String, CalendarApiMonthOverlays>(maxSize = 24)
+    private val holidayEventCache = TimedLruCache<String, List<CalendarApiHolidayEvent>>(maxSize = 12)
+
+    @Volatile
     private var authSession: AuthStore.Session? = null
 
     fun setAuthSession(session: AuthStore.Session?) {
         if (authSession?.userId != session?.userId) {
             monthCache.clear()
             overlayCache.clear()
+            holidayEventCache.clear()
         }
         authSession = session
     }
@@ -137,12 +145,13 @@ object CalendarApiRepository {
         forceRefresh: Boolean = false
     ): Result<CalendarApiMonth> = withContext(Dispatchers.IO) {
         runCatching {
+            LocalDate.of(year, month, 1)
             val session = requireAuthSession()
             val key = cacheKey(session, year, month)
-            if (!forceRefresh) monthCache[key]?.let { return@runCatching it }
+            if (!forceRefresh) monthCache.getFresh(key)?.let { return@runCatching it }
 
             val body = getJson("/calendar/month?year=$year&month=$month")
-            parseMonth(body).also { monthCache[key] = it }
+            parseMonth(body).also { monthCache.put(key, it) }
         }
     }
 
@@ -154,19 +163,27 @@ object CalendarApiRepository {
         runCatching {
             val session = requireAuthSession()
             val key = cacheKey(session, year, month)
-            if (!forceRefresh) overlayCache[key]?.let { return@runCatching it }
+            if (!forceRefresh) overlayCache.getFresh(key)?.let { return@runCatching it }
 
             val from = LocalDate.of(year, month, 1)
             val to = from.withDayOfMonth(from.lengthOfMonth())
-            val overlays = CalendarApiMonthOverlays(
-                year = year,
-                month = month,
-                notes = fetchNotes().filter { it.date in from..to },
-                events = fetchEvents(from, to),
-                holidayEvents = fetchHolidayEvents(from, to).getOrThrow(),
-                workShifts = fetchWorkShifts(from, to)
-            )
-            overlayCache[key] = overlays
+            // These endpoints are independent. Running them concurrently cuts a
+            // month refresh from four network round trips in series to one batch.
+            val overlays = coroutineScope {
+                val notes = async { fetchNotes().filter { it.date in from..to } }
+                val events = async { fetchEvents(from, to) }
+                val holidays = async { fetchHolidayEventsRaw(from, to) }
+                val shifts = async { fetchWorkShifts(from, to) }
+                CalendarApiMonthOverlays(
+                    year = year,
+                    month = month,
+                    notes = notes.await(),
+                    events = events.await(),
+                    holidayEvents = holidays.await(),
+                    workShifts = shifts.await()
+                )
+            }
+            overlayCache.put(key, overlays)
             overlays
         }
     }
@@ -177,8 +194,8 @@ object CalendarApiRepository {
         day: Int
     ): Result<KhmerDate> = withContext(Dispatchers.IO) {
         runCatching {
-            val date = "%04d-%02d-%02d".format(year, month, day)
-            val body = getJson("/calendar/convert?date=${date.urlEncoded()}")
+            val date = LocalDate.of(year, month, day)
+            val body = getJson("/calendar/convert?date=${date.toString().urlEncoded()}")
             val data = JSONObject(body).getJSONObject("data")
             parseKhmerDate(data)
         }
@@ -203,10 +220,11 @@ object CalendarApiRepository {
         forceRefresh: Boolean = false
     ): Result<List<CalendarApiHolidayEvent>> = withContext(Dispatchers.IO) {
         runCatching {
-            parseDataList(
-                getJson("/holiday-events?from=${from.toString().urlEncoded()}&to=${to.toString().urlEncoded()}"),
-                ::parseHolidayEvent
-            )
+            require(!to.isBefore(from)) { "Holiday date range must end on or after it starts" }
+            val session = requireAuthSession()
+            val key = "${session.userId}:$from:$to"
+            if (!forceRefresh) holidayEventCache.getFresh(key)?.let { return@runCatching it }
+            fetchHolidayEventsRaw(from, to).also { holidayEventCache.put(key, it) }
         }
     }
 
@@ -412,6 +430,12 @@ object CalendarApiRepository {
             ::parseEvent
         )
 
+    private fun fetchHolidayEventsRaw(from: LocalDate, to: LocalDate): List<CalendarApiHolidayEvent> =
+        parseDataList(
+            getJson("/holiday-events?from=${from.toString().urlEncoded()}&to=${to.toString().urlEncoded()}"),
+            ::parseHolidayEvent
+        )
+
     /**
      * Public suspend version — called by SyncRepository.pullWorkScheduleFromRemote
      * to fetch a wide date-range of work shifts for the initial full sync.
@@ -521,13 +545,47 @@ object CalendarApiRepository {
 
     private fun invalidateMonth(date: LocalDate) {
         val monthSuffix = ":${date.year}-${date.monthValue}"
-        monthCache.keys.removeAll { it.endsWith(monthSuffix) }
-        overlayCache.keys.removeAll { it.endsWith(monthSuffix) }
+        monthCache.removeWhere { it.endsWith(monthSuffix) }
+        overlayCache.removeWhere { it.endsWith(monthSuffix) }
     }
 
     private fun invalidateHolidayEventCaches(date: LocalDate?) {
         date?.let(::invalidateMonth)
         overlayCache.clear()
+        holidayEventCache.clear()
+    }
+
+    /** Small synchronized LRU so concurrent Compose loads cannot corrupt or grow caches indefinitely. */
+    private class TimedLruCache<K, V>(private val maxSize: Int) {
+        private data class Entry<V>(val value: V, val storedAtMs: Long)
+
+        private val entries = object : LinkedHashMap<K, Entry<V>>(maxSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Entry<V>>?): Boolean =
+                size > maxSize
+        }
+
+        @Synchronized
+        fun getFresh(key: K, nowMs: Long = System.currentTimeMillis()): V? {
+            val entry = entries[key] ?: return null
+            if (nowMs - entry.storedAtMs > CACHE_MAX_AGE_MS) {
+                entries.remove(key)
+                return null
+            }
+            return entry.value
+        }
+
+        @Synchronized
+        fun put(key: K, value: V) {
+            entries[key] = Entry(value, System.currentTimeMillis())
+        }
+
+        @Synchronized
+        fun removeWhere(predicate: (K) -> Boolean) {
+            entries.keys.removeAll(predicate)
+        }
+
+        @Synchronized
+        fun clear() = entries.clear()
     }
 
     private fun eventPayload(

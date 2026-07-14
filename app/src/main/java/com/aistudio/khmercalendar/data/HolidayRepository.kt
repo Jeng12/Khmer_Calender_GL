@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
+import java.util.LinkedHashMap
 
 /**
  * A single Cambodian public holiday as returned by the calendar API.
@@ -43,9 +44,15 @@ data class Holiday(
  * gracefully.
  */
 object HolidayRepository {
+    private const val CACHE_MAX_AGE_MS = 6L * 60L * 60L * 1000L
+    private const val FALLBACK_RETRY_AGE_MS = 60L * 1000L
 
-    @Volatile
-    private var cache: Map<String, List<Holiday>> = emptyMap()
+    private data class MemoryEntry(val holidays: List<Holiday>, val expiresAtMs: Long)
+
+    private val cache = object : LinkedHashMap<String, MemoryEntry>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MemoryEntry>?): Boolean =
+            size > 8
+    }
 
     /**
      * @param year  Optional year filter applied client-side after fetching.
@@ -60,55 +67,70 @@ object HolidayRepository {
         runCatching {
             val targetYear = year ?: LocalDate.now().year
             val cacheKey = "$targetYear:$includeDatabaseEvents"
-            val cached = cache[cacheKey]
-            if (!forceRefresh && cached != null) return@runCatching cached
-            if (!forceRefresh && includeDatabaseEvents) {
-                val persistent = loadFromPersistentCache(context, targetYear)
-                if (persistent.isNotEmpty()) {
-                    cache = cache + (cacheKey to persistent)
-                    return@runCatching persistent
-                }
+            val now = System.currentTimeMillis()
+            if (!forceRefresh) getMemoryCache(cacheKey, now)?.let { return@runCatching it }
+
+            val persistent = loadFromPersistentCache(context, targetYear)
+            val persistentSavedAt = AppStore.getCachedHolidaysSavedAt(context, targetYear)
+            val persistentIsFresh = persistent.isNotEmpty() &&
+                persistentSavedAt > 0L && now - persistentSavedAt <= CACHE_MAX_AGE_MS
+            if (!forceRefresh && includeDatabaseEvents && persistentIsFresh) {
+                putMemoryCache(cacheKey, persistent, persistentSavedAt + CACHE_MAX_AGE_MS)
+                return@runCatching persistent
             }
 
             val builtIn = builtInHolidays(targetYear)
+            val cachedFixed = persistent.filter(Holiday::isFixed)
+            val cachedUserEvents = persistent.filterNot(Holiday::isFixed)
 
-            val publicHolidays = CalendarApiRepository.fetchPublicHolidays(targetYear)
-                .getOrNull()
-                ?.map { event -> event.toHoliday(isFixed = true) }
-
-            var userHolidayEvents = emptyList<Holiday>()
-            var loadedCached = false
-            if (publicHolidays == null) {
-                userHolidayEvents = loadFromPersistentCache(context, targetYear)
-                loadedCached = userHolidayEvents.isNotEmpty()
+            val publicResult = CalendarApiRepository.fetchPublicHolidays(targetYear)
+            val publicHolidays = publicResult.getOrNull()?.map { it.toHoliday(isFixed = true) }
+            val databaseResult = if (includeDatabaseEvents) {
+                CalendarApiRepository.fetchHolidayEvents(
+                    from = LocalDate.of(targetYear, 1, 1),
+                    to = LocalDate.of(targetYear, 12, 31),
+                    forceRefresh = forceRefresh
+                )
+            } else {
+                Result.success(emptyList())
+            }
+            val userHolidayEvents = if (includeDatabaseEvents) {
+                databaseResult.getOrNull()?.map { it.toHoliday(isFixed = false) } ?: cachedUserEvents
+            } else {
+                emptyList()
             }
 
-            if (includeDatabaseEvents && !loadedCached) {
-                val apiResult = CalendarApiRepository
-                    .fetchHolidayEvents(
-                        from = LocalDate.of(targetYear, 1, 1),
-                        to = LocalDate.of(targetYear, 12, 31),
-                        forceRefresh = forceRefresh
-                    )
-
-                if (apiResult.isSuccess) {
-                    userHolidayEvents = apiResult.getOrThrow().map { event -> event.toHoliday(isFixed = false) }
-                } else if (publicHolidays == null) {
-                    userHolidayEvents = loadFromPersistentCache(context, targetYear)
-                }
-            }
-
-            val parsed = ((publicHolidays ?: builtIn) + userHolidayEvents)
+            val fixedHolidays = publicHolidays ?: cachedFixed.takeIf { it.isNotEmpty() } ?: builtIn
+            val parsed = (fixedHolidays + userHolidayEvents)
                 .filter { it.date.year == targetYear }
                 .distinctBy { "${it.date}:${it.nameKh}:${it.nameEn}" }
                 .sortedBy { it.date }
 
-            if (parsed.isNotEmpty()) {
+            val fullyRefreshed = publicResult.isSuccess && databaseResult.isSuccess
+            // The disk cache represents the complete server-backed view. Never
+            // replace it with a partial response when one endpoint is offline.
+            if (includeDatabaseEvents && fullyRefreshed && parsed.isNotEmpty()) {
                 saveToPersistentCache(context, targetYear, parsed)
             }
-            cache = cache + (cacheKey to parsed)
+            val maxAge = if (fullyRefreshed) CACHE_MAX_AGE_MS else FALLBACK_RETRY_AGE_MS
+            putMemoryCache(cacheKey, parsed, now + maxAge)
             parsed
         }
+    }
+
+    @Synchronized
+    private fun getMemoryCache(key: String, nowMs: Long): List<Holiday>? {
+        val entry = cache[key] ?: return null
+        if (nowMs >= entry.expiresAtMs) {
+            cache.remove(key)
+            return null
+        }
+        return entry.holidays
+    }
+
+    @Synchronized
+    private fun putMemoryCache(key: String, holidays: List<Holiday>, expiresAtMs: Long) {
+        cache[key] = MemoryEntry(holidays, expiresAtMs)
     }
 
     private fun builtInHolidays(year: Int): List<Holiday> =

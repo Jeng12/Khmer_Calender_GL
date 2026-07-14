@@ -56,6 +56,7 @@ class AppStorePrivacyTest {
         AppStore.addNote(context, 2026, 6, 28, "Private note")
         AppStore.addCustomHoliday(context, 6, 28, "Holiday", "Holiday")
         AppStore.saveCachedHolidays(context, 2026, "[]")
+        assertTrue(AppStore.getCachedHolidaysSavedAt(context, 2026) > 0L)
         AppStore.saveShiftCycle(
             context,
             AppStore.ShiftCycle(
@@ -72,6 +73,7 @@ class AppStorePrivacyTest {
         assertTrue(AppStore.getNotes(context, 2026, 6, 28).isEmpty())
         assertTrue(AppStore.getCustomHolidays(context).isEmpty())
         assertNull(AppStore.getCachedHolidays(context, 2026))
+        assertEquals(0L, AppStore.getCachedHolidaysSavedAt(context, 2026))
         assertNull(AppStore.getShiftCycle(context))
         assertFalse(AppStore.isCloudSyncEnabled(context))
     }

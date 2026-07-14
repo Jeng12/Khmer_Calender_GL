@@ -440,8 +440,14 @@ object AppStore {
     fun getCachedHolidays(c: Context, year: Int): String? =
         holidayCachePrefs(c).getString("holidays_$year", null)
 
+    fun getCachedHolidaysSavedAt(c: Context, year: Int): Long =
+        holidayCachePrefs(c).getLong("holidays_${year}_saved_at", 0L)
+
     fun saveCachedHolidays(c: Context, year: Int, json: String) {
-        holidayCachePrefs(c).edit().putString("holidays_$year", json).apply()
+        holidayCachePrefs(c).edit()
+            .putString("holidays_$year", json)
+            .putLong("holidays_${year}_saved_at", System.currentTimeMillis())
+            .apply()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
