@@ -12,9 +12,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.aistudio.khmercalendar.data.AppStore
-import com.aistudio.khmercalendar.widget.KhmerTimerWidget
 import com.aistudio.khmercalendar.widget.TimerWidgetState
-import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +25,18 @@ class AlarmReceiver : BroadcastReceiver() {
         val insistent = intent.getBooleanExtra("insistent", false)
         val kind = intent.getStringExtra("kind") ?: "reminder"
         val requestCode = intent.getIntExtra("requestCode", 0)
+
+        // A widget-timer alarm can fire early/stale (e.g. an inexact alarm
+        // left over from a replaced timer). If the running timer's real end is
+        // still ahead, don't finish it — re-arm for the actual end and bail.
+        if (kind == "timer") {
+            val endMs = TimerWidgetState.endMs(context)
+            if (endMs > System.currentTimeMillis() + 5_000L) {
+                armAlarm(context, requestCode, endMs, title, message, ringtoneUri, insistent, kind)
+                return
+            }
+        }
+
         showNotification(context, requestCode, title, message, ringtoneUri, insistent, kind)
 
         // This was a one-shot alarm; drop it from persistence now that it fired
@@ -41,7 +51,7 @@ class AlarmReceiver : BroadcastReceiver() {
             TimerWidgetState.clearRunning(context)
             val pending = goAsync()
             CoroutineScope(Dispatchers.Default).launch {
-                runCatching { KhmerTimerWidget().updateAll(context) }
+                runCatching { TimerWidgetState.refreshWidgets(context) }
                 pending.finish()
             }
         }
