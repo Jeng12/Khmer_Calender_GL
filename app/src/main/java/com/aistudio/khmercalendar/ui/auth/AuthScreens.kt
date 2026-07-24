@@ -25,6 +25,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -262,6 +264,7 @@ fun LoginScreenContent(
     val lang = LocalAppLanguage.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
 
@@ -342,6 +345,16 @@ fun LoginScreenContent(
                 value = password,
                 onValueChange = { password = it; passwordError = null },
                 enabled = !isSubmitting,
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    Text(
+                        text = if (passwordVisible) "🙈" else "👁",
+                        fontSize = 15.sp,
+                        modifier = Modifier
+                            .clickable(enabled = !isSubmitting) { passwordVisible = !passwordVisible }
+                            .padding(horizontal = 12.dp)
+                    )
+                },
                 textStyle = LocalTextStyle.current.copy(color = SandText, fontSize = 13.sp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -459,6 +472,7 @@ fun RegisterScreenContent(
     var ln by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -475,7 +489,9 @@ fun RegisterScreenContent(
         }
         passwordError = when {
             password.isBlank() -> tr(lang, "សូមបញ្ចូលពាក្យសម្ងាត់ (Password required)", "Password required")
-            password.length < 6 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៦ តួ+ (Min 6 characters)", "Min 6 characters")
+            // Must match the API's own minimum (see AuthStore.register) or a valid-looking
+            // password gets past this check only to be rejected by the server.
+            password.length < 8 -> tr(lang, "ពាក្យសម្ងាត់ត្រូវការ ៨ តួ+ (Min 8 characters)", "Min 8 characters")
             else -> null
         }
         agreementError = if (!acceptedTerms) {
@@ -577,6 +593,16 @@ fun RegisterScreenContent(
             value = password,
             onValueChange = { password = it; passwordError = null },
             enabled = !isSubmitting,
+            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                Text(
+                    text = if (passwordVisible) "🙈" else "👁",
+                    fontSize = 15.sp,
+                    modifier = Modifier
+                        .clickable(enabled = !isSubmitting) { passwordVisible = !passwordVisible }
+                        .padding(horizontal = 12.dp)
+                )
+            },
             textStyle = TextStyle(color = SandText, fontSize = 12.sp),
             modifier = Modifier
                 .fillMaxWidth()

@@ -18,6 +18,30 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class AlarmReceiver : BroadcastReceiver() {
+    companion object {
+        /**
+         * A channel's sound is immutable once created, so each distinct ringtone
+         * gets its own channel id derived from the picked Uri. See [pruneRingtoneChannel]
+         * for why the previous channel must be deleted whenever this changes.
+         */
+        fun channelIdFor(ringtoneUriStr: String?): String =
+            "khmer_calendar_reminders_" + (ringtoneUriStr?.hashCode() ?: 0)
+
+        /**
+         * Delete the notification channel for the previously selected ringtone.
+         * Without this, every ringtone change permanently orphans a channel —
+         * they never get reused or cleaned up, so Settings > App > Notifications
+         * accumulates a growing list of stale "Khmer Calendar Reminders" entries.
+         */
+        fun pruneRingtoneChannel(context: Context, oldRingtoneUri: String?, newRingtoneUri: String?) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val oldChannelId = channelIdFor(oldRingtoneUri)
+            if (oldChannelId == channelIdFor(newRingtoneUri)) return
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .deleteNotificationChannel(oldChannelId)
+        }
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         val title   = intent.getStringExtra("title")   ?: "ការរំលឹកប្រតិទិនខ្មែរ"
         val message = intent.getStringExtra("message") ?: ""
@@ -78,9 +102,7 @@ class AlarmReceiver : BroadcastReceiver() {
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val vibPattern = longArrayOf(0, 600, 200, 600, 200, 600)
 
-        // A channel's sound is immutable once created, so derive a stable channel
-        // id per chosen ringtone — picking a new ringtone uses a new channel.
-        val channelId = "khmer_calendar_reminders_" + (ringtoneUriStr?.hashCode() ?: 0)
+        val channelId = channelIdFor(ringtoneUriStr)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val audioAttrs = AudioAttributes.Builder()

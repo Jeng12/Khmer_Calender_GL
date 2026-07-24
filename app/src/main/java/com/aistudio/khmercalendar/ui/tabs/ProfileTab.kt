@@ -94,7 +94,9 @@ fun ProfileSettingsContent(
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             @Suppress("DEPRECATION")
             val uri: Uri? = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            val oldUri = AppStore.getRingtoneUri(context)
             AppStore.setRingtoneUri(context, uri?.toString())
+            AlarmReceiver.pruneRingtoneChannel(context, oldUri, uri?.toString())
             val title = uri?.let { runCatching { RingtoneManager.getRingtone(context, it)?.getTitle(context) }.getOrNull() }
             AppStore.setRingtoneTitle(context, title)
             ringtoneTitle = title ?: defaultRingtoneLabel

@@ -52,7 +52,7 @@ class AuthScreenBehaviorTest {
         composeTestRule.onNodeWithTag("register_last_name_input").performTextInput("Doe")
         composeTestRule.onNodeWithTag("register_first_name_input").performTextInput("Jane")
         composeTestRule.onNodeWithTag("register_email_input").performTextInput("jane@example.com")
-        composeTestRule.onNodeWithTag("register_password_input").performTextInput("secret1")
+        composeTestRule.onNodeWithTag("register_password_input").performTextInput("secret123")
 
         composeTestRule.onNodeWithTag("register_button").performScrollTo().performClick()
         composeTestRule.waitForIdle()

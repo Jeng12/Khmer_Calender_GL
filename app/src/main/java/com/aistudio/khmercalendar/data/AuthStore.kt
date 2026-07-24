@@ -44,7 +44,7 @@ object AuthStore {
     ): AuthResult = withContext(Dispatchers.IO) {
         val cleanEmail = normalizeEmail(email)
         if (cleanEmail.isBlank()) return@withContext AuthResult.Error("Email is required")
-        if (password.length < 6) return@withContext AuthResult.Error("Password must be at least 6 characters")
+        if (password.length < 8) return@withContext AuthResult.Error("Password must be at least 8 characters")
         val displayName = listOf(firstName.trim(), lastName.trim())
             .filter { it.isNotBlank() }
             .joinToString(" ")
@@ -224,12 +224,21 @@ object AuthStore {
         val message = error.message.orEmpty()
         return when {
             "HTTP 401" in message || "HTTP 403" in message -> "Incorrect email or password"
-            "HTTP 409" in message -> "An account already exists for this email"
-            "HTTP 422" in message -> "Please check your account details"
+            "HTTP 409" in message -> serverMessage(message) ?: "An account already exists for this email"
+            // The API returns 422 for both duplicate-email and validation errors (e.g. a password
+            // that's too short) with a human-readable "message" field — surface it directly instead
+            // of a generic string so the user knows what to fix.
+            "HTTP 422" in message -> serverMessage(message) ?: "Please check your account details"
             message.contains("Unable to resolve host", ignoreCase = true) ||
                 message.contains("failed to connect", ignoreCase = true) -> "Cannot reach Calendar API. Check your connection."
             else -> fallback
         }
     }
+
+    private fun serverMessage(exceptionMessage: String): String? = runCatching {
+        val jsonStart = exceptionMessage.indexOf('{')
+        if (jsonStart < 0) return null
+        JSONObject(exceptionMessage.substring(jsonStart)).optString("message").trim().takeIf { it.isNotBlank() }
+    }.getOrNull()
 
 }
