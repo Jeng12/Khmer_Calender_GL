@@ -663,6 +663,27 @@ object AppStore {
         schedulePrefs(c).edit().putString("snapshots", o.toString()).apply()
     }
 
+    // Roster photo import: which row is the user's, and what each code on
+    // their roster means (code → shift id, "" = day off). Remembered so the
+    // next picture needs no setup.
+    fun getRosterRowKey(c: Context): String? = schedulePrefs(c).getString("roster_row_key", null)
+
+    fun getRosterCodeMeanings(c: Context): Map<String, String> = try {
+        val o = JSONObject(schedulePrefs(c).getString("roster_code_meanings", "{}") ?: "{}")
+        buildMap { o.keys().forEach { put(it, o.optString(it)) } }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun saveRosterImportProfile(c: Context, rowKey: String, meanings: Map<String, String>) {
+        val merged = JSONObject()
+        (getRosterCodeMeanings(c) + meanings).forEach { (code, shiftId) -> merged.put(code, shiftId) }
+        schedulePrefs(c).edit()
+            .putString("roster_row_key", rowKey)
+            .putString("roster_code_meanings", merged.toString())
+            .apply()
+    }
+
     /** Public saver for the whole per-month schedule map. */
     fun saveMonthlySchedules(c: Context, map: Map<String, List<String?>>) = saveCycleSnapshots(c, map)
 

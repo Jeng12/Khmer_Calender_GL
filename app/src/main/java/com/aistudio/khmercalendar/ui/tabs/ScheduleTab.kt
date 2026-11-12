@@ -16,6 +16,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,6 +80,7 @@ fun ScheduleTabContent() {
     var importTarget by remember { mutableStateOf<ImportTarget?>(null) }
     var isReadingPicture by remember { mutableStateOf(false) }
     var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
+    var rosterSetup by remember { mutableStateOf<RosterSetup?>(null) }
     val pictureLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -87,9 +89,16 @@ fun ScheduleTabContent() {
         if (uri == null || target == null) return@rememberLauncherForActivityResult
         isReadingPicture = true
         scope.launch {
-            val readings = ScheduleImageReader.readTokens(context, uri)
-                .map { ScheduleImageParser.parse(it, shifts) }
+            val tokens = ScheduleImageReader.readTokens(context, uri)
             isReadingPicture = false
+            // A staff roster (one row per person) needs the user to say which row
+            // is theirs and what its codes mean before it can be laid on the cycle.
+            val roster = tokens.getOrNull()?.let(ScheduleImageParser::parseRoster)
+            if (roster != null) {
+                rosterSetup = RosterSetup(target, roster)
+                return@launch
+            }
+            val readings = tokens.map { ScheduleImageParser.parse(it, shifts) }
             val preview = readings.getOrNull()?.let { buildImportPreview(target, it) }
             when {
                 readings.isFailure -> Toast.makeText(
@@ -108,24 +117,6 @@ fun ScheduleTabContent() {
             }
         }
     }
-    importPreview?.let { preview ->
-        ImportReviewDialog(
-            preview = preview,
-            shifts = cycle?.shifts.orEmpty(),
-            lang = lang,
-            onDismiss = { importPreview = null },
-            onApply = { assignments ->
-                schedules = schedules + (preview.target.key to assignments)
-                importPreview = null
-                Toast.makeText(
-                    context,
-                    tr(lang, "បានបញ្ចូល · ចុច «រក្សាទុក» ដើម្បីរក្សា", "Imported · tap Save to keep it"),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        )
-    }
-
     fun fmtDate(cal: Calendar) =
         "${num(lang, cal.get(Calendar.DAY_OF_MONTH))} ${gregMonth(lang, cal.get(Calendar.MONTH))}"
 
@@ -157,6 +148,55 @@ fun ScheduleTabContent() {
                     Toast.makeText(context, "Schedule deleted locally; will sync when online", Toast.LENGTH_SHORT).show()
                 }
         }
+    }
+
+    importPreview?.let { preview ->
+        ImportReviewDialog(
+            preview = preview,
+            shifts = cycle?.shifts.orEmpty(),
+            lang = lang,
+            onDismiss = { importPreview = null },
+            onApply = { assignments ->
+                val updated = schedules + (preview.target.key to assignments)
+                schedules = updated
+                importPreview = null
+                // Save straight away so the imported shifts show on the Calendar
+                // tab and the widgets without a second step.
+                cycle?.let { c ->
+                    AppStore.saveShiftCycle(context, c)
+                    AppStore.saveMonthlySchedules(context, updated)
+                    WorkScheduleScheduler.sync(context)
+                    syncWorkScheduleToDatabase(c, updated)
+                    scope.launch { WidgetPrefs.refresh(context) }
+                }
+                Toast.makeText(
+                    context,
+                    tr(lang, "បានបញ្ចូល និងរក្សាទុក · មើលក្នុងប្រតិទិន", "Imported and saved · it now shows in the Calendar"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
+    rosterSetup?.let { setup ->
+        RosterSetupDialog(
+            setup = setup,
+            shifts = cycle?.shifts.orEmpty(),
+            lang = lang,
+            savedRowKey = remember(setup) { AppStore.getRosterRowKey(context) },
+            savedMeanings = remember(setup) { AppStore.getRosterCodeMeanings(context) },
+            onDismiss = { rosterSetup = null },
+            onContinue = { row, meanings ->
+                AppStore.saveRosterImportProfile(context, row.key, meanings)
+                val validIds = cycle?.shifts.orEmpty().map { it.id }.toSet()
+                val readings = row.codes.mapValues { (_, code) ->
+                    meanings[code]?.takeIf { it in validIds }
+                        ?.let { ScheduleImageParser.Reading.Shift(it) }
+                        ?: ScheduleImageParser.Reading.Off
+                }
+                rosterSetup = null
+                importPreview = buildImportPreview(setup.target, readings)
+            }
+        )
     }
 
     var isLoadingSchedule by remember {
@@ -913,6 +953,134 @@ internal data class ImportPreview(
     /** Day offsets within the cycle that were found in the picture. */
     val detected: Set<Int>
 )
+
+/** A staff roster read from a photo, waiting for the user to pick their row. */
+internal data class RosterSetup(val target: ImportTarget, val roster: ScheduleImageParser.Roster)
+
+/**
+ * First step for a staff roster: choose your own row, then confirm what each
+ * code in it means. Both answers are remembered, so the next picture opens
+ * with them already filled in.
+ */
+@Composable
+internal fun RosterSetupDialog(
+    setup: RosterSetup,
+    shifts: List<AppStore.ShiftDef>,
+    lang: AppLanguage,
+    savedRowKey: String?,
+    savedMeanings: Map<String, String>,
+    onDismiss: () -> Unit,
+    onContinue: (ScheduleImageParser.RosterRow, Map<String, String>) -> Unit
+) {
+    val colors = LocalAppColors.current
+    val rows = setup.roster.rows
+    var selected by remember(setup) {
+        mutableIntStateOf(rows.indexOfFirst { it.key == savedRowKey }.coerceAtLeast(0))
+    }
+    val row = rows[selected]
+    val codes = remember(row) { row.codes.values.distinct().sorted() }
+    // code → shift id ("" = day off). Saved answers first, then a best guess.
+    var meanings by remember(row) {
+        val validIds = shifts.map { it.id }.toSet()
+        mutableStateOf(codes.associateWith { code ->
+            savedMeanings[code]?.takeIf { it.isEmpty() || it in validIds }
+                ?: when (val guess = ScheduleImageParser.guessMeaning(code, codes.toSet(), shifts)) {
+                    is ScheduleImageParser.Reading.Shift -> guess.shiftId
+                    ScheduleImageParser.Reading.Off -> ""
+                }
+        })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.card,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                tr(lang, "បញ្ចូលពីតារាងវេន", "Import from roster"),
+                color = colors.text, fontWeight = FontWeight.Bold, fontSize = 17.sp
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    tr(lang, "១. ជួរណាជារបស់អ្នក?", "1. Which row is yours?"),
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.accentText
+                )
+                rows.forEachIndexed { index, r ->
+                    val isSelected = index == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) TraditionalGold.copy(alpha = 0.18f) else colors.surface)
+                            .border(1.dp, if (isSelected) TraditionalGold else colors.border, RoundedCornerShape(10.dp))
+                            .selectable(selected = isSelected, onClick = { selected = index })
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected, onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = TraditionalGold, unselectedColor = colors.dim)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                r.label, fontSize = 13.sp, lineHeight = 17.sp, color = colors.text,
+                                fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Text(
+                                setup.roster.days.joinToString("  ") { r.codes[it] ?: "·" },
+                                fontSize = 11.sp, color = colors.subText, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    tr(lang, "២. កូដនីមួយៗមានន័យអ្វី?", "2. What does each code mean?"),
+                    fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.accentText
+                )
+                codes.forEach { code ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            code, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = colors.text,
+                            modifier = Modifier.width(46.dp)
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                        ) {
+                            ShiftChip(tr(lang, "ឈប់", "Off"), meanings[code].isNullOrEmpty(), colors.dim) {
+                                meanings = meanings + (code to "")
+                            }
+                            shifts.forEach { s ->
+                                ShiftChip(s.name, meanings[code] == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
+                                    meanings = meanings + (code to s.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onContinue(row, meanings) },
+                colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
+            ) { Text(tr(lang, "បន្ត", "Continue"), color = OnAccent, fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(tr(lang, "បោះបង់", "Cancel"), color = colors.subText) }
+        }
+    )
+}
 
 /** Maps what was read for each day of the month onto the cycle's day offsets. */
 internal fun buildImportPreview(

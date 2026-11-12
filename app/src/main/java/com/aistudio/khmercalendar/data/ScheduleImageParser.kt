@@ -15,8 +15,12 @@ import kotlin.math.max
  *  - a **table**, a row of dates with the shift codes in the row beneath.
  *
  * Whichever reading pairs more days wins. Only Latin letters and digits can be
- * read, and a roster listing several people must be cropped to one person's row
- * first, because nothing in the picture says which row is the user's.
+ * read.
+ *
+ * A third layout, the **staff roster**, is handled by [parseRoster]: one header
+ * row of consecutive dates and one row per person underneath. Its codes are
+ * often bare numbers (`8`, `12`, `12D`), so they are returned as written and
+ * the user says which row is theirs and what each code means.
  */
 object ScheduleImageParser {
 
@@ -139,5 +143,136 @@ object ScheduleImageParser {
             .sortedWith(compareBy({ it.key.token.top }, { it.key.token.left }))
             .forEach { (day, value) -> result.putIfAbsent(day.day, value.second) }
         return result
+    }
+
+    // ─── Staff roster (one row per person under a row of dates) ──────────────
+
+    /** One person's row: the text left of the date columns and the code under each date. */
+    data class RosterRow(val label: String, val codes: Map<Int, String>) {
+        /** Stable identity for remembering the user's row: the staff id if one is printed. */
+        val key: String
+            get() = STAFF_ID.find(label)?.value ?: label.uppercase()
+    }
+
+    data class Roster(val days: List<Int>, val rows: List<RosterRow>)
+
+    private val STAFF_ID = Regex("""[A-Z]{2,}\d{2,}""")
+    private val CODE = Regex("""^[A-Z0-9]{1,4}$""")
+    private val HOURS_DAY = Regex("""^\d{1,2}D$""")
+    private val HOURS_NIGHT = Regex("""^\d{1,2}N$""")
+
+    /**
+     * Reads a staff roster, or returns null when the picture has no row of at
+     * least three consecutive dates with people's rows beneath it.
+     */
+    fun parseRoster(tokens: List<Token>): Roster? {
+        val words = tokens.filter { it.text.any(Char::isLetterOrDigit) && it.height > 0f }
+        if (words.isEmpty()) return null
+        val lines = groupIntoLines(words)
+
+        // Header: the line holding the longest run of consecutive day numbers.
+        var header: List<DayMark> = emptyList()
+        var headerY = 0f
+        for (line in lines) {
+            val run = longestDateRun(line)
+            if (run.size > header.size) {
+                header = run
+                headerY = run.map { it.token.centerY }.average().toFloat()
+            }
+        }
+        if (header.size < 3) return null
+
+        val centers = header.map { it.token.centerX }
+        val spacing = centers.zipWithNext { a, b -> b - a }.sorted().let { it[it.size / 2] }
+        if (spacing <= 0f) return null
+        val half = spacing / 2f
+        val gridLeft = centers.first() - half
+        val gridRight = centers.last() + half
+
+        val rows = ArrayList<RosterRow>()
+        for (line in lines) {
+            if (line.first().centerY <= headerY + header.first().token.height * 0.6f) continue
+            val label = StringBuilder()
+            val cells = HashMap<Int, StringBuilder>()
+            for (word in line) {   // already left-to-right
+                val x = word.centerX
+                if (x < gridLeft) {
+                    val text = word.text.trim().trim('|', '[', ']')
+                    if (text.isNotEmpty()) { if (label.isNotEmpty()) label.append(' '); label.append(text) }
+                } else if (x <= gridRight) {
+                    val column = centers.indices.minByOrNull { abs(centers[it] - x) } ?: continue
+                    cells.getOrPut(column) { StringBuilder() }
+                        .append(word.text.uppercase().filter(Char::isLetterOrDigit))
+                }
+            }
+            val codes = LinkedHashMap<Int, String>()
+            for (column in centers.indices) {
+                val code = cells[column]?.toString() ?: continue
+                if (CODE.matches(code)) codes[header[column].day] = code
+            }
+            // A row with codes but nobody's name is the "hours per day" line, not a person.
+            if (codes.isNotEmpty() && label.any(Char::isLetter)) rows += RosterRow(label.toString(), codes)
+        }
+        return if (rows.isEmpty()) null else Roster(header.map { it.day }, rows)
+    }
+
+    /** Words grouped into text lines (top to bottom), each sorted left to right. */
+    private fun groupIntoLines(words: List<Token>): List<List<Token>> {
+        val heights = words.map { it.height }.sorted()
+        // A full text height of slack: in a table the name is often vertically
+        // centred in its row while the codes sit at the bottom of their cells.
+        val tolerance = heights[heights.size / 2] * 1.0f
+        val lines = ArrayList<MutableList<Token>>()
+        for (word in words.sortedBy { it.centerY }) {
+            val line = lines.lastOrNull()
+            if (line != null && abs(word.centerY - line.map { it.centerY }.average().toFloat()) <= tolerance) {
+                line += word
+            } else {
+                lines += mutableListOf(word)
+            }
+        }
+        return lines.map { line -> line.sortedBy { it.centerX } }
+    }
+
+    /** Longest run of day numbers that each follow the one before (month ends may wrap to 1). */
+    private fun longestDateRun(line: List<Token>): List<DayMark> {
+        val numbers = line.mapNotNull { token ->
+            DAY_ONLY.matchEntire(token.text.trim())?.groupValues?.get(1)?.toInt()
+                ?.takeIf { it in 1..31 }?.let { DayMark(it, token) }
+        }
+        var best: List<DayMark> = emptyList()
+        var current = ArrayList<DayMark>()
+        for (mark in numbers) {
+            val prev = current.lastOrNull()
+            val follows = prev != null && (mark.day == prev.day + 1 || (prev.day >= 28 && mark.day == 1))
+            if (!follows) current = ArrayList()
+            current += mark
+            if (current.size > best.size) best = current
+        }
+        return best
+    }
+
+    /**
+     * A first guess at what a roster code means, for the user to confirm.
+     * [allCodes] are the codes in the same row: when hours are written as
+     * numbers (`8`, `12`, `12D`), a lone `N` marks a day not worked rather than
+     * a night shift, and a bare long shift next to its `D` twin is the night one.
+     */
+    fun guessMeaning(code: String, allCodes: Set<String>, shifts: List<AppStore.ShiftDef>): Reading {
+        if (shifts.isEmpty()) return Reading.Off
+        val dayShift = shifts.firstOrNull { !it.isOvernight } ?: shifts.first()
+        val nightShift = shifts.firstOrNull { it.isOvernight } ?: shifts.last()
+        val usesHours = allCodes.any { it.firstOrNull()?.isDigit() == true }
+        val hours = code.toIntOrNull()
+        return when {
+            code == "H" || code == "0" -> Reading.Off
+            HOURS_DAY.matches(code) -> Reading.Shift(dayShift.id)
+            HOURS_NIGHT.matches(code) -> Reading.Shift(nightShift.id)
+            hours != null ->
+                if (hours >= 10 && allCodes.any { HOURS_DAY.matches(it) }) Reading.Shift(nightShift.id)
+                else Reading.Shift(dayShift.id)
+            code == "N" && usesHours -> Reading.Off
+            else -> classify(code, shifts) ?: Reading.Off
+        }
     }
 }

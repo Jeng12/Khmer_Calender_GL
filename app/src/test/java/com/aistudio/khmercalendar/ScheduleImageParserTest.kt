@@ -103,3 +103,87 @@ class ScheduleImageParserTest {
         assertTrue(ScheduleImageParser.parse(listOf(word("26", 0, 0), word("27", 1, 0)), two).isEmpty())
     }
 }
+
+/**
+ * The staff-roster layout, using word positions laid out like a real
+ * 884×428 staff-roster screenshot (names and staff ids are made up). Cells are
+ * left- or right-aligned inside their columns, as in the original.
+ */
+class RosterParserTest {
+
+    private val two = AppStore.presetShifts(2)
+    private val columns = listOf(591f, 636f, 681f, 726f, 771f, 816f, 861f)
+
+    private fun at(text: String, centerX: Float, centerY: Float): Token {
+        val w = 6.5f * text.length
+        return Token(text, centerX - w / 2, centerY - 5.5f, centerX + w / 2, centerY + 5.5f)
+    }
+
+    private fun realRoster(): List<Token> {
+        val t = ArrayList<Token>()
+        listOf("H", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEachIndexed { i, s -> t += at(s, columns[i], 22f) }
+        listOf("09", "10", "11", "12", "13", "14", "15").forEachIndexed { i, s -> t += at(s, columns[i], 57f) }
+        listOf("0", "8", "8", "8", "8", "8", "0").forEachIndexed { i, s -> t += at(s, columns[i], 131f) }
+        t += listOf(at("N°", 24f, 92f), at("Staff", 80f, 92f), at("ID", 108f, 92f),
+            at("Full", 222f, 92f), at("name", 254f, 92f), at("Position", 452f, 92f))
+        // Row 1 — office hours: H, 8 ×5, N
+        t += listOf(at("1", 24f, 204f), at("EMP101", 95f, 204f), at("STAFF", 160f, 204f), at("ONE", 205f, 204f),
+            at("Team", 350f, 207f), at("Lead", 392f, 207f),
+            at("H", 575f, 213f), at("8", 651f, 213f), at("8", 696f, 213f), at("8", 741f, 213f),
+            at("8", 786f, 213f), at("8", 831f, 213f), at("N", 845f, 213f))
+        // Row 4 — shift worker: 12, 12D, 12D, N, N, 12, 12
+        t += listOf(at("4", 24f, 325f), at("EMP104", 95f, 325f), at("STAFF", 165f, 325f), at("FOUR", 214f, 325f),
+            at("Lab-Operator", 407f, 325f),
+            at("12", 603f, 334f), at("12D", 631f, 334f), at("12D", 676f, 334f), at("N", 710f, 334f),
+            at("N", 755f, 334f), at("12", 827f, 334f), at("12", 872f, 334f))
+        // Row 5 — H, 12, 12, 12D, 12D, N, N
+        t += listOf(at("5", 24f, 365f), at("EMP105", 95f, 365f), at("STAFF", 158f, 365f), at("FIVE", 200f, 365f),
+            at("Lab-Operator", 407f, 365f),
+            at("H", 575f, 374f), at("12", 651f, 374f), at("12", 692f, 374f), at("12D", 721f, 374f),
+            at("12D", 766f, 374f), at("N", 800f, 374f), at("N", 845f, 374f))
+        return t
+    }
+
+    @Test
+    fun readsDatesAndOneRowPerPerson_skippingTheHoursLine() {
+        val roster = ScheduleImageParser.parseRoster(realRoster())!!
+        assertEquals(listOf(9, 10, 11, 12, 13, 14, 15), roster.days)
+        assertEquals(listOf("EMP101", "EMP104", "EMP105"), roster.rows.map { it.key })
+        assertTrue(roster.rows[1].label.contains("STAFF FOUR"))
+    }
+
+    @Test
+    fun putsEachCodeUnderItsDate_whateverItsAlignmentInTheCell() {
+        val rows = ScheduleImageParser.parseRoster(realRoster())!!.rows
+        assertEquals(
+            mapOf(9 to "H", 10 to "8", 11 to "8", 12 to "8", 13 to "8", 14 to "8", 15 to "N"),
+            rows[0].codes
+        )
+        assertEquals(
+            mapOf(9 to "12", 10 to "12D", 11 to "12D", 12 to "N", 13 to "N", 14 to "12", 15 to "12"),
+            rows[1].codes
+        )
+        assertEquals(
+            mapOf(9 to "H", 10 to "12", 11 to "12", 12 to "12D", 13 to "12D", 14 to "N", 15 to "N"),
+            rows[2].codes
+        )
+    }
+
+    @Test
+    fun guessesHourCodes() {
+        val codes = setOf("H", "12", "12D", "N")
+        assertEquals(Reading.Off, ScheduleImageParser.guessMeaning("H", codes, two))
+        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("12D", codes, two))
+        assertEquals(Reading.Shift("night"), ScheduleImageParser.guessMeaning("12", codes, two))
+        assertEquals(Reading.Off, ScheduleImageParser.guessMeaning("N", codes, two))
+        // Office row: 8 is an ordinary day; without hour codes N still means night.
+        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("8", setOf("H", "8", "N"), two))
+        assertEquals(Reading.Shift("night"), ScheduleImageParser.guessMeaning("N", setOf("D", "N", "OFF"), two))
+    }
+
+    @Test
+    fun notARoster_returnsNull() {
+        val list = listOf(at("26", 10f, 10f), at("D", 60f, 10f), at("27", 10f, 50f), at("N", 60f, 50f))
+        assertNull(ScheduleImageParser.parseRoster(list))
+    }
+}

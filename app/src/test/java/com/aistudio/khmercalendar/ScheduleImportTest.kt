@@ -80,3 +80,53 @@ class ScheduleImportTest {
         assertEquals("night", applied!![6])
     }
 }
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+class RosterSetupDialogTest {
+
+    @get:Rule val composeTestRule = createComposeRule()
+
+    private val shifts = AppStore.presetShifts(2)
+    private val days = (9..15).toList()
+    private fun row(label: String, vararg codes: String) =
+        com.aistudio.khmercalendar.data.ScheduleImageParser.RosterRow(label, days.zip(codes.toList()).toMap())
+
+    private val roster = com.aistudio.khmercalendar.data.ScheduleImageParser.Roster(
+        days,
+        listOf(
+            row("1 EMP101 STAFF ONE Team Lead", "H", "8", "8", "8", "8", "8", "N"),
+            row("4 EMP104 STAFF FOUR Lab-Operator", "12", "12D", "12D", "N", "N", "12", "12"),
+            row("5 EMP105 STAFF FIVE Lab-Operator", "H", "12", "12", "12D", "12D", "N", "N")
+        )
+    )
+
+    @OptIn(ExperimentalRoborazziApi::class)
+    @Test
+    fun rememberedRowIsPreselected_andCodesBecomeShifts() {
+        val start = Calendar.getInstance().apply { clear(); set(2026, Calendar.OCTOBER, 26) }
+        val target = ImportTarget("2026-10", start.timeInMillis, 31, AppStore.emptyDayAssignments())
+        var picked: Pair<String, Map<String, String>>? = null
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                    com.aistudio.khmercalendar.ui.tabs.RosterSetupDialog(
+                        setup = com.aistudio.khmercalendar.ui.tabs.RosterSetup(target, roster),
+                        shifts = shifts,
+                        lang = AppLanguage.EN,
+                        savedRowKey = "EMP104",
+                        savedMeanings = emptyMap(),
+                        onDismiss = {},
+                        onContinue = { row, meanings -> picked = row.key to meanings }
+                    )
+                }
+            }
+        }
+        captureScreenRoboImage("src/test/screenshots/schedule_import_roster.png")
+        composeTestRule.onNodeWithText("Continue").performClick()
+
+        assertEquals("EMP104", picked!!.first)
+        assertEquals(mapOf("12" to "night", "12D" to "day", "N" to ""), picked!!.second)
+    }
+}
