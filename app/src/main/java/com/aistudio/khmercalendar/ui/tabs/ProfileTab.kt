@@ -126,7 +126,9 @@ fun ProfileSettingsContent(
 
     LaunchedEffect(Unit) {
         val s = AuthStore.currentSession(context)
-        if (s != null) {
+        // The account's creation date never changes, so once it is stored
+        // there is nothing to fetch.
+        if (s != null && s.createdAt?.take(4)?.toIntOrNull() == null) {
             val updated = AuthStore.fetchProfile(context, s.accessToken)
             if (updated != null) {
                 val year = updated.createdAt?.take(4)?.toIntOrNull()

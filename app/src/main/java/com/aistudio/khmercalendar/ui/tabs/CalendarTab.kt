@@ -15,36 +15,55 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import com.aistudio.khmercalendar.ui.components.CalendarAgendaShimmer
+import com.aistudio.khmercalendar.ui.components.KhmerDatePickerDialog
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.aistudio.khmercalendar.alarm.scheduleAlarm
 import com.aistudio.khmercalendar.alarm.cancelReminder
 import com.aistudio.khmercalendar.calendar.KhmerCalendarHelper
 import com.aistudio.khmercalendar.calendar.KhmerDate
 import com.aistudio.khmercalendar.core.*
 import com.aistudio.khmercalendar.data.AppStore
-import com.aistudio.khmercalendar.data.CalendarApiMonthOverlays
 import com.aistudio.khmercalendar.data.CalendarApiNote
 import com.aistudio.khmercalendar.data.Holiday
 import com.aistudio.khmercalendar.data.HolidayRepository
@@ -57,17 +76,45 @@ import java.time.LocalDate
 import java.util.Calendar
 
 // Data model for monthly agenda items
+@Immutable
 data class AgendaItem(
     val day: Int,
     val type: AgendaType,
     val title: String,
     val subtitle: String,
     val isPast: Boolean,
-    val icon: String? = null
+    val icon: String? = null,
+    /** Unique within one month's agenda; lets the list reuse rows across updates. */
+    val key: String = ""
 )
 
 enum class AgendaType { HOLIDAY, NOTE, REMINDER }
 
+private val CellShape = RoundedCornerShape(12.dp)
+private val CardShape = RoundedCornerShape(18.dp)
+private val PillShape = RoundedCornerShape(50)
+
+/** Working days of one month from the locally stored rotating-shift schedule. */
+private fun localWorkingDays(
+    base: AppStore.ShiftCycle?,
+    snapshots: Map<String, List<String?>>,
+    year: Int,
+    month: Int,
+    dayCount: Int
+): Map<Int, AppStore.ShiftDef> {
+    if (base == null || !base.isConfigured) return emptyMap()
+    val result = HashMap<Int, AppStore.ShiftDef>()
+    for (d in 1..dayCount) {
+        val cycle = AppStore.cycleForDate(base, snapshots, year, month, d)
+        WorkCycleEngine.shiftForDate(cycle, year, month, d)?.let { result[d] = it }
+    }
+    return result
+}
+
+private fun shiftTimeLabel(shift: AppStore.ShiftDef): String =
+    "%02d:%02d–%02d:%02d".format(shift.startHour, shift.startMin, shift.endHour, shift.endMin)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarTabContent(
     year: Int,
@@ -77,20 +124,31 @@ fun CalendarTabContent(
     onDayChange: (Int) -> Unit,
     onGoToToday: () -> Unit = {}
 ) {
-    val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
+    val colors = LocalAppColors.current
     val lang = LocalAppLanguage.current
     val context = LocalContext.current
-    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    val haptics = LocalHapticFeedback.current
 
     // Refresh trigger — bumping this re-reads notes/reminders/holidays from store.
     var agendaVersion by remember { mutableIntStateOf(0) }
+    // Version that each remote source last force-refreshed for, so a single edit
+    // forces one refetch instead of disabling the cache for every later month.
+    val forcedVersions = remember { intArrayOf(0, 0) }
+
+    // Pull-to-refresh: the only time stored cloud data is fetched again without
+    // a local change having been made.
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { WidgetPrefs.refresh(context) }
 
-    val todayCal = remember { Calendar.getInstance() }
-    val todayYear = todayCal.get(Calendar.YEAR)
-    val todayMonth = todayCal.get(Calendar.MONTH) + 1
-    val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
+    // Re-read "today" whenever the app returns to the foreground, so the marker
+    // is right after the app has been left open across midnight.
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LifecycleResumeEffect(Unit) {
+        today = LocalDate.now()
+        onPauseOrDispose { }
+    }
+    val todayDayInMonth = if (today.year == year && today.monthValue == month) today.dayOfMonth else 0
 
     val cloudSyncEnabled = AppStore.isCloudSyncEnabled(context) &&
         context.getSharedPreferences(AppStore.SETTINGS_FILE, android.content.Context.MODE_PRIVATE)
@@ -107,19 +165,16 @@ fun CalendarTabContent(
     }
     LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
         if (cloudSyncEnabled) {
-            val cached = SyncRepository.loadCachedMonthOverlays(context, year, month, maxAgeMs = null)
-            if (cached != null && apiOverlaysResult == null) {
-                apiOverlaysResult = Result.success(cached)
-            } else if (cached == null) {
-                apiOverlaysResult = null
-            }
+            if (isRefreshing) SyncRepository.pullWorkScheduleFromRemote(context, force = true)
             apiOverlaysResult = SyncRepository.refreshMonth(
                 context = context,
                 year = year,
                 month = month,
-                forceRefresh = agendaVersion > 0
+                forceRefresh = agendaVersion != forcedVersions[0]
             )
+            forcedVersions[0] = agendaVersion
         }
+        isRefreshing = false
     }
     val apiOverlays = apiOverlaysResult?.getOrNull()
         ?.takeIf { it.year == year && it.month == month }
@@ -137,34 +192,52 @@ fun CalendarTabContent(
             date.takeIf { it.year == year && it.monthValue == month }?.dayOfMonth?.let { it to event }
         }.groupBy({ it.first }, { it.second })
     }
-    val apiWorkShiftsByDay = remember(apiOverlays) {
-        apiOverlays?.workShifts.orEmpty().associateBy { it.date.dayOfMonth }
+    val apiWorkByDay: Map<Int, AppStore.ShiftDef> = remember(apiOverlays) {
+        val result = HashMap<Int, AppStore.ShiftDef>()
+        apiOverlays?.workShifts.orEmpty().forEach { workShift ->
+            workShift.shiftTemplate?.toShiftDef()?.let { result[workShift.date.dayOfMonth] = it }
+        }
+        result
     }
-    var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
-    LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
-        holidaysResult = null
-        holidaysResult = HolidayRepository.fetchHolidays(
+
+    // Public holidays are fetched per *year*: moving between months of the same
+    // year reuses the list instead of clearing it and asking the repository again.
+    var holidaysState by remember { mutableStateOf<Pair<Int, List<Holiday>>?>(null) }
+    LaunchedEffect(year, agendaVersion, cloudSyncEnabled) {
+        HolidayRepository.fetchHolidays(
             context = context,
             year = year,
-            forceRefresh = agendaVersion > 0,
+            forceRefresh = agendaVersion != forcedVersions[1],
             includeDatabaseEvents = cloudSyncEnabled
-        )
+        ).onSuccess { holidaysState = year to it }
+        forcedVersions[1] = agendaVersion
     }
-    val holidaysByDay = remember(holidaysResult, year, month) {
-        holidaysResult
-            ?.getOrNull()
-            .orEmpty()
-            .filter { it.date.year == year && it.date.monthValue == month }
+    val yearHolidays = holidaysState?.takeIf { it.first == year }?.second.orEmpty()
+    val holidaysByDay = remember(yearHolidays, month) {
+        yearHolidays
+            .filter { it.date.monthValue == month }
             .groupBy { it.date.dayOfMonth }
     }
 
     val daysList = remember(year, month) { KhmerCalendarHelper.getGregorianMonthDays(year, month) }
-    val startDayOfWeekSerial = KhmerCalendarHelper.getSerialDay(year, month, 1)
-    val startOffset = ((startDayOfWeekSerial + 2) % 7 + 7) % 7
+    val safeSelectedDay = selectedDay.coerceIn(1, daysList.size)
+    val selectedKhmerDate = daysList[safeSelectedDay - 1]
 
-    val selectedKhmerDate = daysList.getOrNull(selectedDay - 1) ?: daysList.firstOrNull() ?: KhmerCalendarHelper.getKhmerDate(year, month, selectedDay)
+    // Local store, read once per month (and again after an edit or a sync that
+    // may have written remote rows locally). The grid and the agenda share it.
+    val notesByDay = remember(year, month, agendaVersion, apiOverlays) {
+        AppStore.getNotesForMonth(context, year, month)
+    }
+    val customHolidays = remember(month, agendaVersion, apiOverlays) {
+        AppStore.customHolidaysForMonth(context, month)
+    }
+    val localReminders = remember(agendaVersion, apiOverlays) { AppStore.getReminders(context) }
+    val scheduleCycle = remember(agendaVersion, apiOverlays) { AppStore.getShiftCycle(context) }
+    val scheduleSnaps = remember(agendaVersion, apiOverlays) { AppStore.getCycleSnapshots(context) }
+    val workByDay = remember(year, month, scheduleCycle, scheduleSnaps, apiWorkByDay) {
+        apiWorkByDay + localWorkingDays(scheduleCycle, scheduleSnaps, year, month, daysList.size)
+    }
 
-    val customHolidays = remember(month, agendaVersion) { AppStore.customHolidaysForMonth(context, month) }
     LaunchedEffect(year, month, customHolidays, cloudSyncEnabled) {
         if (!cloudSyncEnabled) return@LaunchedEffect
         var repairedAny = false
@@ -186,15 +259,8 @@ fun CalendarTabContent(
         }
     }
 
-    // Per-month schedule data — used to highlight working days on the grid. Each
-    // month has its own schedule; a month with none shows no work highlights. The
-    // highlight maps are computed inside AnimatedContent so they stay correct for
-    // whichever month is on screen (incl. mid-swipe animations).
-    val scheduleCycle = remember(agendaVersion) { AppStore.getShiftCycle(context) }
-    val scheduleSnaps = remember(agendaVersion) { AppStore.getCycleSnapshots(context) }
-
-    var showDayDetailDialog by remember { mutableStateOf(false) }
     var detailDialogDate by remember { mutableStateOf<KhmerDate?>(null) }
+    var showMonthPicker by remember { mutableStateOf(false) }
 
     // Build the Monthly Agenda
     val holidayLabel = tr("ថ្ងៃឈប់សម្រាកសាធារណៈ", "Public Holiday")
@@ -202,21 +268,27 @@ fun CalendarTabContent(
     val noteLabel = tr("កំណត់ចំណាំ", "Note")
     val reminderFallback = tr("ការរំលឹក", "Reminder")
 
-    fun isPastDay(d: Int) = year < todayYear ||
-        (year == todayYear && month < todayMonth) ||
-        (year == todayYear && month == todayMonth && d < todayDay)
-
     val monthlyAgenda = remember(
         year,
         month,
-        agendaVersion,
+        today,
         lang,
         daysList,
         holidaysByDay,
+        notesByDay,
+        customHolidays,
+        localReminders,
         apiNotesByDay,
         apiEventsByDay,
         apiHolidayEventsByDay
     ) {
+        val firstFutureDay = when {
+            year < today.year || (year == today.year && month < today.monthValue) -> Int.MAX_VALUE
+            year == today.year && month == today.monthValue -> today.dayOfMonth
+            else -> 0
+        }
+        fun isPastDay(d: Int) = d < firstFutureDay
+
         val list = mutableListOf<AgendaItem>()
         val officialHolidayKeys = mutableSetOf<String>()
 
@@ -248,7 +320,6 @@ fun CalendarTabContent(
             list.add(AgendaItem(h.day, AgendaType.HOLIDAY, if (lang == AppLanguage.EN) h.nameEn else h.nameKm, customHolidayLabel, isPastDay(h.day)))
         }
 
-        val localReminders = AppStore.getReminders(context)
         val localRemoteNoteIds = mutableSetOf<String>()
         val localRemoteEventIds = localReminders.mapNotNull { it.remoteEventId?.takeIf(String::isNotBlank) }.toSet()
         val localRemoteHolidayEventIds = customHolidays.mapNotNull {
@@ -256,8 +327,9 @@ fun CalendarTabContent(
         }.toSet()
 
         // 3. Notes (multiple per day)
-        for (d in 1..daysList.size) {
-            AppStore.getNotes(context, year, month, d).forEach { note ->
+        notesByDay.forEach { (d, notes) ->
+            if (d > daysList.size) return@forEach
+            notes.forEach { note ->
                 note.remoteId?.takeIf { it.isNotBlank() }?.let(localRemoteNoteIds::add)
                 list.add(AgendaItem(d, AgendaType.NOTE, note.text, noteLabel, isPastDay(d)))
             }
@@ -294,450 +366,762 @@ fun CalendarTabContent(
         }
 
         // 5. Reminders / events (keyed off trigger time)
+        val c = Calendar.getInstance()
         localReminders.forEach { r ->
-            val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
+            c.timeInMillis = r.triggerMs
             if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) + 1 == month) {
                 val d = c.get(Calendar.DAY_OF_MONTH)
                 val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
                 val icon = if (r.kind == "shift") "🏭" else null
-                list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, "$time · ${r.message}", isPastDay(d), icon))
+                val subtitle = if (r.message.isBlank()) time else "$time · ${r.message}"
+                list.add(AgendaItem(d, AgendaType.REMINDER, r.title.ifBlank { reminderFallback }, subtitle, isPastDay(d), icon))
             }
         }
 
-        list.sortedWith(compareBy({ it.day }, { it.type }))
+        list.distinctBy { listOf(it.day, it.type, it.title, it.subtitle) }
+            .sortedWith(compareBy({ it.day }, { it.type }))
+            .mapIndexed { index, item -> item.copy(key = "${item.day}-${item.type.ordinal}-$index") }
+    }
+    val selectedDayAgenda = remember(monthlyAgenda, safeSelectedDay) {
+        monthlyAgenda.filter { it.day == safeSelectedDay }
     }
 
-    if (showDayDetailDialog && detailDialogDate != null) {
-        val dialogDate = detailDialogDate!!
+    detailDialogDate?.let { dialogDate ->
         DayDetailDialog(
             date = dialogDate,
             lang = lang,
             officialHolidays = holidaysByDay[dialogDate.day].orEmpty(),
             remoteNotes = apiNotesByDay[dialogDate.day].orEmpty(),
-            onDismiss = { showDayDetailDialog = false },
+            onDismiss = { detailDialogDate = null },
             onDataChange = { agendaVersion++ }
         )
     }
+    if (showMonthPicker) {
+        KhmerDatePickerDialog(
+            initialDate = LocalDate.of(year, month, safeSelectedDay),
+            onDateSelected = { date, _ ->
+                showMonthPicker = false
+                if (date.year != year || date.monthValue != month) onMonthChange(date.year, date.monthValue)
+                onDayChange(date.dayOfMonth)
+            },
+            onDismiss = { showMonthPicker = false }
+        )
+    }
+
     val isLoadingAgenda = cloudSyncEnabled && apiOverlaysResult == null
 
+    // Month stepping, clamped to the range the lunar tables cover.
+    val currentOnMonthChange by rememberUpdatedState(onMonthChange)
+    val stepMonth: (Int, Int, Int) -> Unit = remember {
+        { fromYear, fromMonth, delta ->
+            val index = fromYear * 12 + (fromMonth - 1) + delta
+            val targetYear = index / 12
+            if (targetYear in KhmerCalendarHelper.SUPPORTED_YEARS) {
+                currentOnMonthChange(targetYear, index % 12 + 1)
+            }
+        }
+    }
+    val openDetail: (Int) -> Unit = { day ->
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (day != selectedDay) onDayChange(day)
+        detailDialogDate = daysList.getOrNull(day - 1)
+    }
+
+    val lunarMonthsLabel = remember(daysList, lang) {
+        val first = lunarMonth(lang, daysList.first().lunarMonthName)
+        val last = lunarMonth(lang, daysList.last().lunarMonthName)
+        if (first == last) first else "$first – $last"
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { isRefreshing = true; agendaVersion++ },
+        modifier = Modifier.fillMaxSize().background(colors.bg)
+    ) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(nightBlack)
-            .padding(14.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Switcher Banner
-        item {
-            Row(
+        item(key = "header", contentType = "header") {
+            CalendarHeader(
+                title = if (lang == AppLanguage.EN) "${gregMonth(lang, month - 1)} $year"
+                        else "${gregMonth(lang, month - 1)} ${num(lang, year)}",
+                subtitle = tr(
+                    "ខែ$lunarMonthsLabel · ព.ស. ${num(lang, selectedKhmerDate.BE)}",
+                    "$lunarMonthsLabel · BE ${selectedKhmerDate.BE}"
+                ),
+                isOnToday = todayDayInMonth != 0 && safeSelectedDay == todayDayInMonth,
+                onPrevious = { stepMonth(year, month, -1) },
+                onNext = { stepMonth(year, month, 1) },
+                onToday = onGoToToday,
+                onTitleClick = { showMonthPicker = true }
+            )
+        }
+
+        // Weekday labels + month grid + legend share one surface.
+        item(key = "grid", contentType = "grid") {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(plumSurface, RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .background(colors.surface, CardShape)
+                    .border(1.dp, colors.border.copy(alpha = 0.6f), CardShape)
+                    .padding(horizontal = 6.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                IconButton(onClick = {
-                    var prevMonth = month - 1
-                    var prevYear = year
-                    if (prevMonth < 1) {
-                        prevMonth = 12
-                        prevYear -= 1
+                WeekdayHeader(lang)
+
+                AnimatedContent(
+                    targetState = year * 12 + (month - 1),
+                    transitionSpec = {
+                        val forward = targetState > initialState
+                        (slideInHorizontally(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                        ) { if (forward) it / 3 else -it / 3 } +
+                         fadeIn(tween(durationMillis = 220, easing = FastOutSlowInEasing))) togetherWith
+                        (slideOutHorizontally(
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                        ) { if (forward) -it / 4 else it / 4 } +
+                         fadeOut(tween(durationMillis = 160, easing = FastOutSlowInEasing))) using
+                        SizeTransform(clip = false)
+                    },
+                    label = "MonthGrid"
+                ) { ym ->
+                    val pageYear = ym / 12
+                    val pageMonth = ym % 12 + 1
+                    val isCurrent = pageYear == year && pageMonth == month
+                    val pageDays = remember(ym) { KhmerCalendarHelper.getGregorianMonthDays(pageYear, pageMonth) }
+                    val pageOffset = remember(ym) {
+                        ((KhmerCalendarHelper.getSerialDay(pageYear, pageMonth, 1) + 2) % 7 + 7) % 7
                     }
-                    onMonthChange(prevYear, prevMonth)
-                }) {
-                    Text("‹", fontSize = 24.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
-                }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (lang == AppLanguage.EN)
-                            "${selectedKhmerDate.dayOfWeekEn}, ${gregMonth(lang, month - 1)} $selectedDay, $year"
-                        else
-                            "ថ្ងៃទី ${num(lang, selectedDay)} ខែ${gregMonth(lang, month - 1)} ឆ្នាំ${num(lang, year)}",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = sandText
-                    )
-                    Text(
-                        text = tr(
-                            "ព.ស. ${num(lang, selectedKhmerDate.BE)} · ${zodiac(lang, selectedKhmerDate.zodiac)}",
-                            "BE ${selectedKhmerDate.BE} · ${zodiac(lang, selectedKhmerDate.zodiac)}"
-                        ),
-                        fontSize = 11.sp,
-                        color = if (LocalAppColors.current == DarkAppColors) TraditionalGold else goldSubText,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val isTodaySelected = year == todayYear && month == todayMonth && selectedDay == todayDay
-                    Box(
-                        modifier = Modifier
-                            .background(TraditionalGold.copy(0.15f), RoundedCornerShape(20.dp))
-                            .border(1.dp, TraditionalGold.copy(0.4f), RoundedCornerShape(20.dp))
-                            .clickable { onGoToToday() }
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        val todayLabel = if (lang == AppLanguage.EN)
-                            if (isTodaySelected) "Today · ${selectedKhmerDate.dayOfWeekEn}"
-                            else selectedKhmerDate.dayOfWeekEn
-                        else
-                            if (isTodaySelected) "ថ្ងៃនេះ ${selectedKhmerDate.dayOfWeek}"
-                            else "ថ្ងៃ${selectedKhmerDate.dayOfWeek}"
-                        Text(text = todayLabel, fontSize = 11.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                    // Per-displayed-month markers, so notes/holidays/work shifts stay
+                    // correct for whichever month is on screen (including the page
+                    // sliding out). The current month reuses the data loaded above.
+                    val noteDays = remember(ym, isCurrent, notesByDay, apiNotesByDay, agendaVersion) {
+                        if (isCurrent) notesByDay.keys + apiNotesByDay.keys
+                        else AppStore.daysWithNotes(context, pageYear, pageMonth)
                     }
-                }
-
-                IconButton(onClick = {
-                    var nextMonth = month + 1
-                    var nextYear = year
-                    if (nextMonth > 12) {
-                        nextMonth = 1
-                        nextYear += 1
-                    }
-                    onMonthChange(nextYear, nextMonth)
-                }) {
-                    Text("›", fontSize = 24.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        // Days labels
-        item {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                val weekLabels = weekdayLabels(lang)
-                weekLabels.forEachIndexed { idx, label ->
-                    Text(
-                        text = label,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (idx == 0 || idx == 6) CrimsonHoliday else dimColor
-                    )
-                }
-            }
-        }
-
-        // Days Grid Calendar
-        item {
-            AnimatedContent(
-                targetState = year * 12 + (month - 1),
-                transitionSpec = {
-                    val forward = targetState > initialState
-                    (slideInHorizontally(
-                        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
-                    ) { if (forward) it / 2 else -it / 2 } +
-                     fadeIn(tween(durationMillis = 240, easing = FastOutSlowInEasing))) togetherWith
-                    (slideOutHorizontally(
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
-                    ) { if (forward) -it / 4 else it / 4 } +
-                     fadeOut(tween(durationMillis = 220, easing = FastOutSlowInEasing))) using
-                    SizeTransform(clip = false)
-                },
-                label = "MonthGrid"
-            ) { ym ->
-                val animYear   = ym / 12
-                val animMonth  = ym % 12 + 1
-                val animDays = remember(ym) { KhmerCalendarHelper.getGregorianMonthDays(animYear, animMonth) }
-                val animSerial = remember(ym) { KhmerCalendarHelper.getSerialDay(animYear, animMonth, 1) }
-                val animOffset = ((animSerial + 2) % 7 + 7) % 7
-                val animRows   = ((animOffset + animDays.size + 6) / 7)
-
-                // Per-displayed-month highlight maps, so notes/holidays/work shifts
-                // render for the month actually on screen (including mid-swipe).
-                val animApiNoteDays = remember(ym, apiNotesByDay) {
-                    if (animYear == year && animMonth == month) apiNotesByDay.keys else emptySet()
-                }
-                val animNotes = remember(ym, agendaVersion, animApiNoteDays) {
-                    AppStore.daysWithNotes(context, animYear, animMonth) + animApiNoteDays
-                }
-                val animApiHolidayDays = remember(ym, apiHolidayEventsByDay) {
-                    if (animYear == year && animMonth == month) apiHolidayEventsByDay.keys else emptySet()
-                }
-                val animCustomHolidayDays = remember(ym, agendaVersion, animApiHolidayDays) {
-                    AppStore.customHolidaysForMonth(context, animMonth).map { it.day }.toSet() + animApiHolidayDays
-                }
-                val animOfficialHolidayDays = remember(ym, holidaysByDay) {
-                    if (animYear == year && animMonth == month) holidaysByDay.keys else emptySet()
-                }
-                val animApiWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, apiWorkShiftsByDay) {
-                    if (animYear != year || animMonth != month) emptyMap()
-                    else apiWorkShiftsByDay.mapNotNull { (day, workShift) ->
-                        workShift.shiftTemplate
-                            ?.toShiftDef()
-                            ?.let { day to it }
-                    }.toMap()
-                }
-                val animWorkingDays: Map<Int, AppStore.ShiftDef> = remember(ym, scheduleCycle, scheduleSnaps, animApiWorkingDays) {
-                    val base = scheduleCycle
-                    val localWorkingDays = if (base == null || !base.isConfigured) emptyMap()
-                    else (1..animDays.size).mapNotNull { d ->
-                        val cyc = AppStore.cycleForDate(base, scheduleSnaps, animYear, animMonth, d)
-                        WorkCycleEngine.shiftForDate(cyc, animYear, animMonth, d)?.let { d to it }
-                    }.toMap()
-                    animApiWorkingDays + localWorkingDays
-                }
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.pointerInput(animYear, animMonth) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                if (swipeOffset > 80f) {
-                                    var pm = animMonth - 1; var py = animYear
-                                    if (pm < 1) { pm = 12; py -= 1 }
-                                    onMonthChange(py, pm)
-                                } else if (swipeOffset < -80f) {
-                                    var nm = animMonth + 1; var ny = animYear
-                                    if (nm > 12) { nm = 1; ny += 1 }
-                                    onMonthChange(ny, nm)
-                                }
-                                swipeOffset = 0f
-                            },
-                            onHorizontalDrag = { _, d -> swipeOffset += d }
-                        )
-                    }
-                ) {
-                    for (row in 0 until animRows) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            for (col in 0..6) {
-                                val cellIdx   = row * 7 + col
-                                val dayNumber = cellIdx - animOffset + 1
-
-                                if (cellIdx < animOffset || dayNumber > animDays.size) {
-                                    Box(modifier = Modifier.weight(1f))
-                                } else {
-                                    val dateInfo  = animDays[dayNumber - 1]
-                                    val isSelected = dayNumber == selectedDay && animYear == year && animMonth == month
-                                    val isToday    = animYear == todayYear && animMonth == todayMonth && dayNumber == todayDay
-                                    val isHoliday  = dateInfo.holiday != null ||
-                                        dayNumber in animOfficialHolidayDays ||
-                                        dayNumber in animCustomHolidayDays
-                                    val isWeekend  = col == 0 || col == 6
-                                    val hasNote    = dayNumber in animNotes
-                                    val workShift  = animWorkingDays[dayNumber]
-                                    val workColor  = if (workShift?.isOvernight == true) LotusPink else LightGold
-
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .aspectRatio(0.8f)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(
-                                                when {
-                                                    isSelected -> TraditionalGold.copy(0.2f)
-                                                    isToday    -> LotusPink.copy(0.12f)
-                                                    workShift != null -> workColor.copy(0.13f)
-                                                    else       -> Color.Transparent
-                                                }
-                                            )
-                                            .border(
-                                                1.5.dp,
-                                                when {
-                                                    isSelected -> TraditionalGold
-                                                    isToday    -> LotusPink.copy(0.7f)
-                                                    else       -> Color.Transparent
-                                                },
-                                                RoundedCornerShape(10.dp)
-                                            )
-                                            .combinedClickable(
-                                                onClick = { onDayChange(dayNumber) },
-                                                onLongClick = {
-                                                    detailDialogDate = dateInfo
-                                                    showDayDetailDialog = true
-                                                }
-                                            )
-                                            .padding(4.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            val hasMoon = (dateInfo.isWaxing && dateInfo.lunarDayVal in listOf(1, 8, 15)) ||
-                                                (!dateInfo.isWaxing && dateInfo.lunarDayVal == 8)
-                                            if (hasMoon) Text(dateInfo.moonEmoji, fontSize = 10.sp, lineHeight = 12.sp)
-
-                                            Text(
-                                                text = dayNumber.toString(),
-                                                fontSize = 20.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                                color = when {
-                                                    isSelected -> TraditionalGold
-                                                    isHoliday  -> LotusPink
-                                                    isWeekend  -> CrimsonHoliday
-                                                    else       -> sandText
-                                                }
-                                            )
-                                            Text(
-                                                text = lunarDayLabel(lang, dateInfo),
-                                                fontSize = 8.sp, lineHeight = 9.sp,
-                                                maxLines = 1, softWrap = false,
-                                                color = if (isSelected) TraditionalGold.copy(0.8f) else dimColor
-                                            )
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                                modifier = Modifier.height(5.dp)
-                                            ) {
-                                                if (isHoliday) Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(LotusPink))
-                                                if (hasNote) Box(
-                                                    modifier = Modifier
-                                                        .width(10.dp).height(4.dp)
-                                                        .clip(RoundedCornerShape(2.dp))
-                                                        .background(SkyBlue)
-                                                )
-                                                if (workShift != null) Box(
-                                                    modifier = Modifier
-                                                        .size(4.dp)
-                                                        .clip(CircleShape)
-                                                        .background(workColor)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                    val holidayDays = remember(ym, isCurrent, yearHolidays, customHolidays, apiHolidayEventsByDay, agendaVersion) {
+                        val result = HashSet<Int>()
+                        yearHolidays.forEach {
+                            if (it.date.year == pageYear && it.date.monthValue == pageMonth) result.add(it.date.dayOfMonth)
                         }
+                        if (isCurrent) {
+                            customHolidays.forEach { result.add(it.day) }
+                            result.addAll(apiHolidayEventsByDay.keys)
+                        } else {
+                            AppStore.customHolidaysForMonth(context, pageMonth).forEach { result.add(it.day) }
+                        }
+                        result
                     }
+                    val pageWork = remember(ym, isCurrent, workByDay, scheduleCycle, scheduleSnaps) {
+                        if (isCurrent) workByDay
+                        else localWorkingDays(scheduleCycle, scheduleSnaps, pageYear, pageMonth, pageDays.size)
+                    }
+
+                    MonthGrid(
+                        days = pageDays,
+                        startOffset = pageOffset,
+                        lang = lang,
+                        selectedDay = if (isCurrent) safeSelectedDay else 0,
+                        todayDay = if (today.year == pageYear && today.monthValue == pageMonth) today.dayOfMonth else 0,
+                        noteDays = noteDays,
+                        holidayDays = holidayDays,
+                        workByDay = pageWork,
+                        onDayClick = onDayChange,
+                        onDayLongClick = openDetail,
+                        modifier = Modifier.pointerInput(ym) {
+                            val threshold = 56.dp.toPx()
+                            var dragged = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { dragged = 0f },
+                                onDragCancel = { dragged = 0f },
+                                onDragEnd = {
+                                    if (dragged > threshold) stepMonth(pageYear, pageMonth, -1)
+                                    else if (dragged < -threshold) stepMonth(pageYear, pageMonth, 1)
+                                    dragged = 0f
+                                },
+                                onHorizontalDrag = { _, delta -> dragged += delta }
+                            )
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LegendIndicator(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"))
+                    LegendIndicator(SkyBlue, tr("ចំណាំ", "Note"))
+                    LegendIndicator(LightGold, tr("ការងារ", "Work"))
                 }
             }
         }
 
-        // Hint
-        item {
-            Text(
-                text = tr("បន្ថែម · សង្កត់​ឲ្យ​យូរ​លើ​ថ្ងៃ​ណាមួយ​ដើម្បី​បន្ថែម​កំណត់ចំណាំ ការរំលឹក ឬ​ថ្ងៃបុណ្យ",
-                          "Tip · long-press any day to add notes, reminders or a holiday"),
-                fontSize = 9.sp, color = dimColor, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+        // Selected day summary — also the visible way into the day editor
+        // (long-pressing a day still works).
+        item(key = "selected", contentType = "selected") {
+            SelectedDayCard(
+                date = selectedKhmerDate,
+                lang = lang,
+                isToday = todayDayInMonth != 0 && safeSelectedDay == todayDayInMonth,
+                shift = workByDay[safeSelectedDay],
+                dayAgenda = selectedDayAgenda,
+                onOpen = { detailDialogDate = selectedKhmerDate }
             )
         }
 
         // Monthly Agenda Section
-        item {
+        item(key = "agendaHeader", contentType = "agendaHeader") {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                modifier = Modifier.padding(top = 4.dp, start = 2.dp)
             ) {
                 Text(
-                    text = tr("\uD83D\uDCC5 \u1780\u1798\u17D2\u1798\u179C\u17B7\u1792\u17B8\u1794\u17D2\u179A\u1785\u17B6\u17C6\u1781\u17C2", "\uD83D\uDCC5 Monthly Agenda"),
-                    style = TextStyle(color = sandText, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    text = tr("កម្មវិធីប្រចាំខែ", "Monthly Agenda"),
+                    style = TextStyle(color = colors.text, fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                    modifier = Modifier.semantics { heading() }
                 )
-                // Animated pulsing dot while cloud data is in flight
-                AnimatedVisibility(
-                    visible = isLoadingAgenda,
-                    enter = fadeIn(tween(300)),
-                    exit  = fadeOut(tween(300))
-                ) {
-                    val pulse = rememberInfiniteTransition(label = "dot")
-                    val dotAlpha by pulse.animateFloat(
-                        initialValue = 0.3f, targetValue = 1f,
-                        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
-                        label = "dotAlpha"
-                    )
-                    Box(
-                        modifier = Modifier.size(7.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(TraditionalGold.copy(alpha = dotAlpha))
+                if (monthlyAgenda.isNotEmpty()) {
+                    Text(
+                        text = num(lang, monthlyAgenda.size),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.accentText,
+                        modifier = Modifier
+                            .background(TraditionalGold.copy(alpha = 0.15f), PillShape)
+                            .padding(horizontal = 8.dp, vertical = 1.dp)
                     )
                 }
+                if (isLoadingAgenda) SyncingDot()
             }
         }
 
-        item {
-            AnimatedContent(
-                targetState = isLoadingAgenda,
-                transitionSpec = {
-                    fadeIn(tween(250)) togetherWith fadeOut(tween(180))
-                },
-                label = "MonthlyAgendaLoading"
-            ) { loading ->
-                if (loading) {
-                    CalendarAgendaShimmer()
-                } else if (monthlyAgenda.isEmpty()) {
+        when {
+            monthlyAgenda.isNotEmpty() -> items(
+                items = monthlyAgenda,
+                key = { it.key },
+                contentType = { "agenda" }
+            ) { item ->
+                AgendaItemRow(
+                    item = item,
+                    weekday = daysList.getOrNull(item.day - 1)?.let {
+                        if (lang == AppLanguage.EN) it.dayOfWeekEn.take(3) else it.dayOfWeekShort
+                    }.orEmpty(),
+                    lang = lang,
+                    isSelected = item.day == safeSelectedDay,
+                    onClick = onDayChange,
+                    modifier = Modifier.animateItem()
+                )
+            }
+            // Nothing local to show yet and the cloud copy is still in flight.
+            isLoadingAgenda -> item(key = "agendaLoading", contentType = "agendaLoading") {
+                CalendarAgendaShimmer()
+            }
+            else -> item(key = "agendaEmpty", contentType = "agendaEmpty") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface, CardShape)
+                        .padding(vertical = 22.dp, horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
-                        tr("\u1782\u17D2\u1798\u17B6\u1793\u1780\u1798\u17D2\u1798\u179C\u17B7\u1792\u17B8\u179F\u1798\u17D2\u179A\u17B6\u1794\u17CB\u1781\u17C2\u1793\u17C1\u17C7\u1791\u17C1", "No events for this month"),
-                        fontSize = 12.sp, color = dimColor, textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp)
+                        tr("គ្មានកម្មវិធីសម្រាប់ខែនេះទេ", "No events for this month"),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.text, textAlign = TextAlign.Center
                     )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        monthlyAgenda.forEach { item ->
-                            val accentColor = when (item.type) {
-                                AgendaType.HOLIDAY -> LotusPink
-                                AgendaType.NOTE -> SkyBlue
-                                AgendaType.REMINDER -> TraditionalGold
-                            }
-                            val icon = item.icon ?: when (item.type) {
-                                AgendaType.HOLIDAY -> "\uD83C\uDFEE"
-                                AgendaType.NOTE -> "\uD83D\uDCDD"
-                                AgendaType.REMINDER -> "\u23F0"
-                            }
-                            AgendaItemRow(
-                                icon = icon,
-                                title = item.title,
-                                subtitle = "${num(lang, item.day)} ${gregMonth(lang, month - 1)} \u00B7 ${item.subtitle}",
-                                accentColor = if (item.isPast) Color.Gray else accentColor,
-                                isPast = item.isPast
-                            )
-                        }
-                    }
+                    Text(
+                        tr("ជ្រើសថ្ងៃណាមួយ រួចចុច «បន្ថែម» ដើម្បីបង្កើតកំណត់ចំណាំ ឬការរំលឹក",
+                           "Pick a day and tap Add to create a note, reminder or holiday"),
+                        fontSize = 11.sp, lineHeight = 16.sp, color = colors.dim, textAlign = TextAlign.Center
+                    )
                 }
             }
         }
-        // Legend Section
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                LegendIndicator(LotusPink, tr("ថ្ងៃបុណ្យ", "Holiday"))
-                LegendIndicator(SkyBlue, tr("ចំណាំ", "Note"))
-                LegendIndicator(LightGold, tr("ការងារ", "Work"))
+    }
+    }
+}
+
+@Composable
+private fun CalendarHeader(
+    title: String,
+    subtitle: String,
+    isOnToday: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onToday: () -> Unit,
+    onTitleClick: () -> Unit
+) {
+    val colors = LocalAppColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(
+                    onClickLabel = tr("ជ្រើសរើសខែ", "Choose month"),
+                    role = Role.Button,
+                    onClick = onTitleClick
+                )
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = colors.dim)
+            }
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = colors.accentText,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // "Today" is filled while you are away from today, and quiet once there.
+        Text(
+            text = tr("ថ្ងៃនេះ", "Today"),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isOnToday) colors.dim else OnAccent,
+            modifier = Modifier
+                .padding(horizontal = 4.dp)
+                .clip(PillShape)
+                .then(
+                    if (isOnToday) Modifier.border(1.dp, colors.border, PillShape)
+                    else Modifier.background(TraditionalGold)
+                )
+                .clickable(role = Role.Button, onClick = onToday)
+                .padding(horizontal = 14.dp, vertical = 7.dp)
+        )
+        IconButton(onClick = onPrevious) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = tr("ខែមុន", "Previous month"),
+                tint = colors.accentText
+            )
+        }
+        IconButton(onClick = onNext) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = tr("ខែបន្ទាប់", "Next month"),
+                tint = colors.accentText
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeekdayHeader(lang: AppLanguage) {
+    val colors = LocalAppColors.current
+    Row(modifier = Modifier.fillMaxWidth().clearAndSetSemantics { }) {
+        weekdayLabels(lang).forEachIndexed { idx, label ->
+            Text(
+                text = label,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (idx == 0 || idx == 6) CrimsonHoliday else colors.dim
+            )
+        }
+    }
+}
+
+/**
+ * One month of day cells. Kept separate from the tab so that selecting a day
+ * only recomposes the two cells whose state changed: every other [DayCell]
+ * receives identical parameters and is skipped.
+ */
+@Composable
+private fun MonthGrid(
+    days: List<KhmerDate>,
+    startOffset: Int,
+    lang: AppLanguage,
+    selectedDay: Int,
+    todayDay: Int,
+    noteDays: Set<Int>,
+    holidayDays: Set<Int>,
+    workByDay: Map<Int, AppStore.ShiftDef>,
+    onDayClick: (Int) -> Unit,
+    onDayLongClick: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Cell text is built once per month/language instead of on every recomposition.
+    val lunarLabels = remember(days, lang) { days.map { lunarDayLabel(lang, it) } }
+    val descriptions = remember(days, lang) {
+        days.map { d ->
+            val weekday = if (lang == AppLanguage.EN) d.dayOfWeekEn else "ថ្ងៃ${d.dayOfWeek}"
+            "$weekday ${num(lang, d.day)} ${gregMonth(lang, d.month - 1)}, " +
+                "${lunarDayLabel(lang, d)} ${lunarMonth(lang, d.lunarMonthName)}"
+        }
+    }
+    val rows = (startOffset + days.size + 6) / 7
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (row in 0 until rows) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                for (col in 0..6) {
+                    val day = row * 7 + col - startOffset + 1
+                    if (day < 1 || day > days.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    } else {
+                        val info = days[day - 1]
+                        val showsMoon = (info.isWaxing && (info.lunarDayVal == 1 || info.lunarDayVal == 8 || info.lunarDayVal == 15)) ||
+                            (!info.isWaxing && info.lunarDayVal == 8)
+                        val shift = workByDay[day]
+                        DayCell(
+                            day = day,
+                            lunarLabel = lunarLabels[day - 1],
+                            description = descriptions[day - 1],
+                            moon = if (showsMoon) info.moonEmoji else null,
+                            isSelected = day == selectedDay,
+                            isToday = day == todayDay,
+                            isHoliday = info.holiday != null || day in holidayDays,
+                            isWeekend = col == 0 || col == 6,
+                            hasNote = day in noteDays,
+                            hasWork = shift != null,
+                            isOvernightWork = shift?.isOvernight == true,
+                            compactLabel = lang == AppLanguage.EN,
+                            onClick = onDayClick,
+                            onLongClick = onDayLongClick,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AgendaItemRow(icon: String, title: String, subtitle: String, accentColor: Color, isPast: Boolean) {
-    val (_, _, _, plumCard, _, _, sandText, _, _) = LocalAppColors.current
-    Card(
-        colors = CardDefaults.cardColors(containerColor = plumCard),
-        border = BorderStroke(1.dp, accentColor.copy(0.3f)),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().alpha(if (isPast) 0.5f else 1f)
+private fun DayCell(
+    day: Int,
+    lunarLabel: String,
+    description: String,
+    moon: String?,
+    isSelected: Boolean,
+    isToday: Boolean,
+    isHoliday: Boolean,
+    isWeekend: Boolean,
+    hasNote: Boolean,
+    hasWork: Boolean,
+    isOvernightWork: Boolean,
+    compactLabel: Boolean,
+    onClick: (Int) -> Unit,
+    onLongClick: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalAppColors.current
+    val workColor = if (isOvernightWork) LotusPink else LightGold
+    val holidayText = tr("ថ្ងៃបុណ្យ", "Holiday")
+    val noteText = tr("មានកំណត់ចំណាំ", "Has notes")
+    val workText = tr("ថ្ងៃធ្វើការ", "Work day")
+    val todayText = tr("ថ្ងៃនេះ", "Today")
+    val detailsLabel = tr("បើកព័ត៌មានលម្អិត", "Open day details")
+
+    Box(
+        modifier = modifier
+            .padding(1.dp)
+            .aspectRatio(0.88f)
+            .clip(CellShape)
+            .then(
+                when {
+                    isSelected -> Modifier
+                        .background(TraditionalGold.copy(alpha = 0.18f))
+                        .border(1.5.dp, TraditionalGold, CellShape)
+                    hasWork -> Modifier.background(workColor.copy(alpha = 0.12f))
+                    else -> Modifier
+                }
+            )
+            .semantics {
+                selected = isSelected
+                contentDescription = buildString {
+                    if (isToday) append(todayText).append(", ")
+                    append(description)
+                    if (isHoliday) append(", ").append(holidayText)
+                    if (hasNote) append(", ").append(noteText)
+                    if (hasWork) append(", ").append(workText)
+                }
+            }
+            .combinedClickable(
+                onClick = { onClick(day) },
+                onLongClickLabel = detailsLabel,
+                onLongClick = { onLongClick(day) }
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        if (moon != null) {
+            Text(
+                moon,
+                fontSize = 8.sp,
+                lineHeight = 10.sp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 2.dp, end = 3.dp).clearAndSetSemantics { }
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.clearAndSetSemantics { }
         ) {
             Box(
-                modifier = Modifier.size(40.dp).background(accentColor.copy(0.12f), CircleShape),
+                modifier = Modifier
+                    .size(26.dp)
+                    .then(if (isToday) Modifier.background(TraditionalGold, CircleShape) else Modifier),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, fontSize = 20.sp)
+                Text(
+                    text = day.toString(),
+                    fontSize = 16.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.SemiBold,
+                    color = when {
+                        isToday    -> OnAccent
+                        isSelected -> colors.accentText
+                        isHoliday  -> LotusPink
+                        isWeekend  -> CrimsonHoliday
+                        else       -> colors.text
+                    }
+                )
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isPast) Color.Gray else sandText)
-                Text(subtitle, fontSize = 10.sp, color = if (isPast) Color.Gray else accentColor.copy(0.8f))
+            Text(
+                text = lunarLabel,
+                fontSize = if (compactLabel) 8.sp else 9.sp,
+                lineHeight = 12.sp,
+                maxLines = 1,
+                softWrap = false,
+                color = if (isSelected) colors.accentText else colors.dim
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.height(6.dp)
+            ) {
+                if (isHoliday) Box(Modifier.size(5.dp).background(LotusPink, CircleShape))
+                if (hasNote) Box(Modifier.width(10.dp).height(4.dp).background(SkyBlue, PillShape))
+                if (hasWork) Box(Modifier.size(5.dp).background(workColor, CircleShape))
             }
         }
+    }
+}
+
+@Composable
+private fun SelectedDayCard(
+    date: KhmerDate,
+    lang: AppLanguage,
+    isToday: Boolean,
+    shift: AppStore.ShiftDef?,
+    dayAgenda: List<AgendaItem>,
+    onOpen: () -> Unit
+) {
+    val colors = LocalAppColors.current
+    val holidays = dayAgenda.filter { it.type == AgendaType.HOLIDAY }
+    val noteCount = dayAgenda.count { it.type == AgendaType.NOTE }
+    val reminderCount = dayAgenda.count { it.type == AgendaType.REMINDER }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .background(colors.card)
+            .border(1.dp, TraditionalGold.copy(alpha = 0.35f), CardShape)
+            .clickable(onClickLabel = tr("បើកព័ត៌មានលម្អិត", "Open day details"), onClick = onOpen)
+            .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(date.moonEmoji, fontSize = 30.sp, modifier = Modifier.clearAndSetSemantics { })
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = buildString {
+                    if (isToday) append(tr(lang, "ថ្ងៃនេះ · ", "Today · "))
+                    if (lang == AppLanguage.EN) {
+                        append("${date.dayOfWeekEn}, ${gregMonth(lang, date.month - 1)} ${date.day}")
+                    } else {
+                        append("ថ្ងៃ${date.dayOfWeek} ទី${num(lang, date.day)} ${gregMonth(lang, date.month - 1)}")
+                    }
+                },
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = tr(
+                    "${lunarDayLabel(lang, date)} ខែ${date.lunarMonthName} · ${date.zodiac}",
+                    "${lunarDayLabel(lang, date)}, ${lunarMonth(lang, date.lunarMonthName)} · ${zodiac(lang, date.zodiac)}"
+                ),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = colors.subText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            holidays.forEach { holiday ->
+                Text(
+                    text = "${holiday.icon ?: "🏮"} ${holiday.title}",
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = LotusPink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (shift != null || noteCount > 0 || reminderCount > 0) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    if (shift != null) {
+                        InfoPill(
+                            text = "${shift.name} ${shiftTimeLabel(shift)}",
+                            tint = if (shift.isOvernight) LotusPink else LightGold,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                    if (noteCount > 0) InfoPill("📝 ${num(lang, noteCount)}", SkyBlue)
+                    if (reminderCount > 0) InfoPill("⏰ ${num(lang, reminderCount)}", TraditionalGold)
+                }
+            }
+        }
+
+        FilledTonalButton(
+            onClick = onOpen,
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = TraditionalGold,
+                contentColor = OnAccent
+            ),
+            contentPadding = PaddingValues(start = 10.dp, end = 14.dp)
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(tr("បន្ថែម", "Add"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun InfoPill(text: String, tint: Color, modifier: Modifier = Modifier) {
+    val colors = LocalAppColors.current
+    Text(
+        text = text,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = colors.text,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .background(tint.copy(alpha = 0.18f), PillShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    )
+}
+
+/** Pulsing dot shown while cloud data is in flight; animates in the layer, not by recomposing. */
+@Composable
+private fun SyncingDot() {
+    val pulse = rememberInfiniteTransition(label = "dot")
+    val dotAlpha = pulse.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+        label = "dotAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(7.dp)
+            .graphicsLayer { alpha = dotAlpha.value }
+            .background(TraditionalGold, CircleShape)
+    )
+}
+
+@Composable
+private fun AgendaItemRow(
+    item: AgendaItem,
+    weekday: String,
+    lang: AppLanguage,
+    isSelected: Boolean,
+    onClick: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalAppColors.current
+    val accent = when (item.type) {
+        AgendaType.HOLIDAY -> LotusPink
+        AgendaType.NOTE -> SkyBlue
+        AgendaType.REMINDER -> TraditionalGold
+    }
+    val icon = item.icon ?: when (item.type) {
+        AgendaType.HOLIDAY -> "🏮"
+        AgendaType.NOTE -> "📝"
+        AgendaType.REMINDER -> "⏰"
+    }
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = if (item.isPast) 0.6f else 1f }
+            .clip(shape)
+            .background(colors.card)
+            .border(1.dp, if (isSelected) TraditionalGold.copy(alpha = 0.7f) else accent.copy(alpha = 0.28f), shape)
+            .clickable { onClick(item.day) }
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Date badge
+        Column(
+            modifier = Modifier
+                .width(46.dp)
+                .background(accent.copy(alpha = 0.14f), RoundedCornerShape(10.dp))
+                .padding(vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                num(lang, item.day),
+                fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Bold, color = colors.text
+            )
+            Text(weekday, fontSize = 10.sp, lineHeight = 14.sp, color = colors.subText, maxLines = 1)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                item.title,
+                fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = colors.text,
+                maxLines = 2, overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                item.subtitle,
+                fontSize = 11.sp, lineHeight = 16.sp, color = colors.subText,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(icon, fontSize = 18.sp, modifier = Modifier.clearAndSetSemantics { })
     }
 }
 
 @Composable
 private fun LegendIndicator(color: Color, label: String) {
-    val (_, _, _, _, _, _, _, _, dimColor) = LocalAppColors.current
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(color))
-        Text(label, fontSize = 8.sp, color = dimColor)
+    val colors = LocalAppColors.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Box(modifier = Modifier.size(7.dp).background(color, CircleShape))
+        Text(label, fontSize = 11.sp, lineHeight = 14.sp, color = colors.dim)
     }
 }
 
@@ -750,7 +1134,8 @@ private fun DayDetailDialog(
     onDismiss: () -> Unit,
     onDataChange: () -> Unit
 ) {
-    val (nightBlack, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, dimColor) = LocalAppColors.current
+    val (_, _, plumSurface, plumCard, deepBorder, _, sandText, goldSubText, _) = LocalAppColors.current
+    val accentText = LocalAppColors.current.accentText
     val context = LocalContext.current
     val widgetScope = rememberCoroutineScope()
     val selectedDate = remember(date.year, date.month, date.day) {
@@ -935,12 +1320,17 @@ private fun DayDetailDialog(
         dlg.show()
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    // Use the full window width (minus a margin) instead of the narrow platform
+    // default, so the text fields and rows are not cramped.
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(24.dp),
             color = plumCard,
             border = BorderStroke(1.dp, TraditionalGold.copy(0.4f)),
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .padding(horizontal = 18.dp, vertical = 24.dp)
         ) {
             LazyColumn(
                 modifier = Modifier.padding(20.dp),
@@ -949,10 +1339,10 @@ private fun DayDetailDialog(
             ) {
                 item {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(date.moonEmoji, fontSize = 48.sp)
+                        Text(date.moonEmoji, fontSize = 44.sp)
                         Text(
                             text = lunarDayLabel(lang, date),
-                            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TraditionalGold
+                            fontSize = 20.sp, fontWeight = FontWeight.Bold, color = accentText
                         )
                         Text(
                             text = lunarMonth(lang, date.lunarMonthName),
@@ -965,7 +1355,12 @@ private fun DayDetailDialog(
 
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        DetailRow(tr("ថ្ងៃគ្រីស្ដ", "Gregorian"), "${date.dayOfWeekEn}, ${date.day} ${gregMonth(AppLanguage.EN, date.month-1)}", sandText, goldSubText)
+                        DetailRow(
+                            tr("ថ្ងៃគ្រីស្ដ", "Gregorian"),
+                            if (lang == AppLanguage.EN) "${date.dayOfWeekEn}, ${date.day} ${gregMonth(lang, date.month - 1)} ${date.year}"
+                            else "ថ្ងៃ${date.dayOfWeek} ទី${num(lang, date.day)} ${gregMonth(lang, date.month - 1)} ${num(lang, date.year)}",
+                            sandText, goldSubText
+                        )
                         DetailRow(tr("ពុទ្ធសករាជ", "Buddhist Era"), num(lang, date.BE), sandText, goldSubText)
                         DetailRow(tr("ឆ្នាំ", "Zodiac"), zodiac(lang, date.zodiac), sandText, goldSubText)
 
@@ -997,14 +1392,14 @@ private fun DayDetailDialog(
                         actionLabel = null, color = sandText, onAction = null
                     )
                 }
-                items(notes) { note ->
+                items(notes, key = { "note-${it.id}" }) { note ->
                     if (editingNoteId == note.id) {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = editingNoteText,
                                 onValueChange = { editingNoteText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                textStyle = TextStyle(fontSize = 12.sp, color = sandText),
+                                textStyle = TextStyle(fontSize = 14.sp, color = sandText),
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SkyBlue)
                             )
                             Row(
@@ -1012,7 +1407,7 @@ private fun DayDetailDialog(
                                 horizontalArrangement = Arrangement.End
                             ) {
                                 TextButton(onClick = { editingNoteId = null }) {
-                                    Text(tr("បោះបង់", "Cancel"), color = goldSubText, fontSize = 11.sp)
+                                    Text(tr("បោះបង់", "Cancel"), color = goldSubText, fontSize = 13.sp)
                                 }
                                 Button(
                                     onClick = {
@@ -1028,7 +1423,7 @@ private fun DayDetailDialog(
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = SkyBlue)
                                 ) {
-                                    Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 }
                             }
                         }
@@ -1038,27 +1433,19 @@ private fun DayDetailDialog(
                                 .fillMaxWidth()
                                 .background(plumSurface, RoundedCornerShape(10.dp))
                                 .border(1.dp, SkyBlue.copy(0.25f), RoundedCornerShape(10.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(start = 12.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(note.text, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f))
-                            Text(
-                                "✏️", fontSize = 14.sp,
-                                modifier = Modifier
-                                    .clickable { editingNoteId = note.id; editingNoteText = note.text }
-                                    .padding(horizontal = 4.dp)
-                            )
-                            Text(
-                                "🗑️", fontSize = 14.sp,
-                                modifier = Modifier
-                                    .clickable {
-                                        val remoteId = note.remoteId
-                                        AppStore.deleteNote(context, date.year, date.month, date.day, note.id)
-                                        bump()
-                                        syncDeletedNote(remoteId)
-                                    }
-                                    .padding(horizontal = 4.dp)
-                            )
+                            Text(note.text, fontSize = 13.sp, lineHeight = 19.sp, color = sandText, modifier = Modifier.weight(1f))
+                            RowAction(Icons.Filled.Edit, tr("កែកំណត់ចំណាំ", "Edit note"), SkyBlue) {
+                                editingNoteId = note.id; editingNoteText = note.text
+                            }
+                            RowAction(Icons.Filled.Delete, tr("លុបកំណត់ចំណាំ", "Delete note"), LotusPink) {
+                                val remoteId = note.remoteId
+                                AppStore.deleteNote(context, date.year, date.month, date.day, note.id)
+                                bump()
+                                syncDeletedNote(remoteId)
+                            }
                         }
                     }
                 }
@@ -1068,8 +1455,8 @@ private fun DayDetailDialog(
                             value = newNoteText,
                             onValueChange = { newNoteText = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text(tr("បន្ថែមកំណត់ចំណាំ…", "Add a note…"), fontSize = 12.sp) },
-                            textStyle = TextStyle(fontSize = 12.sp, color = sandText),
+                            placeholder = { Text(tr("បន្ថែមកំណត់ចំណាំ…", "Add a note…"), fontSize = 14.sp) },
+                            textStyle = TextStyle(fontSize = 14.sp, color = sandText),
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = SkyBlue)
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1085,7 +1472,7 @@ private fun DayDetailDialog(
                             colors = ButtonDefaults.buttonColors(containerColor = SkyBlue),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(tr("បន្ថែម", "Add"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Text(tr("បន្ថែម", "Add"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -1102,7 +1489,7 @@ private fun DayDetailDialog(
                         onAction = { showAlarmForm = !showAlarmForm }
                     )
                 }
-                items(dayReminders) { r ->
+                items(dayReminders, key = { "reminder-${it.requestCode}" }) { r ->
                     val c = Calendar.getInstance().apply { timeInMillis = r.triggerMs }
                     val time = "%02d:%02d".format(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE))
                     Row(
@@ -1110,24 +1497,19 @@ private fun DayDetailDialog(
                             .fillMaxWidth()
                             .background(plumSurface, RoundedCornerShape(10.dp))
                             .border(1.dp, TraditionalGold.copy(0.25f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(start = 12.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("⏰ $time", fontSize = 12.sp, color = TraditionalGold, fontWeight = FontWeight.Bold)
+                        Text("⏰ $time", fontSize = 13.sp, color = accentText, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.width(10.dp))
-                        Text(r.title, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text(
-                            "🗑️", fontSize = 14.sp,
-                            modifier = Modifier
-                                .clickable {
-                                    val remoteEventId = r.remoteEventId
-                                    val triggerMs = r.triggerMs
-                                    cancelReminder(context, r.requestCode)
-                                    bump()
-                                    syncDeletedReminder(remoteEventId, triggerMs)
-                                }
-                                .padding(start = 6.dp)
-                        )
+                        Text(r.title, fontSize = 13.sp, color = sandText, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        RowAction(Icons.Filled.Delete, tr("លុបការរំលឹក", "Delete reminder"), LotusPink) {
+                            val remoteEventId = r.remoteEventId
+                            val triggerMs = r.triggerMs
+                            cancelReminder(context, r.requestCode)
+                            bump()
+                            syncDeletedReminder(remoteEventId, triggerMs)
+                        }
                     }
                 }
                 if (showAlarmForm) {
@@ -1137,7 +1519,7 @@ private fun DayDetailDialog(
                                 value = alarmTitleText,
                                 onValueChange = { alarmTitleText = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text(tr("ចំណងជើង…", "Title…"), fontSize = 12.sp) },
+                                placeholder = { Text(tr("ចំណងជើង…", "Title…"), fontSize = 14.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = TraditionalGold)
                             )
                             Button(
@@ -1154,7 +1536,7 @@ private fun DayDetailDialog(
                                 modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
                             ) {
-                                Text(tr("ជ្រើសម៉ោង", "Pick Time"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text(tr("ជ្រើសម៉ោង", "Pick Time"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
@@ -1172,26 +1554,21 @@ private fun DayDetailDialog(
                         onAction = { showHolidayForm = !showHolidayForm }
                     )
                 }
-                items(dayHolidays) { h ->
+                items(dayHolidays, key = { "holiday-${it.id}" }) { h ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(plumSurface, RoundedCornerShape(10.dp))
                             .border(1.dp, LotusPink.copy(0.25f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(start = 12.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(if (lang == AppLanguage.EN) h.nameEn else h.nameKm, fontSize = 12.sp, color = sandText, modifier = Modifier.weight(1f))
-                        Text(
-                            "🗑️", fontSize = 14.sp,
-                            modifier = Modifier
-                                .clickable {
-                                    val deletedHoliday = AppStore.deleteCustomHoliday(context, h.id) ?: h
-                                    bump()
-                                    syncDeletedCustomHoliday(deletedHoliday)
-                                }
-                                .padding(start = 6.dp)
-                        )
+                        Text(if (lang == AppLanguage.EN) h.nameEn else h.nameKm, fontSize = 13.sp, color = sandText, modifier = Modifier.weight(1f))
+                        RowAction(Icons.Filled.Delete, tr("លុបថ្ងៃបុណ្យ", "Delete holiday"), LotusPink) {
+                            val deletedHoliday = AppStore.deleteCustomHoliday(context, h.id) ?: h
+                            bump()
+                            syncDeletedCustomHoliday(deletedHoliday)
+                        }
                     }
                 }
                 if (showHolidayForm) {
@@ -1201,14 +1578,14 @@ private fun DayDetailDialog(
                                 value = holidayNameKm,
                                 onValueChange = { holidayNameKm = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text(tr("ឈ្មោះថ្ងៃបុណ្យ (ខ្មែរ)", "Holiday name (Khmer)"), fontSize = 12.sp) },
+                                placeholder = { Text(tr("ឈ្មោះថ្ងៃបុណ្យ (ខ្មែរ)", "Holiday name (Khmer)"), fontSize = 14.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LotusPink)
                             )
                             OutlinedTextField(
                                 value = holidayNameEn,
                                 onValueChange = { holidayNameEn = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text(tr("ឈ្មោះ (English) — ស្រេចចិត្ត", "Name (English) — optional"), fontSize = 12.sp) },
+                                placeholder = { Text(tr("ឈ្មោះ (English) — ស្រេចចិត្ត", "Name (English) — optional"), fontSize = 14.sp) },
                                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = LotusPink)
                             )
                             Button(
@@ -1224,7 +1601,7 @@ private fun DayDetailDialog(
                                 modifier = Modifier.align(Alignment.End),
                                 colors = ButtonDefaults.buttonColors(containerColor = LotusPink)
                             ) {
-                                Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text(tr("រក្សាទុក", "Save"), color = OnAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
                     }
@@ -1246,6 +1623,19 @@ private fun DayDetailDialog(
     }
 }
 
+/** Icon action inside a dialog row, with a full 48dp touch target and a spoken label. */
+@Composable
+private fun RowAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
+    }
+}
+
 @Composable
 private fun SectionHeader(
     title: String,
@@ -1259,10 +1649,10 @@ private fun SectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = color)
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color)
         if (actionLabel != null && onAction != null) {
             TextButton(onClick = onAction) {
-                Text(actionLabel, color = actionColor, fontSize = 11.sp)
+                Text(actionLabel, color = actionColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -1271,7 +1661,10 @@ private fun SectionHeader(
 @Composable
 private fun DetailRow(label: String, value: String, valueColor: Color, labelColor: Color) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontSize = 11.sp, color = labelColor)
-        Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = valueColor)
+        Text(label, fontSize = 12.sp, color = labelColor)
+        Text(
+            value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = valueColor,
+            textAlign = TextAlign.End, modifier = Modifier.weight(1f).padding(start = 12.dp)
+        )
     }
 }

@@ -1,8 +1,5 @@
 package com.aistudio.khmercalendar.calendar
 
-import kotlin.math.floor
-import kotlin.math.sin
-
 data class KhmerDate(
     val day: Int,
     val month: Int,
@@ -24,23 +21,21 @@ object KhmerCalendarHelper {
     private const val MIN_SUPPORTED_YEAR = 1900
     private const val MAX_SUPPORTED_YEAR = 2200
 
+    /** Gregorian years the lunar tables cover; callers must not navigate outside it. */
+    val SUPPORTED_YEARS: IntRange = MIN_SUPPORTED_YEAR..MAX_SUPPORTED_YEAR
+
+    /** First day (as a serial day) of one Khmer lunar month, and its length. */
     private data class Milestone(
         val serialDay: Int,
         val khmerMonthName: String,
-        val length: Int,
-        val be: Int,
-        val zodiac: String
+        val length: Int
     )
 
     private val KH_DAYS = listOf("អាទិត្យ", "ចន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍")
     private val KH_DAYS_SHORT = listOf("អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស")
     private val EN_DAYS = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-    private val KHMER_NUMERAL_MAP = mapOf(
-        '0' to '០', '1' to '១', '2' to '២', '3' to '៣', '4' to '៤',
-        '5' to '៥', '6' to '៦', '7' to '៧', '8' to '៨', '9' to '៩'
-    )
 
-    // 12 Khmer zodiac names, index 0 = Rat. Formula: (BE % 12 + 4) % 12 gives index.
+    // 12 Khmer zodiac names, index 0 = Rat. Index = (Gregorian animal year − 4) mod 12.
     private val ZODIAC_NAMES = listOf(
         "ឆ្នាំជូត",    // 0: Rat
         "ឆ្នាំឆ្លូវ",  // 1: Ox
@@ -56,149 +51,119 @@ object KhmerCalendarHelper {
         "ឆ្នាំកុរ"     // 11: Pig    (BE 2575, 2587…)
     )
 
-    // Normal-year and leap-year month name sequences
-    private val MONTH_NAMES_NORMAL = listOf(
-        "ចេត្រ", "ពិសាខ", "ជេស្ឋ", "អាសាឍ",
-        "ស្រាពណ៍", "ភទ្របទ", "អស្សុជ", "កត្តិក",
-        "មិគសិរ", "បុស្ស", "មាឃ", "ផល្គុន"
-    )
-    private val MONTH_NAMES_LEAP = listOf(
-        "ចេត្រ", "ពិសាខ", "ជេស្ឋ", "អាសាឍ ១", "អាសាឍ ២",
-        "ស្រាពណ៍", "ភទ្របទ", "អស្សុជ", "កត្តិក",
-        "មិគសិរ", "បុស្ស", "មាឃ", "ផល្គុន"
-    )
+    // ─── Traditional Khmer lunisolar calendar (Chhankitek) ─────────────────────
+    //
+    // The Khmer calendar is arithmetical, not astronomical: months alternate
+    // 29/30 days, and each year is one of three kinds, decided from the Buddhist
+    // Era year by the Bodithey/Avoman rules:
+    //   • normal     – 354 days
+    //   • leap day   – 355 days (ជេស្ឋ has 30 days instead of 29)
+    //   • leap month – 384 days (អាសាឍ is doubled: បឋមាសាឍ + ទុតិយាសាឍ)
+    // Month starts are generated forward from a fixed epoch: 1 January 1900 was
+    // ១ កើត ខែបុស្ស.
 
-    // ─── Astronomical new moon calculator (Meeus, Astronomical Algorithms ch.49) ───
+    private const val FIRST_ASADH = "បឋមាសាឍ"
+    private const val SECOND_ASADH = "ទុតិយាសាឍ"
 
-    // k=0 → JDE 2451550.09766 ≈ Jan 6.6, 2000 UT (new moon reference)
-    private fun newMoonJDE(k: Double): Double {
-        val T = k / 1236.85
-        val T2 = T * T
-        val T3 = T2 * T
-        val T4 = T3 * T
-
-        var jde = 2451550.09766 + 29.530588861 * k +
-                  0.00015437 * T2 - 0.000000150 * T3 + 0.00000000073 * T4
-
-        val E = 1.0 - 0.002516 * T - 0.0000074 * T2
-        val M  = Math.toRadians(2.5534 + 29.10535670 * k - 0.0000014 * T2 - 0.00000011 * T3)
-        val Mp = Math.toRadians(201.5643 + 385.81693528 * k + 0.0107582 * T2 + 0.00001238 * T3 - 0.000000058 * T4)
-        val F  = Math.toRadians(160.7108 + 390.67050284 * k - 0.0016118 * T2 - 0.00000227 * T3 + 0.000000011 * T4)
-        val Om = Math.toRadians(124.7746 - 1.56375588 * k + 0.0020672 * T2 + 0.00000215 * T3)
-
-        jde += -0.40720 * sin(Mp) +
-                0.17241 * E * sin(M) +
-                0.01608 * sin(2.0 * Mp) +
-                0.01039 * sin(2.0 * F) +
-                0.00739 * E * sin(Mp - M) -
-                0.00514 * E * sin(Mp + M) +
-                0.00208 * E * E * sin(2.0 * M) -
-                0.00111 * sin(Mp - 2.0 * F) -
-                0.00057 * sin(Mp + 2.0 * F) +
-                0.00056 * E * sin(2.0 * Mp + M) -
-                0.00042 * sin(3.0 * Mp) +
-                0.00042 * E * sin(M + 2.0 * F) +
-                0.00038 * E * sin(M - 2.0 * F) -
-                0.00024 * E * sin(2.0 * Mp - M) -
-                0.00017 * sin(Om)
-        return jde
+    private fun aharkun(be: Int): Int = Math.floorDiv(be * 292207 + 499, 800) + 4
+    private fun kromthupul(be: Int): Int = 800 - Math.floorMod(be * 292207 + 499, 800)
+    private fun avoman(be: Int): Int = Math.floorMod(aharkun(be) * 11 + 25, 692)
+    private fun bodithey(be: Int): Int {
+        val ahk = aharkun(be)
+        return Math.floorMod(Math.floorDiv(ahk * 11 + 25, 692) + ahk + 29, 30)
     }
 
-    // Convert JDE (UT) → Gregorian calendar date in Cambodia time (UTC+7)
-    private fun jdeToGregorian(jde: Double): Triple<Int, Int, Int> {
-        val jdLocal = jde + 7.0 / 24.0   // shift to Cambodia time
-        val Z = floor(jdLocal + 0.5).toLong()
-        val A = if (Z < 2299161L) Z else {
-            val alpha = floor((Z - 1867216.25) / 36524.25).toLong()
-            Z + 1L + alpha - alpha / 4L
+    /** 0 = regular, 1 = leap month, 2 = leap day, 3 = both (before deferral). */
+    private fun boditheyLeap(be: Int): Int {
+        val a = avoman(be)
+        val b = bodithey(be)
+        val solarLeap = kromthupul(be) <= 207
+        val avomanLeap = if (solarLeap) a <= 126 else a <= 137 && avoman(be + 1) != 0
+        var monthLeap = b >= 25 || b <= 5
+        // 25 followed by 5: only the year with 5 takes the leap month.
+        if (b == 25 && bodithey(be + 1) == 5) monthLeap = false
+        // 24 followed by 6: the year with 24 takes the leap month.
+        if (b == 24 && bodithey(be + 1) == 6) monthLeap = true
+        return when {
+            monthLeap && avomanLeap -> 3
+            monthLeap -> 1
+            avomanLeap -> 2
+            else -> 0
         }
-        val B = A + 1524L
-        val C = floor((B - 122.1) / 365.25).toLong()
-        val D = floor(365.25 * C).toLong()
-        val E = floor((B - D) / 30.6001).toLong()
-
-        val day   = (B - D - floor(30.6001 * E).toLong()).toInt()
-        val month = if (E < 14L) (E - 1L).toInt() else (E - 13L).toInt()
-        val year  = if (month > 2) (C - 4716L).toInt() else (C - 4715L).toInt()
-        return Triple(year, month, day)
     }
 
-    // ─── Dynamic milestone builder ─────────────────────────────────────────────
+    /**
+     * Kind of Khmer year: 0 = normal, 1 = leap month, 2 = leap day. A year
+     * cannot have both, so a leap day that coincides with a leap month is
+     * carried over to the following year.
+     */
+    private fun yearKind(be: Int): Int = when (val leap = boditheyLeap(be)) {
+        3 -> 1
+        1, 2 -> leap
+        else -> if (boditheyLeap(be - 1) == 3) 2 else 0
+    }
+
+    // ─── Month-start table ─────────────────────────────────────────────────────
 
     // Pre-built for 1900–2200; covers all practical dates without restriction
-    private val milestones: List<Milestone> by lazy { buildMilestones(1900, 2200) }
+    private val milestones: List<Milestone> by lazy { buildMilestones(MIN_SUPPORTED_YEAR, MAX_SUPPORTED_YEAR) }
 
-    private val fallbackMilestone by lazy {
-        Milestone(getSerialDay(2026, 5, 11), "ពិសាខ", 30, 2570, ZODIAC_NAMES[6])
-    }
+    // Serial day of Visak Bochea (១៥ កើត ខែពិសាខ) per Gregorian year; the
+    // Buddhist Era advances on the following day.
+    private val visakBocheaByYear = HashMap<Int, Int>()
 
     // Binary search: O(log n) instead of O(n) linear scan
     private fun findMilestone(sDay: Int): Milestone {
         val ms = milestones
-        if (ms.isEmpty()) return fallbackMilestone
         var lo = 0
         var hi = ms.size - 1
         while (lo < hi) {
             val mid = (lo + hi + 1) / 2
             if (ms[mid].serialDay <= sDay) lo = mid else hi = mid - 1
         }
-        return if (ms[lo].serialDay <= sDay) ms[lo] else fallbackMilestone
+        return ms[lo]
     }
 
-    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency
+    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency.
+    // An access-ordered LinkedHashMap mutates on every read, and the app UI and the
+    // home-screen widgets hit it from different threads, so all access is locked.
     private val monthCache: MutableMap<Long, List<KhmerDate>> =
         object : LinkedHashMap<Long, List<KhmerDate>>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 12
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 36
         }
 
     private fun monthCacheKey(year: Int, month: Int): Long = year.toLong() * 100 + month
 
     private fun buildMilestones(firstGregorianYear: Int, lastGregorianYear: Int): List<Milestone> {
-        // Collect all new moons whose Cambodia date falls in (firstGregorianYear-1)..(lastGregorianYear+1)
-        val kStart = kotlin.math.round((firstGregorianYear - 2001) * 12.37).toInt() - 2
-        val kEnd   = kotlin.math.round((lastGregorianYear  - 1999) * 12.37).toInt() + 2
-
-        data class NM(val year: Int, val month: Int, val day: Int, val sd: Int)
-
-        val newMoons = mutableListOf<NM>()
-        for (k in kStart..kEnd) {
-            val (y, m, d) = jdeToGregorian(newMoonJDE(k.toDouble()))
-            if (y in (firstGregorianYear - 1)..(lastGregorianYear + 1)) {
-                newMoons.add(NM(y, m, d, getSerialDay(y, m, d)))
+        val result = ArrayList<Milestone>((lastGregorianYear - firstGregorianYear + 2) * 13)
+        var start = getSerialDay(firstGregorianYear, 1, 1)   // 1 Jan 1900 = ១ កើត ខែបុស្ស
+        fun add(name: String, length: Int) {
+            result.add(Milestone(start, name, length))
+            start += length
+        }
+        // One extra year so the last days of the final Gregorian year are covered.
+        for (year in firstGregorianYear..lastGregorianYear + 1) {
+            // ជេស្ឋ/អាសាឍ of this Gregorian year fall in BE year + 544.
+            val kind = yearKind(year + 544)
+            add("បុស្ស", 30)
+            add("មាឃ", 29)
+            add("ផល្គុន", 30)
+            add("ចេត្រ", 29)
+            visakBocheaByYear[year] = start + 14
+            add("ពិសាខ", 30)
+            add("ជេស្ឋ", if (kind == 2) 30 else 29)
+            if (kind == 1) {
+                add(FIRST_ASADH, 30)
+                add(SECOND_ASADH, 30)
+            } else {
+                add("អាសាឍ", 30)
             }
+            add("ស្រាពណ៍", 29)
+            add("ភទ្របទ", 30)
+            add("អស្សុជ", 29)
+            add("កត្តិក", 30)
+            add("មិគសិរ", 29)
         }
-        newMoons.sortBy { it.sd }
-
-        // Identify Chaitra new moons: month that contains Khmer New Year ≈ Apr 14
-        // Rule: new moon falls between Mar 27 and Apr 26 (inclusive)
-        val chaitraIndices = newMoons.indices.filter { i ->
-            val nm = newMoons[i]
-            (nm.month == 3 && nm.day >= 27) || (nm.month == 4 && nm.day <= 26)
-        }
-
-        val result = mutableListOf<Milestone>()
-
-        for (ci in 0 until chaitraIndices.size - 1) {
-            val startIdx = chaitraIndices[ci]
-            val endIdx   = chaitraIndices[ci + 1]  // exclusive (= next Chaitra)
-            val monthsInYear = endIdx - startIdx   // 12 normal, 13 leap
-            val isLeap = monthsInYear == 13
-            val names  = if (isLeap) MONTH_NAMES_LEAP else MONTH_NAMES_NORMAL
-
-            // BE year: Gregorian year of Chaitra + 544
-            val be = newMoons[startIdx].year + 544
-            val zodiac = ZODIAC_NAMES[((be % 12) + 4 + 12) % 12]
-
-            for (pos in 0 until monthsInYear) {
-                val nm   = newMoons[startIdx + pos]
-                val next = newMoons[startIdx + pos + 1]
-                val len  = next.sd - nm.sd   // actual days in this lunar month
-                val name = names.getOrElse(pos) { "ចេត្រ" }
-                result.add(Milestone(nm.sd, name, len, be, zodiac))
-            }
-        }
-
-        result.sortBy { it.serialDay }
         return result
     }
 
@@ -230,50 +195,56 @@ object KhmerCalendarHelper {
 
         val ms = findMilestone(sDay)
 
+        // Day within the lunar month: 0..14 = ១–១៥ កើត, 15..29 = ១–១៥ រោច
+        // (a 29-day month ends on ១៤ រោច).
         val offset    = sDay - ms.serialDay
-        val isWaxing  = (offset % 30) < 15
+        val isWaxing  = offset < 15
 
-        val displayLunarDay = if (isWaxing) (offset % 30) + 1 else (offset % 30) - 14
+        val displayLunarDay = if (isWaxing) offset + 1 else offset - 14
+
+        // The Buddhist Era advances the day after Visak Bochea; the animal year
+        // advances at Khmer New Year in mid-April.
+        val be = if (sDay > (visakBocheaByYear[year] ?: Int.MAX_VALUE)) year + 544 else year + 543
+        val animalYear = if (month > 4 || (month == 4 && day >= khmerNewYearDay(year))) year else year - 1
+        val zodiac = ZODIAC_NAMES[Math.floorMod(animalYear - 4, 12)]
 
         val lunarDayNameStr = "${toKhmerNumeral(displayLunarDay)} ${if (isWaxing) "កើត" else "រោច"}"
 
         val moonEmoji = when {
-            offset % 30 == 0              -> "🌑"
-            offset % 30 in 1..6           -> "🌒"
-            offset % 30 == 7              -> "🌓"
-            offset % 30 in 8..13          -> "🌔"
-            offset % 30 == 14             -> "🌕"
-            offset % 30 in 15..21         -> "🌖"
-            offset % 30 == 22             -> "🌗"
+            offset == 0              -> "🌑"
+            offset in 1..6           -> "🌒"
+            offset == 7              -> "🌓"
+            offset in 8..13          -> "🌔"
+            offset == 14             -> "🌕"
+            offset in 15..21         -> "🌖"
+            offset == 22             -> "🌗"
             else                          -> "🌘"
         }
 
-        // Holiday detection
-        var holiday: String? = null
-        if (month == 4 && day in 14..16) {
-            holiday = "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ"
-        } else if (ms.khmerMonthName == "មាឃ" && isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យមាឃបូជា (Meak Bochea)"
-        } else if (ms.khmerMonthName == "ពិសាខ" && isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យវិសាខបូជា (Visak Bochea)"
-        } else if ((ms.khmerMonthName == "ភទ្របទ") && !isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben)"
-        } else if (ms.khmerMonthName == "កត្តិក" && isWaxing && displayLunarDay == 15) {
-            holiday = "បុណ្យអុំទូក (Water Festival)"
-        } else if (month == 11 && day == 9) {
-            holiday = "ទិវាបុណ្យឯករាជ្យជាតិ"
-        } else if (month == 1 && day == 7) {
-            holiday = "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍"
-        } else if (month == 5 && day == 1) {
-            holiday = "ទិវាពលកម្មអន្តរជាតិ"
-        } else if (month == 6 && day == 18) {
-            holiday = "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្តេចម៉ែ"
-        } else if (month == 9 && day == 24) {
-            holiday = "ទិវារដ្ឋធម្មនុញ្ញ"
-        } else if (month == 10 && day == 15) {
-            holiday = "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ"
-        } else if (month == 10 && day == 29) {
-            holiday = "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ"
+        // Holiday detection. A lunar festival can land on a fixed-date holiday
+        // (Visak Bochea fell on Labour Day in 2026), so both are reported.
+        val monthName = ms.khmerMonthName
+        val lunarHoliday = when {
+            monthName == "មាឃ" && isWaxing && displayLunarDay == 15 -> "បុណ្យមាឃបូជា (Meak Bochea)"
+            monthName == "ពិសាខ" && isWaxing && displayLunarDay == 15 -> "បុណ្យវិសាខបូជា (Visak Bochea)"
+            monthName == "ភទ្របទ" && !isWaxing && displayLunarDay == 15 -> "បុណ្យភ្ជុំបិណ្ឌ (Pchum Ben)"
+            monthName == "កត្តិក" && isWaxing && displayLunarDay == 15 -> "បុណ្យអុំទូក (Water Festival)"
+            else -> null
+        }
+        val fixedHoliday = when {
+            month == 4 && day in khmerNewYearDay(year)..16 -> "ចូលឆ្នាំថ្មីប្រពៃណីជាតិ"
+            month == 11 && day == 9 -> "ទិវាបុណ្យឯករាជ្យជាតិ"
+            month == 1 && day == 7 -> "ទិវាជ័យជម្នះលើរបបប្រល័យពូជសាសន៍"
+            month == 5 && day == 1 -> "ទិវាពលកម្មអន្តរជាតិ"
+            month == 6 && day == 18 -> "ព្រះរាជពិធីបុណ្យចម្រើនព្រះជន្ម សម្តេចម៉ែ"
+            month == 9 && day == 24 -> "ទិវារដ្ឋធម្មនុញ្ញ"
+            month == 10 && day == 15 -> "ទិវាគោរពព្រះវិញ្ញាណក្ខន្ធ ព្រះបរមរតនកោដ្ឋ"
+            month == 10 && day == 29 -> "ព្រះរាជពិធីគ្រងព្រះបរមរាជសម្បត្តិ ព្រះមហាក្សត្រ"
+            else -> null
+        }
+        val holiday = when {
+            lunarHoliday != null && fixedHoliday != null -> "$lunarHoliday · $fixedHoliday"
+            else -> lunarHoliday ?: fixedHoliday
         }
 
         return KhmerDate(
@@ -285,15 +256,22 @@ object KhmerCalendarHelper {
             isWaxing = isWaxing,
             lunarDayName = lunarDayNameStr,
             lunarMonthName = ms.khmerMonthName,
-            zodiac = ms.zodiac,
-            BE = ms.be,
+            zodiac = zodiac,
+            BE = be,
             moonEmoji = moonEmoji,
             holiday = holiday
         )
     }
 
-    fun toKhmerNumeral(n: Int): String =
-        n.toString().map { KHMER_NUMERAL_MAP[it] ?: it }.joinToString("")
+    fun toKhmerNumeral(n: Int): String {
+        val digits = n.toString()
+        val out = CharArray(digits.length)
+        for (i in digits.indices) {
+            val c = digits[i]
+            out[i] = if (c in '0'..'9') '០' + (c - '0') else c
+        }
+        return String(out)
+    }
 
     fun getGregorianMonthDays(year: Int, month: Int): List<KhmerDate> {
         require(year in MIN_SUPPORTED_YEAR..MAX_SUPPORTED_YEAR) {
@@ -301,10 +279,10 @@ object KhmerCalendarHelper {
         }
         require(month in 1..12) { "Gregorian month must be in 1..12: $month" }
         val key = monthCacheKey(year, month)
-        monthCache[key]?.let { return it }
+        synchronized(monthCache) { monthCache[key] }?.let { return it }
         val daysInMonth = daysInGregorianMonth(year, month)
         val result = (1..daysInMonth).map { getKhmerDate(year, month, it) }
-        monthCache[key] = result
+        synchronized(monthCache) { monthCache[key] = result }
         return result
     }
 
@@ -314,6 +292,13 @@ object KhmerCalendarHelper {
         2 -> if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 29 else 28
         else -> throw IllegalArgumentException("Gregorian month must be in 1..12: $month")
     }
+
+    /**
+     * First day of Khmer New Year (មហាសង្ក្រាន្ត). It falls on 14 April, or on
+     * 13 April in Gregorian leap years, for the decades around the present.
+     */
+    private fun khmerNewYearDay(year: Int): Int =
+        if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) 13 else 14
 
     // Force lazy milestone init off the main thread
     fun warmUp() {

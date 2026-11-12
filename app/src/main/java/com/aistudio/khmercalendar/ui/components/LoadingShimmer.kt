@@ -10,9 +10,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -22,18 +24,14 @@ private val ShimmerHighlight = Color(0xFF3D2E57)
 private val ShimmerBright  = Color(0xFF4A3866)
 
 /**
- * A single animated shimmer box. The gradient sweeps left-to-right on a
- * 1200 ms infinite loop, giving a premium "loading" feel that matches the
- * app's dark plum glassmorphism design.
+ * Animated shimmer fill. The sweep position is read only inside the draw
+ * lambda, so each frame of the 1200 ms loop redraws the box without
+ * recomposing or re-laying-out anything.
  */
 @Composable
-fun ShimmerBox(
-    modifier: Modifier = Modifier,
-    height: Dp = 16.dp,
-    cornerRadius: Dp = 8.dp
-) {
+private fun Modifier.shimmer(shape: Shape): Modifier {
     val transition = rememberInfiniteTransition(label = "shimmer")
-    val shimmerX by transition.animateFloat(
+    val shimmerX = transition.animateFloat(
         initialValue = -1000f,
         targetValue  =  2000f,
         animationSpec = infiniteRepeatable(
@@ -42,45 +40,34 @@ fun ShimmerBox(
         ),
         label = "shimmerX"
     )
+    return this.clip(shape).drawBehind {
+        val x = shimmerX.value
+        drawRect(
+            Brush.linearGradient(
+                colors = ShimmerColors,
+                start  = Offset(x, 0f),
+                end    = Offset(x + 600f, 0f)
+            )
+        )
+    }
+}
 
-    val brush = Brush.linearGradient(
-        colors = listOf(ShimmerBase, ShimmerBright, ShimmerBase),
-        start  = Offset(shimmerX, 0f),
-        end    = Offset(shimmerX + 600f, 0f)
-    )
+private val ShimmerColors = listOf(ShimmerBase, ShimmerBright, ShimmerBase)
 
-    Box(
-        modifier = modifier
-            .height(height)
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(brush)
-    )
+/** A single animated shimmer box. */
+@Composable
+fun ShimmerBox(
+    modifier: Modifier = Modifier,
+    height: Dp = 16.dp,
+    cornerRadius: Dp = 8.dp
+) {
+    Box(modifier = modifier.height(height).shimmer(RoundedCornerShape(cornerRadius)))
 }
 
 /** A shimmer circle (for avatar / icon placeholders). */
 @Composable
 fun ShimmerCircle(size: Dp = 40.dp) {
-    val transition = rememberInfiniteTransition(label = "shimmerCircle")
-    val shimmerX by transition.animateFloat(
-        initialValue = -1000f,
-        targetValue  =  2000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerCircleX"
-    )
-    val brush = Brush.linearGradient(
-        colors = listOf(ShimmerBase, ShimmerBright, ShimmerBase),
-        start  = Offset(shimmerX, 0f),
-        end    = Offset(shimmerX + 600f, 0f)
-    )
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(brush)
-    )
+    Box(modifier = Modifier.size(size).shimmer(CircleShape))
 }
 
 /**

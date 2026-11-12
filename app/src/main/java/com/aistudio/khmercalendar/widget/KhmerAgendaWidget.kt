@@ -54,6 +54,9 @@ internal object AgendaRepository {
     /** Every note + event, parsed from prefs (no date filtering). */
     private fun loadAll(context: Context): List<AgendaItem> {
         val items = ArrayList<AgendaItem>()
+        // The same event can be stored twice (a local reminder plus its synced
+        // copy, or a duplicate created on the server). Show each one once.
+        val seenEvents = HashSet<String>()
 
         // Events / reminders (khmer_calendar_alarms → "alarms": JSON array)
         runCatching {
@@ -65,6 +68,10 @@ internal object AgendaRepository {
                 // widget, so keep them out of the Notes/Events list.
                 if (o.optString("kind") == "shift") continue
                 val triggerMs = o.optLong("triggerMs", 0L)
+                val text = o.optString("title").ifBlank { o.optString("message") }
+                val remoteId = o.optString("remoteEventId").trim()
+                if (remoteId.isNotEmpty() && !seenEvents.add("id:$remoteId")) continue
+                if (!seenEvents.add("${triggerMs / 60_000L}|${text.trim()}")) continue
                 val c = Calendar.getInstance().apply { timeInMillis = triggerMs }
                 items += AgendaItem(
                     sortKey = triggerMs,
@@ -74,7 +81,7 @@ internal object AgendaRepository {
                     day = c.get(Calendar.DAY_OF_MONTH),
                     hour = c.get(Calendar.HOUR_OF_DAY),
                     minute = c.get(Calendar.MINUTE),
-                    text = o.optString("title").ifBlank { o.optString("message") }
+                    text = text
                 )
             }
         }
@@ -83,7 +90,10 @@ internal object AgendaRepository {
         runCatching {
             val prefs = context.getSharedPreferences("khmer_calendar_notes", Context.MODE_PRIVATE)
             for ((key, value) in prefs.all) {
-                val text = (value as? String)?.trim().orEmpty()
+                // One line per note; repeated lines are the same note stored twice.
+                val text = (value as? String).orEmpty()
+                    .lines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                    .joinToString("\n")
                 if (text.isEmpty()) continue
                 val parts = key.split("_")
                 if (parts.size != 3) continue

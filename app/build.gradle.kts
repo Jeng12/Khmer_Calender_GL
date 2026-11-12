@@ -105,6 +105,8 @@ dependencies {
   // implementation(libs.retrofit)
   // Glance — home-screen App Widget written in Compose-style code
   implementation(libs.glance.appwidget)
+  // On-device text recognition (bundled model) for importing a roster photo
+  implementation(libs.mlkit.text.recognition)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   coreLibraryDesugaring(libs.desugar.jdk.libs)

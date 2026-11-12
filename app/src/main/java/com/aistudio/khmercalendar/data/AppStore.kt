@@ -126,8 +126,13 @@ object AppStore {
         val remoteLocalId = "remote-note-$cleanRemoteId"
         var saved: Note? = null
         var matched = false
-        val updated = getNotes(c, year, month, day).map { note ->
-            if (note.remoteId == cleanRemoteId || note.id == remoteLocalId) {
+        val current = getNotes(c, year, month, day)
+        // A local note not yet linked to the server, with the same text, is the
+        // note this remote row was created from: link it rather than add a copy.
+        val adoptId = if (current.any { it.remoteId == cleanRemoteId || it.id == remoteLocalId }) null
+            else current.firstOrNull { it.remoteId.isNullOrBlank() && it.text == cleanText }?.id
+        val updated = current.map { note ->
+            if (note.remoteId == cleanRemoteId || note.id == remoteLocalId || note.id == adoptId) {
                 matched = true
                 note.copy(
                     id = note.id.ifBlank { remoteLocalId },
@@ -181,7 +186,21 @@ object AppStore {
 
     /** Days (1..31) of the given month that have at least one note. */
     fun daysWithNotes(c: Context, year: Int, month: Int): Set<Int> =
-        (1..31).filter { getNotes(c, year, month, it).isNotEmpty() }.toSet()
+        getNotesForMonth(c, year, month).keys
+
+    /**
+     * Notes for every day of a month, keyed by day-of-month. Days without notes
+     * are absent. One pass over the store, so callers that need the whole month
+     * (calendar grid, agenda) don't re-read and re-parse each day separately.
+     */
+    fun getNotesForMonth(c: Context, year: Int, month: Int): Map<Int, List<Note>> {
+        val result = LinkedHashMap<Int, List<Note>>()
+        for (day in 1..31) {
+            val notes = getNotes(c, year, month, day)
+            if (notes.isNotEmpty()) result[day] = notes
+        }
+        return result
+    }
 
     fun getAllNotes(c: Context): List<DatedNote> {
         val p = notesPrefs(c)
@@ -283,11 +302,20 @@ object AppStore {
     ): Reminder? {
         val cleanRemoteId = remoteEventId.trim()
         if (cleanRemoteId.isEmpty() || triggerMs <= 0L) return null
-        val existing = getReminders(c).firstOrNull { it.remoteEventId == cleanRemoteId }
+        val cleanTitle = title.trim().ifBlank { "Reminder" }
+        val all = getReminders(c)
+        // Match by server id; otherwise adopt the not-yet-linked local reminder
+        // this event was created from (same minute, same title) instead of
+        // storing a second copy of it.
+        val existing = all.firstOrNull { it.remoteEventId == cleanRemoteId }
+            ?: all.firstOrNull {
+                it.kind == "reminder" && it.remoteEventId.isNullOrBlank() &&
+                    it.triggerMs / 60_000L == triggerMs / 60_000L && it.title.trim() == cleanTitle
+            }
         val reminder = Reminder(
             requestCode = existing?.requestCode ?: stableRemoteRequestCode(cleanRemoteId),
             triggerMs = triggerMs,
-            title = title.trim().ifBlank { "Reminder" },
+            title = cleanTitle,
             message = message.trim(),
             ringtoneUri = existing?.ringtoneUri,
             insistent = existing?.insistent ?: false,
@@ -443,10 +471,19 @@ object AppStore {
     fun getCachedHolidaysSavedAt(c: Context, year: Int): Long =
         holidayCachePrefs(c).getLong("holidays_${year}_saved_at", 0L)
 
-    fun saveCachedHolidays(c: Context, year: Int, json: String) {
+    /**
+     * True when the cached list for [year] also contains the signed-in user's
+     * own holiday events (false when it was saved with cloud sync off and so
+     * holds public holidays only).
+     */
+    fun isCachedHolidaysComplete(c: Context, year: Int): Boolean =
+        holidayCachePrefs(c).getBoolean("holidays_${year}_complete", true)
+
+    fun saveCachedHolidays(c: Context, year: Int, json: String, complete: Boolean = true) {
         holidayCachePrefs(c).edit()
             .putString("holidays_$year", json)
             .putLong("holidays_${year}_saved_at", System.currentTimeMillis())
+            .putBoolean("holidays_${year}_complete", complete)
             .apply()
     }
 
@@ -624,6 +661,27 @@ object AppStore {
             o.put(k, JSONArray().apply { list.forEach { put(it ?: "") } })
         }
         schedulePrefs(c).edit().putString("snapshots", o.toString()).apply()
+    }
+
+    // Roster photo import: which row is the user's, and what each code on
+    // their roster means (code → shift id, "" = day off). Remembered so the
+    // next picture needs no setup.
+    fun getRosterRowKey(c: Context): String? = schedulePrefs(c).getString("roster_row_key", null)
+
+    fun getRosterCodeMeanings(c: Context): Map<String, String> = try {
+        val o = JSONObject(schedulePrefs(c).getString("roster_code_meanings", "{}") ?: "{}")
+        buildMap { o.keys().forEach { put(it, o.optString(it)) } }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun saveRosterImportProfile(c: Context, rowKey: String, meanings: Map<String, String>) {
+        val merged = JSONObject()
+        (getRosterCodeMeanings(c) + meanings).forEach { (code, shiftId) -> merged.put(code, shiftId) }
+        schedulePrefs(c).edit()
+            .putString("roster_row_key", rowKey)
+            .putString("roster_code_meanings", merged.toString())
+            .apply()
     }
 
     /** Public saver for the whole per-month schedule map. */

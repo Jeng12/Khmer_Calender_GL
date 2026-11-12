@@ -428,33 +428,107 @@ class KhmerCalendarHelperTest {
     }
 
     @Test
-    fun getKhmerDate_leapLunarYear2027_hasExtendedMonths() {
-        // 2027 is a Khmer lunar leap year with 13 months (extra Asadha)
-        // Scan to find "អាសាឍ ១" and "អាសាឍ ២" lunar month names
+    fun getKhmerDate_leapMonthYear2026_hasBothAsadhMonths() {
+        // 2026 (BE 2570) is an adhikameas year: 13 lunar months, Asadh doubled.
+        val monthNames = mutableSetOf<String>()
+        for (month in 1..12) {
+            KhmerCalendarHelper.getGregorianMonthDays(2026, month).forEach {
+                monthNames.add(it.lunarMonthName)
+            }
+        }
+        assertTrue("2026 should contain first Asadh", monthNames.contains("បឋមាសាឍ"))
+        assertTrue("2026 should contain second Asadh", monthNames.contains("ទុតិយាសាឍ"))
+    }
+
+    @Test
+    fun getKhmerDate_normalYear2027_hasSingleAsadh() {
         val monthNames = mutableSetOf<String>()
         for (month in 1..12) {
             KhmerCalendarHelper.getGregorianMonthDays(2027, month).forEach {
                 monthNames.add(it.lunarMonthName)
             }
         }
-        assertTrue("Leap year 2027 should contain first Asadha month",
-            monthNames.contains("អាសាឍ ១"))
-        assertTrue("Leap year 2027 should contain second Asadha month",
-            monthNames.contains("អាសាឍ ២"))
+        assertTrue(monthNames.contains("អាសាឍ"))
+        assertFalse(monthNames.contains("បឋមាសាឍ"))
+        assertFalse(monthNames.contains("ទុតិយាសាឍ"))
+    }
+
+    // ─── Known festival dates (official Cambodian calendar) ──────────────────
+
+    private fun assertLunar(y: Int, m: Int, d: Int, monthName: String, lunarDay: Int, waxing: Boolean) {
+        val kd = KhmerCalendarHelper.getKhmerDate(y, m, d)
+        assertEquals("$y-$m-$d lunar month", monthName, kd.lunarMonthName)
+        assertEquals("$y-$m-$d lunar day", lunarDay, kd.lunarDayVal)
+        assertEquals("$y-$m-$d waxing", waxing, kd.isWaxing)
     }
 
     @Test
-    fun getKhmerDate_normalYear_hasExactly12LunarMonths() {
-        // 2026 is a normal (non-leap) Khmer year — should have exactly 12 distinct lunar months
-        val monthNames = mutableSetOf<String>()
-        for (month in 4..12) {
-            KhmerCalendarHelper.getGregorianMonthDays(2026, month).forEach {
-                monthNames.add(it.lunarMonthName)
+    fun getKhmerDate_visakBochea_matchesOfficialDates() {
+        listOf(
+            Triple(2019, 5, 18), Triple(2020, 5, 6), Triple(2021, 4, 26), Triple(2022, 5, 15),
+            Triple(2023, 5, 4), Triple(2024, 5, 22), Triple(2025, 5, 11), Triple(2026, 5, 1)
+        ).forEach { (y, m, d) ->
+            assertLunar(y, m, d, "ពិសាខ", 15, true)
+            assertTrue(KhmerCalendarHelper.getKhmerDate(y, m, d).holiday!!.contains("វិសាខបូជា"))
+        }
+    }
+
+    @Test
+    fun getKhmerDate_pchumBen_matchesOfficialDates() {
+        listOf(
+            Triple(2019, 9, 28), Triple(2020, 9, 17), Triple(2021, 10, 6), Triple(2022, 9, 25),
+            Triple(2023, 10, 14), Triple(2024, 10, 2), Triple(2025, 9, 22), Triple(2026, 10, 11)
+        ).forEach { (y, m, d) -> assertLunar(y, m, d, "ភទ្របទ", 15, false) }
+    }
+
+    @Test
+    fun getKhmerDate_waterFestival_matchesOfficialDates() {
+        listOf(
+            Triple(2019, 11, 11), Triple(2020, 10, 31), Triple(2021, 11, 19), Triple(2022, 11, 8),
+            Triple(2023, 11, 27), Triple(2024, 11, 15), Triple(2025, 11, 5), Triple(2026, 11, 24)
+        ).forEach { (y, m, d) -> assertLunar(y, m, d, "កត្តិក", 15, true) }
+    }
+
+    @Test
+    fun getKhmerDate_meakBochea_matchesOfficialDates() {
+        listOf(
+            Triple(2022, 2, 16), Triple(2023, 2, 5), Triple(2024, 2, 24), Triple(2025, 2, 12), Triple(2026, 2, 2)
+        ).forEach { (y, m, d) -> assertLunar(y, m, d, "មាឃ", 15, true) }
+    }
+
+    @Test
+    fun getKhmerDate_lunarDaysAreContinuous() {
+        // Across 30 years no day may be skipped or repeated: each day is either
+        // the next day of the same month or the 1st waxing of a new month.
+        var prev = KhmerCalendarHelper.getKhmerDate(2010, 1, 1)
+        for (year in 2010..2040) for (month in 1..12) {
+            for (kd in KhmerCalendarHelper.getGregorianMonthDays(year, month)) {
+                if (kd.year == 2010 && kd.month == 1 && kd.day == 1) continue
+                val prevIdx = if (prev.isWaxing) prev.lunarDayVal else prev.lunarDayVal + 15
+                val idx = if (kd.isWaxing) kd.lunarDayVal else kd.lunarDayVal + 15
+                if (kd.lunarMonthName == prev.lunarMonthName) {
+                    assertEquals("${kd.year}-${kd.month}-${kd.day}", prevIdx + 1, idx)
+                } else {
+                    assertEquals("${kd.year}-${kd.month}-${kd.day} starts a month", 1, idx)
+                    assertTrue("previous month had 29 or 30 days", prevIdx == 29 || prevIdx == 30)
+                }
+                prev = kd
             }
         }
-        // Normal year should NOT contain split Asadha months
-        assertFalse("Normal year 2026 should not have 'អាសាឍ ១'", monthNames.contains("អាសាឍ ១"))
-        assertFalse("Normal year 2026 should not have 'អាសាឍ ២'", monthNames.contains("អាសាឍ ២"))
+    }
+
+    @Test
+    fun getKhmerDate_buddhistEra_advancesAfterVisakBochea() {
+        assertEquals(2569, KhmerCalendarHelper.getKhmerDate(2026, 5, 1).BE)
+        assertEquals(2570, KhmerCalendarHelper.getKhmerDate(2026, 5, 2).BE)
+        assertEquals(2570, KhmerCalendarHelper.getKhmerDate(2026, 11, 12).BE)
+    }
+
+    @Test
+    fun getKhmerDate_zodiac_advancesAtKhmerNewYear() {
+        assertEquals("ឆ្នាំម្សាញ់", KhmerCalendarHelper.getKhmerDate(2026, 4, 13).zodiac)
+        assertEquals("ឆ្នាំមមី", KhmerCalendarHelper.getKhmerDate(2026, 4, 14).zodiac)
+        assertEquals("ឆ្នាំមមី", KhmerCalendarHelper.getKhmerDate(2027, 1, 15).zodiac)
     }
 
     @Test

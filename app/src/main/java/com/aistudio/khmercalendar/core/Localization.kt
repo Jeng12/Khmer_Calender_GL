@@ -74,6 +74,8 @@ private val LUNAR_MONTH_EN = mapOf(
     "អាសាឍ" to "Asadh",
     "អាសាឍ ១" to "Asadh I",
     "អាសាឍ ២" to "Asadh II",
+    "បឋមាសាឍ" to "Asadh I",
+    "ទុតិយាសាឍ" to "Asadh II",
     "ស្រាពណ៍" to "Srap",
     "ភទ្របទ" to "Phutrobot",
     "អស្សុជ" to "Assoch",
@@ -121,8 +123,10 @@ fun lunarDayLabel(lang: AppLanguage, date: KhmerDate): String {
  * English portion in the parentheses; in KM mode show the original. Strings
  * without a parenthetical fall back to the original text.
  */
+private val PAREN_REGEX = Regex("\\(([^)]*)\\)")
+
 fun localizeDual(lang: AppLanguage, s: String): String {
     if (lang == AppLanguage.KM) return s
-    val m = Regex("\\(([^)]*)\\)").find(s)
+    val m = PAREN_REGEX.find(s)
     return m?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: s
 }

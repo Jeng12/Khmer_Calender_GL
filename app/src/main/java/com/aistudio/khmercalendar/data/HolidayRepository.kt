@@ -37,14 +37,16 @@ data class Holiday(
 }
 
 /**
- * Fetches Cambodian public holidays from the Khmer Calendar API.
+ * Cambodian public holidays, local-first.
  *
- * Results are cached in memory for the process lifetime; callers get a
- * [Result] so network/parse failures can fall back to the bundled list
- * gracefully.
+ * A year's list is fetched from the Khmer Calendar API once and stored on the
+ * device. After that it is served from the local copy with no network call;
+ * it is only fetched again when the caller passes `forceRefresh` (the user
+ * changed a holiday, or pulled to refresh). Callers get a [Result] so
+ * network/parse failures can fall back to the bundled list gracefully.
  */
 object HolidayRepository {
-    private const val CACHE_MAX_AGE_MS = 6L * 60L * 60L * 1000L
+    private const val NEVER_EXPIRES = Long.MAX_VALUE
     private const val FALLBACK_RETRY_AGE_MS = 60L * 1000L
 
     private data class MemoryEntry(val holidays: List<Holiday>, val expiresAtMs: Long)
@@ -70,13 +72,17 @@ object HolidayRepository {
             val now = System.currentTimeMillis()
             if (!forceRefresh) getMemoryCache(cacheKey, now)?.let { return@runCatching it }
 
+            // Stored copy first: once a year has been fetched it is not fetched
+            // again. A copy saved with sync off holds public holidays only, so it
+            // cannot answer a request that also wants the user's own events.
             val persistent = loadFromPersistentCache(context, targetYear)
-            val persistentSavedAt = AppStore.getCachedHolidaysSavedAt(context, targetYear)
-            val persistentIsFresh = persistent.isNotEmpty() &&
-                persistentSavedAt > 0L && now - persistentSavedAt <= CACHE_MAX_AGE_MS
-            if (!forceRefresh && includeDatabaseEvents && persistentIsFresh) {
-                putMemoryCache(cacheKey, persistent, persistentSavedAt + CACHE_MAX_AGE_MS)
-                return@runCatching persistent
+            val persistentComplete = AppStore.isCachedHolidaysComplete(context, targetYear)
+            if (!forceRefresh && persistent.isNotEmpty() && (persistentComplete || !includeDatabaseEvents)) {
+                val stored = if (includeDatabaseEvents) persistent else persistent.filter(Holiday::isFixed)
+                if (stored.isNotEmpty()) {
+                    putMemoryCache(cacheKey, stored, NEVER_EXPIRES)
+                    return@runCatching stored
+                }
             }
 
             val builtIn = builtInHolidays(targetYear)
@@ -109,11 +115,15 @@ object HolidayRepository {
             val fullyRefreshed = publicResult.isSuccess && databaseResult.isSuccess
             // The disk cache represents the complete server-backed view. Never
             // replace it with a partial response when one endpoint is offline.
-            if (includeDatabaseEvents && fullyRefreshed && parsed.isNotEmpty()) {
-                saveToPersistentCache(context, targetYear, parsed)
+            // With sync off only the public list is stored, and never over a
+            // complete copy that already holds the user's events.
+            if (fullyRefreshed && parsed.isNotEmpty() &&
+                (includeDatabaseEvents || persistent.isEmpty() || !persistentComplete)
+            ) {
+                saveToPersistentCache(context, targetYear, parsed, complete = includeDatabaseEvents)
             }
-            val maxAge = if (fullyRefreshed) CACHE_MAX_AGE_MS else FALLBACK_RETRY_AGE_MS
-            putMemoryCache(cacheKey, parsed, now + maxAge)
+            // A partial result (an endpoint was offline) is retried after a minute.
+            putMemoryCache(cacheKey, parsed, if (fullyRefreshed) NEVER_EXPIRES else now + FALLBACK_RETRY_AGE_MS)
             parsed
         }
     }
@@ -160,7 +170,7 @@ object HolidayRepository {
             isFixed = isFixed
         )
 
-    private fun saveToPersistentCache(context: Context, year: Int, holidays: List<Holiday>) {
+    private fun saveToPersistentCache(context: Context, year: Int, holidays: List<Holiday>, complete: Boolean) {
         val arr = JSONArray()
         holidays.forEach { h ->
             arr.put(JSONObject().apply {
@@ -171,7 +181,7 @@ object HolidayRepository {
                 put("isFixed", h.isFixed)
             })
         }
-        AppStore.saveCachedHolidays(context, year, arr.toString())
+        AppStore.saveCachedHolidays(context, year, arr.toString(), complete)
     }
 
     private fun loadFromPersistentCache(context: Context, year: Int): List<Holiday> {
