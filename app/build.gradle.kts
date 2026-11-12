@@ -53,7 +53,15 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      // Sign with the upload key when it and its passwords are available.
+      // Without them (a fresh clone, CI without secrets) fall back to the debug
+      // key so the release build still completes; such an APK is for testing
+      // only and cannot be uploaded to Play.
+      val uploadKey = signingConfigs.getByName("release")
+      val hasUploadKey = uploadKey.storeFile?.exists() == true &&
+        !System.getenv("STORE_PASSWORD").isNullOrBlank() &&
+        !System.getenv("KEY_PASSWORD").isNullOrBlank()
+      signingConfig = if (hasUploadKey) uploadKey else signingConfigs.getByName("debugConfig")
     }
     debug {
       signingConfig = signingConfigs.getByName("debugConfig")
