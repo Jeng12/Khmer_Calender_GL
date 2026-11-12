@@ -1,5 +1,6 @@
 package com.aistudio.khmercalendar.data
 
+import kotlinx.coroutines.sync.withLock
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -301,7 +302,16 @@ object SyncRepository {
         }
     }
 
-    suspend fun syncPending(context: Context): Result<Int> {
+    // Saving a note or reminder starts a sync from the dialog and, through the
+    // calendar refresh, a second one at the same moment. Without this lock both
+    // runs read the same queue and each created the item on the server, which
+    // came back as a duplicate event. One run at a time; the second finds the
+    // queue already drained.
+    private val syncMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun syncPending(context: Context): Result<Int> = syncMutex.withLock { syncPendingLocked(context) }
+
+    private suspend fun syncPendingLocked(context: Context): Result<Int> {
         if (!AppStore.isCloudSyncEnabled(context)) return Result.success(0)
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             ensureInitialLocalSyncQueued(context)

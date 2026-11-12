@@ -378,7 +378,8 @@ fun CalendarTabContent(
             }
         }
 
-        list.sortedWith(compareBy({ it.day }, { it.type }))
+        list.distinctBy { listOf(it.day, it.type, it.title, it.subtitle) }
+            .sortedWith(compareBy({ it.day }, { it.type }))
             .mapIndexed { index, item -> item.copy(key = "${item.day}-${item.type.ordinal}-$index") }
     }
     val selectedDayAgenda = remember(monthlyAgenda, safeSelectedDay) {

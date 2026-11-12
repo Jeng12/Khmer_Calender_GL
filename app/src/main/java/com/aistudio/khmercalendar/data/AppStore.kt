@@ -126,8 +126,13 @@ object AppStore {
         val remoteLocalId = "remote-note-$cleanRemoteId"
         var saved: Note? = null
         var matched = false
-        val updated = getNotes(c, year, month, day).map { note ->
-            if (note.remoteId == cleanRemoteId || note.id == remoteLocalId) {
+        val current = getNotes(c, year, month, day)
+        // A local note not yet linked to the server, with the same text, is the
+        // note this remote row was created from: link it rather than add a copy.
+        val adoptId = if (current.any { it.remoteId == cleanRemoteId || it.id == remoteLocalId }) null
+            else current.firstOrNull { it.remoteId.isNullOrBlank() && it.text == cleanText }?.id
+        val updated = current.map { note ->
+            if (note.remoteId == cleanRemoteId || note.id == remoteLocalId || note.id == adoptId) {
                 matched = true
                 note.copy(
                     id = note.id.ifBlank { remoteLocalId },
@@ -297,11 +302,20 @@ object AppStore {
     ): Reminder? {
         val cleanRemoteId = remoteEventId.trim()
         if (cleanRemoteId.isEmpty() || triggerMs <= 0L) return null
-        val existing = getReminders(c).firstOrNull { it.remoteEventId == cleanRemoteId }
+        val cleanTitle = title.trim().ifBlank { "Reminder" }
+        val all = getReminders(c)
+        // Match by server id; otherwise adopt the not-yet-linked local reminder
+        // this event was created from (same minute, same title) instead of
+        // storing a second copy of it.
+        val existing = all.firstOrNull { it.remoteEventId == cleanRemoteId }
+            ?: all.firstOrNull {
+                it.kind == "reminder" && it.remoteEventId.isNullOrBlank() &&
+                    it.triggerMs / 60_000L == triggerMs / 60_000L && it.title.trim() == cleanTitle
+            }
         val reminder = Reminder(
             requestCode = existing?.requestCode ?: stableRemoteRequestCode(cleanRemoteId),
             triggerMs = triggerMs,
-            title = title.trim().ifBlank { "Reminder" },
+            title = cleanTitle,
             message = message.trim(),
             ringtoneUri = existing?.ringtoneUri,
             insistent = existing?.insistent ?: false,
