@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,6 +114,7 @@ private fun localWorkingDays(
 private fun shiftTimeLabel(shift: AppStore.ShiftDef): String =
     "%02d:%02d–%02d:%02d".format(shift.startHour, shift.startMin, shift.endHour, shift.endMin)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarTabContent(
     year: Int,
@@ -132,6 +134,10 @@ fun CalendarTabContent(
     // Version that each remote source last force-refreshed for, so a single edit
     // forces one refetch instead of disabling the cache for every later month.
     val forcedVersions = remember { intArrayOf(0, 0) }
+
+    // Pull-to-refresh: the only time stored cloud data is fetched again without
+    // a local change having been made.
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { WidgetPrefs.refresh(context) }
 
@@ -159,6 +165,7 @@ fun CalendarTabContent(
     }
     LaunchedEffect(year, month, agendaVersion, cloudSyncEnabled) {
         if (cloudSyncEnabled) {
+            if (isRefreshing) SyncRepository.pullWorkScheduleFromRemote(context, force = true)
             apiOverlaysResult = SyncRepository.refreshMonth(
                 context = context,
                 year = year,
@@ -167,6 +174,7 @@ fun CalendarTabContent(
             )
             forcedVersions[0] = agendaVersion
         }
+        isRefreshing = false
     }
     val apiOverlays = apiOverlaysResult?.getOrNull()
         ?.takeIf { it.year == year && it.month == month }
@@ -424,10 +432,13 @@ fun CalendarTabContent(
         if (first == last) first else "$first – $last"
     }
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { isRefreshing = true; agendaVersion++ },
+        modifier = Modifier.fillMaxSize().background(colors.bg)
+    ) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.bg),
+        modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -630,6 +641,7 @@ fun CalendarTabContent(
                 }
             }
         }
+    }
     }
 }
 

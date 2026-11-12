@@ -18,8 +18,6 @@ object SyncRepository {
     private const val OPS_KEY = "pending_ops"
     private const val INITIAL_SYNC_QUEUED_KEY = "initial_sync_queued"
     private const val LAST_SUCCESS_MS_KEY = "last_success_ms"
-    private const val MONTH_CACHE_MAX_AGE_MS = 30L * 60L * 1000L
-    private const val WORK_SCHEDULE_PULL_MAX_AGE_MS = 6L * 60L * 60L * 1000L
 
     private const val TYPE_NOTE = "note"
     private const val TYPE_REMINDER = "reminder"
@@ -231,8 +229,11 @@ object SyncRepository {
         if (!AppStore.isCloudSyncEnabled(context)) {
             return Result.failure(IOException("Cloud sync is disabled"))
         }
+        // Local-first: a month that has been fetched once is served from the
+        // stored copy, however old. The network is only used the first time, when
+        // local changes are waiting to be pushed, or on an explicit refresh.
         if (!forceRefresh && readOps(context).isEmpty()) {
-            val cached = loadCachedMonthOverlays(context, year, month, MONTH_CACHE_MAX_AGE_MS)
+            val cached = loadCachedMonthOverlays(context, year, month, maxAgeMs = null)
             if (cached != null) return Result.success(cached)
         }
         syncPending(context)
@@ -272,7 +273,7 @@ object SyncRepository {
      * tab always has current data after login or when cloud sync is first enabled.
      * Only runs when cloud sync is enabled and there are no unsent local schedule changes.
      */
-    suspend fun pullWorkScheduleFromRemote(context: Context): Result<Unit> {
+    suspend fun pullWorkScheduleFromRemote(context: Context, force: Boolean = false): Result<Unit> {
         if (!AppStore.isCloudSyncEnabled(context)) return Result.success(Unit)
         // Don't overwrite local unsent changes
         val hasPendingCycleOps = readOps(context).any {
@@ -283,7 +284,9 @@ object SyncRepository {
         val lastPull = p.getLong("work_schedule_last_pull_ms", 0L)
         val hasLocalSchedule = AppStore.getShiftCycle(context)?.isConfigured == true ||
             AppStore.getCycleSnapshots(context).isNotEmpty()
-        if (hasLocalSchedule && System.currentTimeMillis() - lastPull < WORK_SCHEDULE_PULL_MAX_AGE_MS) {
+        // Already pulled once and stored locally: no need to ask again unless
+        // the user explicitly refreshes.
+        if (!force && hasLocalSchedule && lastPull > 0L) {
             return Result.success(Unit)
         }
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

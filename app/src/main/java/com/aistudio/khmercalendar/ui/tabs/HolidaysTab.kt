@@ -143,6 +143,9 @@ fun HolidaysTabContent(
     // Fetch the live holidays from the public Khmer holidays API. Re-fetches
     // whenever [refreshKey] changes — driven by pull-to-refresh below.
     var refreshKey by remember { mutableIntStateOf(0) }
+    // Last refreshKey that already went to the network, so one pull-to-refresh
+    // does not force a refetch for every year opened afterwards.
+    val forcedKey = remember { intArrayOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     var holidaysResult by remember { mutableStateOf<Result<List<Holiday>>?>(null) }
     val includeDatabaseHolidayEvents = AppStore.isCloudSyncEnabled(context) &&
@@ -153,9 +156,10 @@ fun HolidaysTabContent(
         holidaysResult = HolidayRepository.fetchHolidays(
             context = context,
             year = displayedYear,
-            forceRefresh = refreshKey > 0,
+            forceRefresh = refreshKey != forcedKey[0],
             includeDatabaseEvents = includeDatabaseHolidayEvents
         )
+        forcedKey[0] = refreshKey
         isRefreshing = false
     }
     val isLoading = holidaysResult == null

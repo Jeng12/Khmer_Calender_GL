@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -72,17 +73,17 @@ fun CustomBottomBar(
     currentTab: AppTab,
     onTabSelect: (AppTab) -> Unit
 ) {
-    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val colors = LocalAppColors.current
+    // No outline: the bar is set apart from the page only by its slightly
+    // lighter surface colour.
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(NightBlack)
-            .border(BorderStroke(1.dp, DeepBorder))
-            .padding(vertical = 8.dp)
+            .background(colors.surface)
+            .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Home Tab
@@ -138,14 +139,14 @@ fun CustomBottomBar(
 }
 
 @Composable
-fun BottomBarItem(
+fun RowScope.BottomBarItem(
     emoji: String,
     label: String,
     subLabel: String,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val (NightBlack, DeepAmethyst, PlumSurface, PlumCard, DeepBorder, DeepMuted, SandText, GoldSubText, DimColor) = LocalAppColors.current
+    val colors = LocalAppColors.current
     val itemAlpha by animateFloatAsState(
         targetValue = if (isSelected) 1f else 0.65f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -157,19 +158,24 @@ fun BottomBarItem(
         label = "BottomBarIndicatorWidth"
     )
     val labelColor by animateColorAsState(
-        targetValue = if (isSelected) TraditionalGold else GoldSubText,
+        targetValue = if (isSelected) colors.accentText else colors.subText,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "BottomBarLabelColor"
     )
 
+    // Equal-width items: each tab gets the full sixth of the bar as its touch target.
     Column(
         modifier = Modifier
-            .clickable(
-                indication = ripple(color = TraditionalGold.copy(alpha = 0.2f)),
+            .weight(1f)
+            .clip(RoundedCornerShape(14.dp))
+            .selectable(
+                selected = isSelected,
                 interactionSource = remember { MutableInteractionSource() },
-                onClickLabel = subLabel,
-            ) { onClick() }
-            .padding(horizontal = 2.dp),
+                indication = ripple(color = TraditionalGold.copy(alpha = 0.2f)),
+                role = androidx.compose.ui.semantics.Role.Tab,
+                onClick = onClick
+            )
+            .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {

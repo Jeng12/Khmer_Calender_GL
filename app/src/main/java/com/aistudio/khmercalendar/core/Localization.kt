@@ -74,6 +74,8 @@ private val LUNAR_MONTH_EN = mapOf(
     "អាសាឍ" to "Asadh",
     "អាសាឍ ១" to "Asadh I",
     "អាសាឍ ២" to "Asadh II",
+    "បឋមាសាឍ" to "Asadh I",
+    "ទុតិយាសាឍ" to "Asadh II",
     "ស្រាពណ៍" to "Srap",
     "ភទ្របទ" to "Phutrobot",
     "អស្សុជ" to "Assoch",

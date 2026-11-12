@@ -457,10 +457,19 @@ object AppStore {
     fun getCachedHolidaysSavedAt(c: Context, year: Int): Long =
         holidayCachePrefs(c).getLong("holidays_${year}_saved_at", 0L)
 
-    fun saveCachedHolidays(c: Context, year: Int, json: String) {
+    /**
+     * True when the cached list for [year] also contains the signed-in user's
+     * own holiday events (false when it was saved with cloud sync off and so
+     * holds public holidays only).
+     */
+    fun isCachedHolidaysComplete(c: Context, year: Int): Boolean =
+        holidayCachePrefs(c).getBoolean("holidays_${year}_complete", true)
+
+    fun saveCachedHolidays(c: Context, year: Int, json: String, complete: Boolean = true) {
         holidayCachePrefs(c).edit()
             .putString("holidays_$year", json)
             .putLong("holidays_${year}_saved_at", System.currentTimeMillis())
+            .putBoolean("holidays_${year}_complete", complete)
             .apply()
     }
 
