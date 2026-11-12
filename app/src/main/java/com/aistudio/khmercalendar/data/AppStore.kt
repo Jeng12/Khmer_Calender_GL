@@ -181,7 +181,21 @@ object AppStore {
 
     /** Days (1..31) of the given month that have at least one note. */
     fun daysWithNotes(c: Context, year: Int, month: Int): Set<Int> =
-        (1..31).filter { getNotes(c, year, month, it).isNotEmpty() }.toSet()
+        getNotesForMonth(c, year, month).keys
+
+    /**
+     * Notes for every day of a month, keyed by day-of-month. Days without notes
+     * are absent. One pass over the store, so callers that need the whole month
+     * (calendar grid, agenda) don't re-read and re-parse each day separately.
+     */
+    fun getNotesForMonth(c: Context, year: Int, month: Int): Map<Int, List<Note>> {
+        val result = LinkedHashMap<Int, List<Note>>()
+        for (day in 1..31) {
+            val notes = getNotes(c, year, month, day)
+            if (notes.isNotEmpty()) result[day] = notes
+        }
+        return result
+    }
 
     fun getAllNotes(c: Context): List<DatedNote> {
         val p = notesPrefs(c)

@@ -24,6 +24,9 @@ object KhmerCalendarHelper {
     private const val MIN_SUPPORTED_YEAR = 1900
     private const val MAX_SUPPORTED_YEAR = 2200
 
+    /** Gregorian years the lunar tables cover; callers must not navigate outside it. */
+    val SUPPORTED_YEARS: IntRange = MIN_SUPPORTED_YEAR..MAX_SUPPORTED_YEAR
+
     private data class Milestone(
         val serialDay: Int,
         val khmerMonthName: String,
@@ -35,10 +38,6 @@ object KhmerCalendarHelper {
     private val KH_DAYS = listOf("អាទិត្យ", "ចន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍")
     private val KH_DAYS_SHORT = listOf("អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស")
     private val EN_DAYS = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
-    private val KHMER_NUMERAL_MAP = mapOf(
-        '0' to '០', '1' to '១', '2' to '២', '3' to '៣', '4' to '៤',
-        '5' to '៥', '6' to '៦', '7' to '៧', '8' to '៨', '9' to '៩'
-    )
 
     // 12 Khmer zodiac names, index 0 = Rat. Formula: (BE % 12 + 4) % 12 gives index.
     private val ZODIAC_NAMES = listOf(
@@ -145,10 +144,12 @@ object KhmerCalendarHelper {
         return if (ms[lo].serialDay <= sDay) ms[lo] else fallbackMilestone
     }
 
-    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency
+    // LRU cache for monthly data — pure JVM LinkedHashMap, no Android dependency.
+    // An access-ordered LinkedHashMap mutates on every read, and the app UI and the
+    // home-screen widgets hit it from different threads, so all access is locked.
     private val monthCache: MutableMap<Long, List<KhmerDate>> =
         object : LinkedHashMap<Long, List<KhmerDate>>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 12
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, List<KhmerDate>>) = size > 36
         }
 
     private fun monthCacheKey(year: Int, month: Int): Long = year.toLong() * 100 + month
@@ -292,8 +293,15 @@ object KhmerCalendarHelper {
         )
     }
 
-    fun toKhmerNumeral(n: Int): String =
-        n.toString().map { KHMER_NUMERAL_MAP[it] ?: it }.joinToString("")
+    fun toKhmerNumeral(n: Int): String {
+        val digits = n.toString()
+        val out = CharArray(digits.length)
+        for (i in digits.indices) {
+            val c = digits[i]
+            out[i] = if (c in '0'..'9') '០' + (c - '0') else c
+        }
+        return String(out)
+    }
 
     fun getGregorianMonthDays(year: Int, month: Int): List<KhmerDate> {
         require(year in MIN_SUPPORTED_YEAR..MAX_SUPPORTED_YEAR) {
@@ -301,10 +309,10 @@ object KhmerCalendarHelper {
         }
         require(month in 1..12) { "Gregorian month must be in 1..12: $month" }
         val key = monthCacheKey(year, month)
-        monthCache[key]?.let { return it }
+        synchronized(monthCache) { monthCache[key] }?.let { return it }
         val daysInMonth = daysInGregorianMonth(year, month)
         val result = (1..daysInMonth).map { getKhmerDate(year, month, it) }
-        monthCache[key] = result
+        synchronized(monthCache) { monthCache[key] = result }
         return result
     }
 
