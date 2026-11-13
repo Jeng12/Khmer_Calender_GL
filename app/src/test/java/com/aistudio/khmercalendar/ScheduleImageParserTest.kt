@@ -171,14 +171,33 @@ class RosterParserTest {
 
     @Test
     fun guessesHourCodes() {
-        val codes = setOf("H", "12", "12D", "N")
-        assertEquals(Reading.Off, ScheduleImageParser.guessMeaning("H", codes, two))
-        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("12D", codes, two))
-        assertEquals(Reading.Shift("night"), ScheduleImageParser.guessMeaning("12", codes, two))
+        // 12 = 12-hour day shift, 12D = 12-hour night shift, N = day off.
+        val codes = setOf("H", "12", "12D", "N", "AL")
+        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("12", codes, two))
+        assertEquals(Reading.Shift("night"), ScheduleImageParser.guessMeaning("12D", codes, two))
         assertEquals(Reading.Off, ScheduleImageParser.guessMeaning("N", codes, two))
-        // Office row: 8 is an ordinary day; without hour codes N still means night.
-        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("8", setOf("H", "8", "N"), two))
+        // Days off that still count.
+        assertEquals(Reading.Marked(AppStore.MARK_HOLIDAY), ScheduleImageParser.guessMeaning("H", codes, two))
+        assertEquals(Reading.Marked(AppStore.MARK_ANNUAL_LEAVE), ScheduleImageParser.guessMeaning("AL", codes, two))
+    }
+
+    @Test
+    fun eight_isAnEightHourDayShift() {
+        val office = setOf("H", "8", "N")
+        // No 8-hour day shift yet: the one that will be added on import.
+        assertEquals(Reading.Shift("day8"), ScheduleImageParser.guessMeaning("8", office, two))
+        // Once it exists, it is matched by its length, whatever its id.
+        val withEight = two + AppStore.ShiftDef("office", "Office", 8, 0, 16, 0)
+        assertEquals(Reading.Shift("office"), ScheduleImageParser.guessMeaning("8", office, withEight))
+        assertEquals(8, AppStore.EIGHT_HOUR_DAY_SHIFT.durationHours)
+        assertEquals(12, two[0].durationHours)
+        assertEquals(12, two[1].durationHours)
+    }
+
+    @Test
+    fun letterCodesStillMeanDayAndNight_withoutHourCodes() {
         assertEquals(Reading.Shift("night"), ScheduleImageParser.guessMeaning("N", setOf("D", "N", "OFF"), two))
+        assertEquals(Reading.Shift("day"), ScheduleImageParser.guessMeaning("D", setOf("D", "N", "OFF"), two))
     }
 
     @Test

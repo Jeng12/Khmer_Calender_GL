@@ -61,6 +61,8 @@ fun ScheduleTabContent() {
     var weekQuickPick by remember { mutableStateOf<Int?>(null) }
     // Target system type awaiting confirmation before it wipes the daily schedule.
     var pendingSystemType by remember { mutableStateOf<Int?>(null) }
+    // Marked days off (annual leave, holiday), keyed like the schedules.
+    var marks by remember { mutableStateOf(AppStore.getDayMarks(context)) }
     // Per-month schedules (cycleKey → day assignments). Each month is independent;
     // a month with no entry has no work. Migrate the old single template once.
     var schedules by remember {
@@ -156,9 +158,12 @@ fun ScheduleTabContent() {
             shifts = cycle?.shifts.orEmpty(),
             lang = lang,
             onDismiss = { importPreview = null },
-            onApply = { assignments ->
+            onApply = { assignments, dayMarks ->
                 val updated = schedules + (preview.target.key to assignments)
                 schedules = updated
+                val updatedMarks = marks + (preview.target.key to dayMarks)
+                marks = updatedMarks
+                AppStore.saveDayMarks(context, updatedMarks)
                 importPreview = null
                 // Save straight away so the imported shifts show on the Calendar
                 // tab and the widgets without a second step.
@@ -187,11 +192,19 @@ fun ScheduleTabContent() {
             onDismiss = { rosterSetup = null },
             onContinue = { row, meanings ->
                 AppStore.saveRosterImportProfile(context, row.key, meanings)
+                // A roster "8" needs an 8-hour day shift: add it the first time it is used.
+                val eightHour = AppStore.EIGHT_HOUR_DAY_SHIFT
+                if (eightHour.id in meanings.values && cycle?.shifts?.none { it.id == eightHour.id } == true) {
+                    cycle = cycle?.let { it.copy(shifts = it.shifts + eightHour) }
+                }
                 val validIds = cycle?.shifts.orEmpty().map { it.id }.toSet()
                 val readings = row.codes.mapValues { (_, code) ->
-                    meanings[code]?.takeIf { it in validIds }
-                        ?.let { ScheduleImageParser.Reading.Shift(it) }
-                        ?: ScheduleImageParser.Reading.Off
+                    val meaning = meanings[code].orEmpty()
+                    when {
+                        meaning.startsWith(MARK_PREFIX) -> ScheduleImageParser.Reading.Marked(meaning.removePrefix(MARK_PREFIX))
+                        meaning in validIds -> ScheduleImageParser.Reading.Shift(meaning)
+                        else -> ScheduleImageParser.Reading.Off
+                    }
                 }
                 rosterSetup = null
                 importPreview = buildImportPreview(setup.target, readings)
@@ -322,6 +335,12 @@ fun ScheduleTabContent() {
                 val viewCycle = c.copy(dayAssignments = viewedAssignments)
                 // Save an edited assignment list back to the viewed month.
                 fun setViewed(updated: List<String?>) { schedules = schedules + (vKey to updated) }
+                val viewedMarks = marks[vKey] ?: AppStore.emptyDayAssignments()
+                // Set one day: a shift (or plain Off) clears any mark; a mark means no shift.
+                fun setDay(offset: Int, shiftId: String?, mark: String?) {
+                    setViewed(viewedAssignments.toMutableList().also { if (offset in it.indices) it[offset] = if (mark != null) null else shiftId })
+                    marks = marks + (vKey to viewedMarks.toMutableList().also { if (offset in it.indices) it[offset] = mark })
+                }
                 // Per-date cycle resolver for the today banner + upcoming preview.
                 val cycleFor: (Int, Int, Int) -> AppStore.ShiftCycle = { yy, mm, dd ->
                     AppStore.cycleForDate(c, schedules, yy, mm, dd)
@@ -381,6 +400,14 @@ fun ScheduleTabContent() {
                         CycleStat(num(lang, worked), tr(lang, "ថ្ងៃធ្វើការ", "Work days"))
                         CycleStat(numStr(lang, hoursLabel), tr(lang, "ម៉ោងសរុប", "Total hours"))
                         CycleStat(num(lang, (cycleDays - worked - blockedCount).coerceAtLeast(0)), tr(lang, "ថ្ងៃឈប់", "Days off"))
+                        val leaveDays = viewedMarks.take(cycleDays).count { it == AppStore.MARK_ANNUAL_LEAVE }
+                        if (leaveDays > 0) {
+                            CycleStat(num(lang, leaveDays), tr(lang, "ច្បាប់ AL (បង់ ៨ម៉)", "Leave (8h paid)"), SkyBlue)
+                        }
+                        val holidayOffDays = viewedMarks.take(cycleDays).count { it == AppStore.MARK_HOLIDAY }
+                        if (holidayOffDays > 0) {
+                            CycleStat(num(lang, holidayOffDays), tr(lang, "បុណ្យ H (បង់ ៨ម៉)", "Holiday (8h paid)"), LotusPink)
+                        }
                         if (blockedCount > 0) {
                             CycleStat(num(lang, blockedCount), tr(lang, "⛔ គ្មានសម្រាក", "⛔ No rest"), CrimsonHoliday)
                         }
@@ -525,6 +552,9 @@ fun ScheduleTabContent() {
                     setViewed(viewedAssignments.toMutableList().also { list ->
                         for (i in weekDayRange(weekIdx)) if (i in list.indices) list[i] = shiftId
                     })
+                    marks = marks + (vKey to viewedMarks.toMutableList().also { list ->
+                        for (i in weekDayRange(weekIdx)) if (i in list.indices) list[i] = null
+                    })
                 }
                 item {
                     Row(
@@ -549,6 +579,7 @@ fun ScheduleTabContent() {
                                     .clip(RoundedCornerShape(8.dp))
                                     .clickable {
                                         setViewed(prevAssignments)
+                                        marks = marks - vKey   // leave and holidays are not part of a repeating pattern
                                         Toast.makeText(context, tr(lang, "បានចម្លងកាលវិភាគខួបមុន", "Copied last cycle's schedule"), Toast.LENGTH_SHORT).show()
                                     }
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -562,7 +593,7 @@ fun ScheduleTabContent() {
                     // Fill this cycle from a photo of the roster (read on the device).
                     OutlinedButton(
                         onClick = {
-                            importTarget = ImportTarget(vKey, cycleStartCal.timeInMillis, cycleLen, viewedAssignments)
+                            importTarget = ImportTarget(vKey, cycleStartCal.timeInMillis, cycleLen, viewedAssignments, viewedMarks)
                             pictureLauncher.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
@@ -660,13 +691,21 @@ fun ScheduleTabContent() {
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())
                             ) {
-                                ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null, dimColor) {
-                                    setViewed(viewedAssignments.toMutableList().also { if (offset in it.indices) it[offset] = null })
+                                val mark = viewedMarks.getOrNull(offset)
+                                ShiftChip(tr(lang, "ឈប់", "Off"), currentId == null && mark == null, dimColor) {
+                                    setDay(offset, null, null)
                                 }
                                 viewCycle.shifts.forEach { s ->
-                                    ShiftChip(s.name, currentId == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
-                                        setViewed(viewedAssignments.toMutableList().also { if (offset in it.indices) it[offset] = s.id })
+                                    ShiftChip(s.name, currentId == s.id && mark == null, if (s.isOvernight) LotusPink else TraditionalGold) {
+                                        setDay(offset, s.id, null)
                                     }
+                                }
+                                // Days off that still count: paid annual leave, public holiday.
+                                ShiftChip(markChipLabel(lang, AppStore.MARK_ANNUAL_LEAVE), mark == AppStore.MARK_ANNUAL_LEAVE, SkyBlue) {
+                                    setDay(offset, null, AppStore.MARK_ANNUAL_LEAVE)
+                                }
+                                ShiftChip(markChipLabel(lang, AppStore.MARK_HOLIDAY), mark == AppStore.MARK_HOLIDAY, LotusPink) {
+                                    setDay(offset, null, AppStore.MARK_HOLIDAY)
                                 }
                             }
                         }
@@ -762,6 +801,7 @@ fun ScheduleTabContent() {
                         onClick = {
                             AppStore.saveShiftCycle(context, c)
                             AppStore.saveMonthlySchedules(context, schedules)
+                            AppStore.saveDayMarks(context, marks)
                             if (c.remind && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -785,6 +825,7 @@ fun ScheduleTabContent() {
                             AppStore.clearShiftCycle(context)
                             AppStore.clearAllSchedules(context)
                             schedules = emptyMap()
+                            marks = emptyMap()
                             cycle = null
                             WorkScheduleScheduler.sync(context)
                             syncClearWorkSchedulesFromDatabase(keysToClear)
@@ -943,7 +984,8 @@ internal data class ImportTarget(
     val key: String,
     val cycleStartMs: Long,
     val cycleLen: Int,
-    val currentAssignments: List<String?>
+    val currentAssignments: List<String?>,
+    val currentMarks: List<String?> = emptyList()
 )
 
 /** The schedule read from a photo, laid over the cycle's current one, awaiting review. */
@@ -951,8 +993,18 @@ internal data class ImportPreview(
     val target: ImportTarget,
     val assignments: List<String?>,
     /** Day offsets within the cycle that were found in the picture. */
-    val detected: Set<Int>
+    val detected: Set<Int>,
+    /** Marked days off (annual leave, holiday) per day offset; null = none. */
+    val marks: List<String?> = List(AppStore.CYCLE_SLOTS) { null }
 )
+
+/** Prefix that tells a day mark apart from a shift id where both share one value. */
+internal const val MARK_PREFIX = "@"
+
+internal fun markChipLabel(lang: AppLanguage, mark: String): String = when (mark) {
+    AppStore.MARK_ANNUAL_LEAVE -> tr(lang, "ច្បាប់ AL", "Leave AL")
+    else -> tr(lang, "បុណ្យ H", "Holiday H")
+}
 
 /** A staff roster read from a photo, waiting for the user to pick their row. */
 internal data class RosterSetup(val target: ImportTarget, val roster: ScheduleImageParser.Roster)
@@ -979,13 +1031,21 @@ internal fun RosterSetupDialog(
     }
     val row = rows[selected]
     val codes = remember(row) { row.codes.values.distinct().sorted() }
-    // code → shift id ("" = day off). Saved answers first, then a best guess.
+    // The shifts on offer: the user's own, plus the 8-hour day shift a roster "8"
+    // needs when it is not set up yet (it is added once the import is confirmed).
+    val options = remember(shifts) {
+        if (shifts.any { it.id == AppStore.EIGHT_HOUR_DAY_SHIFT.id || (!it.isOvernight && it.durationHours == 8) }) shifts
+        else shifts + AppStore.EIGHT_HOUR_DAY_SHIFT
+    }
+    // code → shift id, "" for a plain day off, or "@AL"/"@H" for a marked day off.
+    // Saved answers first, then a best guess.
     var meanings by remember(row) {
-        val validIds = shifts.map { it.id }.toSet()
+        val validIds = options.map { it.id }.toSet()
         mutableStateOf(codes.associateWith { code ->
-            savedMeanings[code]?.takeIf { it.isEmpty() || it in validIds }
+            savedMeanings[code]?.takeIf { it.isEmpty() || it.startsWith(MARK_PREFIX) || it in validIds }
                 ?: when (val guess = ScheduleImageParser.guessMeaning(code, codes.toSet(), shifts)) {
                     is ScheduleImageParser.Reading.Shift -> guess.shiftId
+                    is ScheduleImageParser.Reading.Marked -> MARK_PREFIX + guess.mark
                     ScheduleImageParser.Reading.Off -> ""
                 }
         })
@@ -1060,9 +1120,14 @@ internal fun RosterSetupDialog(
                             ShiftChip(tr(lang, "ឈប់", "Off"), meanings[code].isNullOrEmpty(), colors.dim) {
                                 meanings = meanings + (code to "")
                             }
-                            shifts.forEach { s ->
+                            options.forEach { s ->
                                 ShiftChip(s.name, meanings[code] == s.id, if (s.isOvernight) LotusPink else TraditionalGold) {
                                     meanings = meanings + (code to s.id)
+                                }
+                            }
+                            listOf(AppStore.MARK_ANNUAL_LEAVE to SkyBlue, AppStore.MARK_HOLIDAY to LotusPink).forEach { (mark, tint) ->
+                                ShiftChip(markChipLabel(lang, mark), meanings[code] == MARK_PREFIX + mark, tint) {
+                                    meanings = meanings + (code to MARK_PREFIX + mark)
                                 }
                             }
                         }
@@ -1088,25 +1153,24 @@ internal fun buildImportPreview(
     readings: Map<Int, ScheduleImageParser.Reading>
 ): ImportPreview {
     val assignments = MutableList(AppStore.CYCLE_SLOTS) { target.currentAssignments.getOrNull(it) }
+    val marks = MutableList(AppStore.CYCLE_SLOTS) { target.currentMarks.getOrNull(it) }
     val detected = HashSet<Int>()
     val cal = Calendar.getInstance()
     for (offset in 0 until target.cycleLen) {
         cal.timeInMillis = target.cycleStartMs
         cal.add(Calendar.DAY_OF_YEAR, offset)
         val reading = readings[cal.get(Calendar.DAY_OF_MONTH)] ?: continue
-        assignments[offset] = when (reading) {
-            is ScheduleImageParser.Reading.Shift -> reading.shiftId
-            ScheduleImageParser.Reading.Off -> null
-        }
+        assignments[offset] = (reading as? ScheduleImageParser.Reading.Shift)?.shiftId
+        marks[offset] = (reading as? ScheduleImageParser.Reading.Marked)?.mark
         detected += offset
     }
-    return ImportPreview(target, assignments, detected)
+    return ImportPreview(target, assignments, detected, marks)
 }
 
 /**
  * Lets the user check, and correct, what was read from the photo before it
  * replaces the cycle's schedule. Days found in the picture are outlined; tapping
- * any day steps it through Off and each shift.
+ * any day steps it through Off, each shift, annual leave and holiday.
  */
 @Composable
 internal fun ImportReviewDialog(
@@ -1114,10 +1178,15 @@ internal fun ImportReviewDialog(
     shifts: List<AppStore.ShiftDef>,
     lang: AppLanguage,
     onDismiss: () -> Unit,
-    onApply: (List<String?>) -> Unit
+    onApply: (assignments: List<String?>, marks: List<String?>) -> Unit
 ) {
     val colors = LocalAppColors.current
-    var assignments by remember(preview) { mutableStateOf(preview.assignments) }
+    // One value per day: null = off, a shift id, or "@AL"/"@H" for a marked day off.
+    var assignments by remember(preview) {
+        mutableStateOf(preview.assignments.mapIndexed { i, shiftId ->
+            preview.marks.getOrNull(i)?.let { MARK_PREFIX + it } ?: shiftId
+        })
+    }
     val dayNumbers = remember(preview) {
         val cal = Calendar.getInstance()
         (0 until preview.target.cycleLen).map { offset ->
@@ -1152,8 +1221,12 @@ internal fun ImportReviewDialog(
                     dayNumbers.indices.chunked(7).forEach { week ->
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             week.forEach { offset ->
-                                val shift = shifts.firstOrNull { it.id == assignments.getOrNull(offset) }
+                                val value = assignments.getOrNull(offset)
+                                val mark = value?.takeIf { it.startsWith(MARK_PREFIX) }?.removePrefix(MARK_PREFIX)
+                                val shift = shifts.firstOrNull { it.id == value }
                                 val tint = when {
+                                    mark == AppStore.MARK_ANNUAL_LEAVE -> SkyBlue
+                                    mark != null -> LotusPink
                                     shift == null -> colors.dim
                                     shift.isOvernight -> LotusPink
                                     else -> TraditionalGold
@@ -1162,15 +1235,16 @@ internal fun ImportReviewDialog(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (shift == null) colors.surface else tint.copy(alpha = 0.18f))
+                                        .background(if (shift == null && mark == null) colors.surface else tint.copy(alpha = 0.18f))
                                         .border(
                                             1.dp,
                                             if (offset in preview.detected) TraditionalGold else colors.border,
                                             RoundedCornerShape(10.dp)
                                         )
                                         .clickable {
-                                            // Off → first shift → … → last shift → Off
-                                            val order = listOf<String?>(null) + shifts.map { it.id }
+                                            // Off → each shift → annual leave → holiday → Off
+                                            val order = listOf<String?>(null) + shifts.map { it.id } +
+                                                listOf(MARK_PREFIX + AppStore.MARK_ANNUAL_LEAVE, MARK_PREFIX + AppStore.MARK_HOLIDAY)
                                             val next = order[(order.indexOf(assignments.getOrNull(offset)) + 1) % order.size]
                                             assignments = assignments.toMutableList().also { it[offset] = next }
                                         }
@@ -1182,10 +1256,10 @@ internal fun ImportReviewDialog(
                                         fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colors.text
                                     )
                                     Text(
-                                        shift?.name ?: tr(lang, "ឈប់", "Off"),
+                                        mark ?: shift?.name ?: tr(lang, "ឈប់", "Off"),
                                         fontSize = 10.sp, lineHeight = 13.sp, maxLines = 1, softWrap = false,
                                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        color = if (shift == null) colors.dim else colors.text
+                                        color = if (shift == null && mark == null) colors.dim else colors.text
                                     )
                                 }
                             }
@@ -1198,7 +1272,12 @@ internal fun ImportReviewDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onApply(assignments) },
+                onClick = {
+                    onApply(
+                        assignments.map { v -> v?.takeIf { !it.startsWith(MARK_PREFIX) } },
+                        assignments.map { v -> v?.takeIf { it.startsWith(MARK_PREFIX) }?.removePrefix(MARK_PREFIX) }
+                    )
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = TraditionalGold)
             ) { Text(tr(lang, "ប្រើកាលវិភាគនេះ", "Use this schedule"), color = OnAccent, fontWeight = FontWeight.Bold) }
         },

@@ -55,6 +55,24 @@ class ScheduleImportTest {
         assertEquals(setOf(1, 5, 6, 30), preview.detected)
     }
 
+    @Test
+    fun leaveAndHoliday_becomeMarkedDaysOff_notShifts() {
+        val preview = buildImportPreview(
+            target(),
+            mapOf(
+                27 to Reading.Marked(AppStore.MARK_ANNUAL_LEAVE),
+                28 to Reading.Marked(AppStore.MARK_HOLIDAY),
+                29 to Reading.Shift("day")
+            )
+        )
+        assertNull(preview.assignments[1])
+        assertEquals(AppStore.MARK_ANNUAL_LEAVE, preview.marks[1])
+        assertNull(preview.assignments[2])
+        assertEquals(AppStore.MARK_HOLIDAY, preview.marks[2])
+        assertEquals("day", preview.assignments[3])
+        assertNull(preview.marks[3])
+    }
+
     @OptIn(ExperimentalRoborazziApi::class)
     @Test
     fun reviewDialog_letsADayBeCorrectedBeforeApplying() {
@@ -67,7 +85,7 @@ class ScheduleImportTest {
         composeTestRule.setContent {
             MyApplicationTheme {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
-                    ImportReviewDialog(preview, shifts, AppLanguage.EN, onDismiss = {}, onApply = { applied = it })
+                    ImportReviewDialog(preview, shifts, AppLanguage.EN, onDismiss = {}, onApply = { assignments, _ -> applied = assignments })
                 }
             }
         }
@@ -96,7 +114,7 @@ class RosterSetupDialogTest {
     private val roster = com.aistudio.khmercalendar.data.ScheduleImageParser.Roster(
         days,
         listOf(
-            row("1 EMP101 STAFF ONE Team Lead", "H", "8", "8", "8", "8", "8", "N"),
+            row("1 EMP101 STAFF ONE Team Lead", "H", "8", "8", "8", "AL", "8", "N"),
             row("4 EMP104 STAFF FOUR Lab-Operator", "12", "12D", "12D", "N", "N", "12", "12"),
             row("5 EMP105 STAFF FIVE Lab-Operator", "H", "12", "12", "12D", "12D", "N", "N")
         )
@@ -127,6 +145,46 @@ class RosterSetupDialogTest {
         composeTestRule.onNodeWithText("Continue").performClick()
 
         assertEquals("EMP104", picked!!.first)
-        assertEquals(mapOf("12" to "night", "12D" to "day", "N" to ""), picked!!.second)
+        assertEquals(mapOf("12" to "day", "12D" to "night", "N" to ""), picked!!.second)
+    }
+}
+
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(qualifiers = RobolectricDeviceQualifiers.Pixel8, sdk = [36])
+class RosterOfficeRowTest {
+
+    @get:Rule val composeTestRule = createComposeRule()
+
+    @Test
+    fun officeRow_mapsEightToTheEightHourShift_andLeaveAndHolidayToMarks() {
+        val days = (9..15).toList()
+        val row = com.aistudio.khmercalendar.data.ScheduleImageParser.RosterRow(
+            "1 EMP101 STAFF ONE Team Lead",
+            days.zip(listOf("H", "8", "8", "8", "AL", "8", "N")).toMap()
+        )
+        val start = Calendar.getInstance().apply { clear(); set(2026, Calendar.OCTOBER, 26) }
+        val target = ImportTarget("2026-10", start.timeInMillis, 31, AppStore.emptyDayAssignments())
+        var meanings: Map<String, String>? = null
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.EN) {
+                    com.aistudio.khmercalendar.ui.tabs.RosterSetupDialog(
+                        setup = com.aistudio.khmercalendar.ui.tabs.RosterSetup(
+                            target, com.aistudio.khmercalendar.data.ScheduleImageParser.Roster(days, listOf(row))
+                        ),
+                        shifts = AppStore.presetShifts(2),
+                        lang = AppLanguage.EN,
+                        savedRowKey = null,
+                        savedMeanings = emptyMap(),
+                        onDismiss = {},
+                        onContinue = { _, m -> meanings = m }
+                    )
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("Continue").performClick()
+        assertEquals(mapOf("8" to "day8", "AL" to "@AL", "H" to "@H", "N" to ""), meanings)
     }
 }
