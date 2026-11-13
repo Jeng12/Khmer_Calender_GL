@@ -1008,7 +1008,7 @@ private fun SelectedDayCard(
                             modifier = Modifier.weight(1f, fill = false)
                         )
                         AppStore.MARK_HOLIDAY -> InfoPill(
-                            tr(lang, "ឈប់ថ្ងៃបុណ្យ", "Holiday off"), LotusPink,
+                            tr(lang, "ឈប់ថ្ងៃបុណ្យ · បង់ ៨ម៉", "Holiday off · 8h paid"), LotusPink,
                             modifier = Modifier.weight(1f, fill = false)
                         )
                     }

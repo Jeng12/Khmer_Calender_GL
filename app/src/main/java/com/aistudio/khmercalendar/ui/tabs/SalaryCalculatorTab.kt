@@ -219,6 +219,10 @@ fun SalaryCalculatorTabContent() {
                     SalarySummaryRow(tr("ច្បាប់ប្រចាំឆ្នាំ AL (បង់ប្រាក់)", "Annual leave (paid)"), summary.paidLeaveHours.hourLabel())
                     SalarySummaryRow(tr("ប្រាក់ច្បាប់ AL", "Annual leave pay"), summary.paidLeavePay.moneyLabel())
                 }
+                if (summary.paidHolidayHours > 0.0) {
+                    SalarySummaryRow(tr("ឈប់ថ្ងៃបុណ្យ H (បង់ប្រាក់)", "Holiday off (paid)"), summary.paidHolidayHours.hourLabel())
+                    SalarySummaryRow(tr("ប្រាក់ឈប់ថ្ងៃបុណ្យ H", "Holiday off pay"), summary.paidHolidayPay.moneyLabel())
+                }
                 HorizontalDivider(color = deepBorder, modifier = Modifier.padding(vertical = 4.dp))
                 if (summary.hourlyRate > 0) SalarySummaryRow(tr("តម្លៃមួយម៉ោង", "Effective hourly rate"), summary.hourlyRate.moneyLabel())
                 if (summary.dailyRate > 0) SalarySummaryRow(tr("តម្លៃមួយថ្ងៃ", "Effective daily rate"), summary.dailyRate.moneyLabel())
@@ -257,6 +261,9 @@ internal data class SalarySummary(
     /** Hours paid for annual-leave days (not worked, so not counted in the hours above). */
     val paidLeaveHours: Double,
     val paidLeavePay: Double,
+    /** Hours paid for holiday days off (also not worked). */
+    val paidHolidayHours: Double,
+    val paidHolidayPay: Double,
     val basePay: Double,
     val overtimePremium: Double,
     val nightPremium: Double,
@@ -298,14 +305,14 @@ private fun buildSalarySummary(
             toCal = to
         ).filterNot { it.blocked }
     }
-    // Annual leave: a day off paid as 8 ordinary hours.
+    // Annual leave and holiday days off are each paid as 8 ordinary hours.
     val cycleKey = AppStore.cycleKey(from.get(Calendar.YEAR), from.get(Calendar.MONTH) + 1, from.get(Calendar.DAY_OF_MONTH))
     val cycleDays = (((to.timeInMillis - from.timeInMillis) / 86_400_000L) + 1).toInt()
-    val leaveDays = AppStore.getDayMarks(context)[cycleKey].orEmpty()
-        .take(cycleDays).count { it == AppStore.MARK_ANNUAL_LEAVE }
+    val cycleMarks = AppStore.getDayMarks(context)[cycleKey].orEmpty().take(cycleDays)
     return calculateSalarySummary(
         workDays, holidayDays, settings, from, to,
-        paidLeaveHours = leaveDays * AppStore.PAID_LEAVE_HOURS
+        paidLeaveHours = cycleMarks.count { it == AppStore.MARK_ANNUAL_LEAVE } * AppStore.PAID_LEAVE_HOURS,
+        paidHolidayHours = cycleMarks.count { it == AppStore.MARK_HOLIDAY } * AppStore.PAID_LEAVE_HOURS
     )
 }
 
@@ -315,7 +322,8 @@ internal fun calculateSalarySummary(
     settings: AppStore.SalaryCalculatorSettings,
     fromCal: Calendar? = null,
     toCal: Calendar? = null,
-    paidLeaveHours: Double = 0.0
+    paidLeaveHours: Double = 0.0,
+    paidHolidayHours: Double = 0.0
 ): SalarySummary {
     val dayHours = workDays.filter { !it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
     val nightHours = workDays.filter { it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
@@ -385,11 +393,13 @@ internal fun calculateSalarySummary(
     val bonusPay = settings.bonuses.trim().toDoubleOrNull() ?: defaultBonus
     val additions = settings.benefits.moneyValue() + settings.allowances.moneyValue()
 
-    // Paid leave is paid at the plain hourly rate, with no premiums and no overtime.
+    // Paid days off (annual leave, holiday) are paid at the plain hourly rate,
+    // with no premiums and no overtime.
     val paidLeavePay = paidLeaveHours * hourlyRate
+    val paidHolidayPay = paidHolidayHours * hourlyRate
 
-    // Gross Pay = Base Pay + Paid Leave + All Premiums + Bonuses + Additions
-    val gross = basePay + paidLeavePay + overtimePremium + nightPremium + holidayDayPremium + holidayNightPremium + bonusPay + additions
+    // Gross Pay = Base Pay + Paid Days Off + All Premiums + Bonuses + Additions
+    val gross = basePay + paidLeavePay + paidHolidayPay + overtimePremium + nightPremium + holidayDayPremium + holidayNightPremium + bonusPay + additions
     val tax = gross * (settings.taxVatPercent.moneyValue() / 100.0)
     val otherDeductions = settings.otherDeductions.moneyValue()
 
@@ -403,6 +413,8 @@ internal fun calculateSalarySummary(
         overtimeHours = overtimeHours,
         paidLeaveHours = paidLeaveHours,
         paidLeavePay = paidLeavePay,
+        paidHolidayHours = paidHolidayHours,
+        paidHolidayPay = paidHolidayPay,
         basePay = basePay,
         overtimePremium = overtimePremium,
         nightPremium = nightPremium,

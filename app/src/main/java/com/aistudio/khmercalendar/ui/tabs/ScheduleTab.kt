@@ -404,6 +404,10 @@ fun ScheduleTabContent() {
                         if (leaveDays > 0) {
                             CycleStat(num(lang, leaveDays), tr(lang, "ច្បាប់ AL (បង់ ៨ម៉)", "Leave (8h paid)"), SkyBlue)
                         }
+                        val holidayOffDays = viewedMarks.take(cycleDays).count { it == AppStore.MARK_HOLIDAY }
+                        if (holidayOffDays > 0) {
+                            CycleStat(num(lang, holidayOffDays), tr(lang, "បុណ្យ H (បង់ ៨ម៉)", "Holiday (8h paid)"), LotusPink)
+                        }
                         if (blockedCount > 0) {
                             CycleStat(num(lang, blockedCount), tr(lang, "⛔ គ្មានសម្រាក", "⛔ No rest"), CrimsonHoliday)
                         }

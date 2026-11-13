@@ -746,8 +746,8 @@ object AppStore {
     }
 
     // ── Day marks: non-working days that still mean something ────────────────
-    // A day with a mark has no shift. Annual leave is a day off paid at
-    // [PAID_LEAVE_HOURS]; a holiday mark is the roster's own "H". Kept on the
+    // A day with a mark has no shift. Annual leave ("AL") and a holiday off
+    // (the roster's "H") are both days off paid at [PAID_LEAVE_HOURS]. Kept on the
     // device beside the schedule, keyed like it (cycleKey → one entry per day).
     const val MARK_ANNUAL_LEAVE = "AL"
     const val MARK_HOLIDAY = "H"
