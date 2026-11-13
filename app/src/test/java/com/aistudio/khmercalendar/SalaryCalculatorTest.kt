@@ -10,6 +10,26 @@ import java.util.Calendar
 class SalaryCalculatorTest {
 
     @Test
+    fun annualLeave_isPaidEightPlainHours_withoutCountingAsWorkOrOvertime() {
+        val dayShift = AppStore.ShiftDef("day", "Day", 7, 30, 19, 30) // 12h
+        val workDays = listOf(workDay(2026, 7, 6, dayShift), workDay(2026, 7, 7, dayShift))
+        val settings = AppStore.SalaryCalculatorSettings(
+            hourlyRate = "10", dailyRate = "80", overtimeRate = "1.5", bonuses = "0", taxVatPercent = "0"
+        )
+        val without = calculateSalarySummary(workDays, holidayDays = emptySet(), settings)
+        // Two annual-leave days in the cycle.
+        val with = calculateSalarySummary(
+            workDays, holidayDays = emptySet(), settings,
+            paidLeaveHours = 2 * AppStore.PAID_LEAVE_HOURS
+        )
+        assertEquals(16.0, with.paidLeaveHours, 0.001)
+        assertEquals(160.0, with.paidLeavePay, 0.001)
+        assertEquals(without.totalHours, with.totalHours, 0.001)
+        assertEquals(without.overtimeHours, with.overtimeHours, 0.001)
+        assertEquals(without.grossSalary + 160.0, with.grossSalary, 0.001)
+    }
+
+    @Test
     fun verifyUserExample() {
         // Business Rules Example:
         // 3 day shifts × 12 hours

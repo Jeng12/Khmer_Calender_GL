@@ -32,10 +32,12 @@ object ScheduleImageParser {
         val width: Float get() = right - left
     }
 
-    /** What a day was read as: a shift id, or a day off. */
+    /** What a day was read as: a shift id, a plain day off, or a marked day off (leave, holiday). */
     sealed interface Reading {
         data class Shift(val shiftId: String) : Reading
         data object Off : Reading
+        /** [mark] is [AppStore.MARK_ANNUAL_LEAVE] or [AppStore.MARK_HOLIDAY]. */
+        data class Marked(val mark: String) : Reading
     }
 
     private val OFF_WORDS = setOf("OFF", "O", "X", "R", "RD", "REST", "DO", "LEAVE", "HOLIDAY", "FREE")
@@ -254,23 +256,39 @@ object ScheduleImageParser {
 
     /**
      * A first guess at what a roster code means, for the user to confirm.
-     * [allCodes] are the codes in the same row: when hours are written as
-     * numbers (`8`, `12`, `12D`), a lone `N` marks a day not worked rather than
-     * a night shift, and a bare long shift next to its `D` twin is the night one.
+     * Follows the convention of hour-based factory rosters:
+     *  - `8`, `12` — a day shift of that many hours;
+     *  - `12D` — the night shift of that many hours;
+     *  - `N` — not working (day off) when the row uses hour codes, otherwise night;
+     *  - `AL` — annual leave (a paid day off); `H` — public holiday.
+     * A bare `8` with no 8-hour day shift set up yet maps to
+     * [AppStore.EIGHT_HOUR_DAY_SHIFT], which is added when the import is confirmed.
      */
     fun guessMeaning(code: String, allCodes: Set<String>, shifts: List<AppStore.ShiftDef>): Reading {
+        if (code == "AL") return Reading.Marked(AppStore.MARK_ANNUAL_LEAVE)
+        if (code == "H" || code == "PH") return Reading.Marked(AppStore.MARK_HOLIDAY)
+        if (code == "0") return Reading.Off
         if (shifts.isEmpty()) return Reading.Off
-        val dayShift = shifts.firstOrNull { !it.isOvernight } ?: shifts.first()
-        val nightShift = shifts.firstOrNull { it.isOvernight } ?: shifts.last()
+        val dayShifts = shifts.filter { !it.isOvernight }
+        val nightShifts = shifts.filter { it.isOvernight }
         val usesHours = allCodes.any { it.firstOrNull()?.isDigit() == true }
         val hours = code.toIntOrNull()
+        val suffixedHours = HOURS_DAY.matchEntire(code)?.let { code.dropLast(1).toInt() }
+            ?: HOURS_NIGHT.matchEntire(code)?.let { code.dropLast(1).toInt() }
         return when {
-            code == "H" || code == "0" -> Reading.Off
-            HOURS_DAY.matches(code) -> Reading.Shift(dayShift.id)
-            HOURS_NIGHT.matches(code) -> Reading.Shift(nightShift.id)
-            hours != null ->
-                if (hours >= 10 && allCodes.any { HOURS_DAY.matches(it) }) Reading.Shift(nightShift.id)
-                else Reading.Shift(dayShift.id)
+            suffixedHours != null -> {
+                val night = nightShifts.firstOrNull { it.durationHours == suffixedHours }
+                    ?: nightShifts.firstOrNull() ?: shifts.last()
+                Reading.Shift(night.id)
+            }
+            hours != null -> {
+                val day = dayShifts.firstOrNull { it.durationHours == hours }
+                when {
+                    day != null -> Reading.Shift(day.id)
+                    hours == 8 -> Reading.Shift(AppStore.EIGHT_HOUR_DAY_SHIFT.id)
+                    else -> Reading.Shift((dayShifts.firstOrNull() ?: shifts.first()).id)
+                }
+            }
             code == "N" && usesHours -> Reading.Off
             else -> classify(code, shifts) ?: Reading.Off
         }

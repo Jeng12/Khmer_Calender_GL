@@ -234,6 +234,7 @@ fun CalendarTabContent(
     val localReminders = remember(agendaVersion, apiOverlays) { AppStore.getReminders(context) }
     val scheduleCycle = remember(agendaVersion, apiOverlays) { AppStore.getShiftCycle(context) }
     val scheduleSnaps = remember(agendaVersion, apiOverlays) { AppStore.getCycleSnapshots(context) }
+    val dayMarks = remember(agendaVersion, apiOverlays) { AppStore.getDayMarks(context) }
     val workByDay = remember(year, month, scheduleCycle, scheduleSnaps, apiWorkByDay) {
         apiWorkByDay + localWorkingDays(scheduleCycle, scheduleSnaps, year, month, daysList.size)
     }
@@ -568,6 +569,7 @@ fun CalendarTabContent(
                 lang = lang,
                 isToday = todayDayInMonth != 0 && safeSelectedDay == todayDayInMonth,
                 shift = workByDay[safeSelectedDay],
+                mark = AppStore.dayMark(dayMarks, year, month, safeSelectedDay),
                 dayAgenda = selectedDayAgenda,
                 onOpen = { detailDialogDate = selectedKhmerDate }
             )
@@ -927,6 +929,7 @@ private fun SelectedDayCard(
     lang: AppLanguage,
     isToday: Boolean,
     shift: AppStore.ShiftDef?,
+    mark: String?,
     dayAgenda: List<AgendaItem>,
     onOpen: () -> Unit
 ) {
@@ -986,7 +989,7 @@ private fun SelectedDayCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            if (shift != null || noteCount > 0 || reminderCount > 0) {
+            if (shift != null || mark != null || noteCount > 0 || reminderCount > 0) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 4.dp)
@@ -995,6 +998,17 @@ private fun SelectedDayCard(
                         InfoPill(
                             text = "${shift.name} ${shiftTimeLabel(shift)}",
                             tint = if (shift.isOvernight) LotusPink else LightGold,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                    // A marked day off from the work schedule.
+                    when (mark) {
+                        AppStore.MARK_ANNUAL_LEAVE -> InfoPill(
+                            tr(lang, "ច្បាប់ប្រចាំឆ្នាំ · បង់ ៨ម៉", "Annual leave · 8h paid"), SkyBlue,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        AppStore.MARK_HOLIDAY -> InfoPill(
+                            tr(lang, "ឈប់ថ្ងៃបុណ្យ", "Holiday off"), LotusPink,
                             modifier = Modifier.weight(1f, fill = false)
                         )
                     }

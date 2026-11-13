@@ -215,6 +215,10 @@ fun SalaryCalculatorTabContent() {
                 SalarySummaryRow(tr("ថ្ងៃធ្វើការ", "Working days"), summary.workingDays.toString())
                 SalarySummaryRow(tr("ម៉ោងធ្វើការសរុប", "Total work hours"), summary.totalHours.hourLabel(), highlight = true)
                 SalarySummaryRow(tr("ម៉ោងបន្ថែម (OT)", "Incl. Overtime"), summary.overtimeHours.hourLabel())
+                if (summary.paidLeaveHours > 0.0) {
+                    SalarySummaryRow(tr("ច្បាប់ប្រចាំឆ្នាំ AL (បង់ប្រាក់)", "Annual leave (paid)"), summary.paidLeaveHours.hourLabel())
+                    SalarySummaryRow(tr("ប្រាក់ច្បាប់ AL", "Annual leave pay"), summary.paidLeavePay.moneyLabel())
+                }
                 HorizontalDivider(color = deepBorder, modifier = Modifier.padding(vertical = 4.dp))
                 if (summary.hourlyRate > 0) SalarySummaryRow(tr("តម្លៃមួយម៉ោង", "Effective hourly rate"), summary.hourlyRate.moneyLabel())
                 if (summary.dailyRate > 0) SalarySummaryRow(tr("តម្លៃមួយថ្ងៃ", "Effective daily rate"), summary.dailyRate.moneyLabel())
@@ -250,6 +254,9 @@ internal data class SalarySummary(
     val holidayDayHours: Double,
     val holidayNightHours: Double,
     val overtimeHours: Double,
+    /** Hours paid for annual-leave days (not worked, so not counted in the hours above). */
+    val paidLeaveHours: Double,
+    val paidLeavePay: Double,
     val basePay: Double,
     val overtimePremium: Double,
     val nightPremium: Double,
@@ -291,7 +298,15 @@ private fun buildSalarySummary(
             toCal = to
         ).filterNot { it.blocked }
     }
-    return calculateSalarySummary(workDays, holidayDays, settings, from, to)
+    // Annual leave: a day off paid as 8 ordinary hours.
+    val cycleKey = AppStore.cycleKey(from.get(Calendar.YEAR), from.get(Calendar.MONTH) + 1, from.get(Calendar.DAY_OF_MONTH))
+    val cycleDays = (((to.timeInMillis - from.timeInMillis) / 86_400_000L) + 1).toInt()
+    val leaveDays = AppStore.getDayMarks(context)[cycleKey].orEmpty()
+        .take(cycleDays).count { it == AppStore.MARK_ANNUAL_LEAVE }
+    return calculateSalarySummary(
+        workDays, holidayDays, settings, from, to,
+        paidLeaveHours = leaveDays * AppStore.PAID_LEAVE_HOURS
+    )
 }
 
 internal fun calculateSalarySummary(
@@ -299,7 +314,8 @@ internal fun calculateSalarySummary(
     holidayDays: Set<Int>, // Set of YYYYMMDD integers
     settings: AppStore.SalaryCalculatorSettings,
     fromCal: Calendar? = null,
-    toCal: Calendar? = null
+    toCal: Calendar? = null,
+    paidLeaveHours: Double = 0.0
 ): SalarySummary {
     val dayHours = workDays.filter { !it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
     val nightHours = workDays.filter { it.shift.isOvernight && (it.year * 10000 + it.month * 100 + it.day) !in holidayDays }.sumOf { (it.endMs - it.startMs) / HOUR_MS }
@@ -369,8 +385,11 @@ internal fun calculateSalarySummary(
     val bonusPay = settings.bonuses.trim().toDoubleOrNull() ?: defaultBonus
     val additions = settings.benefits.moneyValue() + settings.allowances.moneyValue()
 
-    // Gross Pay = Base Pay + All Premiums + Bonuses + Additions
-    val gross = basePay + overtimePremium + nightPremium + holidayDayPremium + holidayNightPremium + bonusPay + additions
+    // Paid leave is paid at the plain hourly rate, with no premiums and no overtime.
+    val paidLeavePay = paidLeaveHours * hourlyRate
+
+    // Gross Pay = Base Pay + Paid Leave + All Premiums + Bonuses + Additions
+    val gross = basePay + paidLeavePay + overtimePremium + nightPremium + holidayDayPremium + holidayNightPremium + bonusPay + additions
     val tax = gross * (settings.taxVatPercent.moneyValue() / 100.0)
     val otherDeductions = settings.otherDeductions.moneyValue()
 
@@ -382,6 +401,8 @@ internal fun calculateSalarySummary(
         holidayDayHours = holidayDayHours,
         holidayNightHours = holidayNightHours,
         overtimeHours = overtimeHours,
+        paidLeaveHours = paidLeaveHours,
+        paidLeavePay = paidLeavePay,
         basePay = basePay,
         overtimePremium = overtimePremium,
         nightPremium = nightPremium,

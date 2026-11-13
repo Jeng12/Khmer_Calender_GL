@@ -504,6 +504,8 @@ object AppStore {
         val endMinutes: Int get() = endHour * 60 + endMin
         /** A shift whose end is at/earlier than its start runs into the next day. */
         val isOvernight: Boolean get() = endMinutes <= startMinutes
+        /** Length of the shift in whole hours (a shift ending when it starts is 24h). */
+        val durationHours: Int get() = (((endMinutes - startMinutes + 1440 - 1) % 1440) + 1) / 60
     }
 
     /**
@@ -740,8 +742,43 @@ object AppStore {
 
     /** Remove every monthly schedule (used when the user deletes the schedule). */
     fun clearAllSchedules(c: Context) {
-        schedulePrefs(c).edit().remove("snapshots").apply()
+        schedulePrefs(c).edit().remove("snapshots").remove("day_marks").apply()
     }
+
+    // ── Day marks: non-working days that still mean something ────────────────
+    // A day with a mark has no shift. Annual leave is a day off paid at
+    // [PAID_LEAVE_HOURS]; a holiday mark is the roster's own "H". Kept on the
+    // device beside the schedule, keyed like it (cycleKey → one entry per day).
+    const val MARK_ANNUAL_LEAVE = "AL"
+    const val MARK_HOLIDAY = "H"
+    const val PAID_LEAVE_HOURS = 8.0
+
+    /** The 8-hour day shift a roster's "8" stands for, added to the shift list when first needed. */
+    val EIGHT_HOUR_DAY_SHIFT = ShiftDef("day8", "Day 8h", 7, 30, 15, 30)
+
+    fun getDayMarks(c: Context): Map<String, List<String?>> = try {
+        val o = JSONObject(schedulePrefs(c).getString("day_marks", "{}") ?: "{}")
+        buildMap {
+            o.keys().forEach { k ->
+                val arr = o.optJSONArray(k) ?: return@forEach
+                put(k, (0 until arr.length()).map { arr.optString(it).ifBlank { null } })
+            }
+        }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun saveDayMarks(c: Context, marks: Map<String, List<String?>>) {
+        val o = JSONObject()
+        marks.forEach { (k, list) ->
+            if (list.any { it != null }) o.put(k, JSONArray().apply { list.forEach { put(it ?: "") } })
+        }
+        schedulePrefs(c).edit().putString("day_marks", o.toString()).apply()
+    }
+
+    /** The mark on a given date, or null. */
+    fun dayMark(marks: Map<String, List<String?>>, year: Int, month: Int, day: Int): String? =
+        marks[cycleKey(year, month, day)]?.getOrNull(WorkCycleEngine.dayOffset(year, month, day))
 
     /**
      * One-time migration from the old single repeating template to per-month
