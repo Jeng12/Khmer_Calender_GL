@@ -194,25 +194,42 @@ object SyncRepository {
         cycle: AppStore.ShiftCycle,
         schedules: Map<String, List<String?>>
     ) {
-        enqueue(
-            context,
-            PendingOp(
-                id = newId(),
-                key = "$TYPE_SCHEDULE:$ACTION_SETTINGS",
-                type = TYPE_SCHEDULE,
-                action = ACTION_SETTINGS,
-                localId = null,
-                remoteId = null,
-                date = null,
-                payload = JSONObject().put("cycle", cycleJson(cycle)),
-                createdAt = System.currentTimeMillis()
+        // Only send what changed since the last successful sync. Every save used
+        // to re-send the settings and every month ever scheduled; each cycle is a
+        // slow request, so one save could hold the sync queue for minutes and
+        // keep notes and reminders from syncing behind it.
+        val p = prefs(context)
+        val settingsJson = settingsFingerprint(cycle)
+        if (p.getString(SYNCED_SETTINGS_KEY, null) != settingsJson) {
+            enqueue(
+                context,
+                PendingOp(
+                    id = newId(),
+                    key = "$TYPE_SCHEDULE:$ACTION_SETTINGS",
+                    type = TYPE_SCHEDULE,
+                    action = ACTION_SETTINGS,
+                    localId = null,
+                    remoteId = null,
+                    date = null,
+                    payload = JSONObject().put("cycle", cycleJson(cycle)),
+                    createdAt = System.currentTimeMillis()
+                )
             )
-        )
+        }
         schedules.forEach { (key, assignments) ->
             val cycleStart = cycleStartDateFromKey(key) ?: return@forEach
+            val fingerprint = assignmentsJson(assignments).toString()
+            if (p.getString(syncedCycleKey(cycleStart), null) == fingerprint) return@forEach
             enqueueScheduleCycle(context, cycleStart, assignments)
         }
     }
+
+    private const val SYNCED_SETTINGS_KEY = "synced_schedule_settings"
+    private fun syncedCycleKey(cycleStart: LocalDate) = "synced_schedule_cycle_$cycleStart"
+
+    /** The part of the cycle that the settings request sends (not the day assignments). */
+    private fun settingsFingerprint(cycle: AppStore.ShiftCycle): String =
+        cycleJson(cycle.copy(dayAssignments = emptyList())).toString()
 
     fun enqueueClearWorkSchedules(context: Context, keysToClear: Set<String>) {
         keysToClear.forEach { key ->
@@ -313,12 +330,17 @@ object SyncRepository {
 
     private suspend fun syncPendingLocked(context: Context): Result<Int> {
         if (!AppStore.isCloudSyncEnabled(context)) return Result.success(0)
+        syncedSchedulePrefs = prefs(context)
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             ensureInitialLocalSyncQueued(context)
-            val ops = readOps(context).sortedBy { it.createdAt }
+            // Quick items (notes, reminders, holidays) go first; schedule cycles
+            // are slow requests and must not hold everything else up.
+            val ops = readOps(context).sortedWith(
+                compareBy<PendingOp>({ it.type == TYPE_SCHEDULE }, { it.createdAt })
+            )
             if (ops.isEmpty()) return@withContext Result.success(0)
 
-            val remaining = mutableListOf<PendingOp>()
+            val doneIds = HashSet<String>()
             var synced = 0
             var firstFailure: Throwable? = null
 
@@ -326,13 +348,16 @@ object SyncRepository {
                 val result = processOp(context, op)
                 if (result.isSuccess) {
                     synced++
+                    doneIds += op.id
                 } else {
-                    remaining += op
                     if (firstFailure == null) firstFailure = result.exceptionOrNull()
                 }
             }
 
-            saveOps(context, remaining)
+            // Drop only what was sent. A run can take a long time, and anything
+            // the user saved meanwhile is in the queue now and must stay there
+            // (writing back the list read at the start would lose it).
+            saveOps(context, readOps(context).filterNot { it.id in doneIds })
             if (firstFailure == null) {
                 prefs(context).edit().putLong(LAST_SUCCESS_MS_KEY, System.currentTimeMillis()).apply()
                 Result.success(synced)
@@ -561,13 +586,22 @@ object SyncRepository {
         val cycle = op.payload.optJSONObject("cycle")?.let(::parseCycle)
             ?: return Result.success(Unit)
         return CalendarApiRepository.updateWorkScheduleSettings(cycle)
+            .onSuccess { syncedSchedulePrefs?.edit()?.putString(SYNCED_SETTINGS_KEY, settingsFingerprint(cycle))?.apply() }
     }
 
     private suspend fun syncScheduleCycle(op: PendingOp): Result<Unit> {
         val date = op.date ?: return Result.success(Unit)
         val assignments = parseAssignments(op.payload.optJSONArray("assignments"))
         return CalendarApiRepository.updateWorkScheduleCycle(date, assignments)
+            .onSuccess {
+                syncedSchedulePrefs?.edit()
+                    ?.putString(syncedCycleKey(date), assignmentsJson(assignments).toString())?.apply()
+            }
     }
+
+    // Set for the duration of a sync run so the schedule ops can record what they sent.
+    @Volatile
+    private var syncedSchedulePrefs: android.content.SharedPreferences? = null
 
     private fun ensureInitialLocalSyncQueued(context: Context) {
         val p = prefs(context)

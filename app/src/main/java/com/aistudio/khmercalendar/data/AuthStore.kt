@@ -14,6 +14,9 @@ object AuthStore {
     private const val LAST_USER_KEY = "last_active_user_id"
     private const val AUTH_BASE_URL = "https://api-calender-sigma.vercel.app/api/v1"
     private const val TIMEOUT_MS = 20_000
+    // Sign-in and registration were measured at 3–8 s on the server; allow a
+    // slow answer rather than failing the login.
+    private const val READ_TIMEOUT_MS = 60_000
 
     data class Session(
         val userId: String,
@@ -106,7 +109,7 @@ object AuthStore {
             val conn = (URL("$AUTH_BASE_URL/auth/me").openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = TIMEOUT_MS
-                readTimeout = TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Authorization", "Bearer $accessToken")
                 setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
@@ -180,7 +183,7 @@ object AuthStore {
         val conn = (URL(AUTH_BASE_URL + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
             doOutput = true
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json; charset=UTF-8")

@@ -120,7 +120,11 @@ data class CalendarApiShiftTemplate(
  */
 object CalendarApiRepository {
     const val BASE_URL = "https://api-calender-sigma.vercel.app/api/v1"
-    private const val TIMEOUT_MS = 20_000
+    private const val CONNECT_TIMEOUT_MS = 20_000
+    // The server can take well over 20 s to answer a write (saving one schedule
+    // cycle was measured at 21 s). Giving up at 20 s made the app report a
+    // failure for a save the server had in fact completed, and retry it forever.
+    private const val READ_TIMEOUT_MS = 90_000
     private const val CACHE_MAX_AGE_MS = 10L * 60L * 1000L
 
     private val monthCache = TimedLruCache<String, CalendarApiMonth>(maxSize = 24)
@@ -458,8 +462,8 @@ object CalendarApiRepository {
         val conn = (URL(BASE_URL + pathAndQuery).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             instanceFollowRedirects = true
-            connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
             applyAuthHeaders()
@@ -488,8 +492,8 @@ object CalendarApiRepository {
         val conn = (URL(BASE_URL + pathAndQuery).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             instanceFollowRedirects = true
-            connectTimeout = TIMEOUT_MS
-            readTimeout = TIMEOUT_MS
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "KhmerCalendarAndroid/1.0")
             applyAuthHeaders()
